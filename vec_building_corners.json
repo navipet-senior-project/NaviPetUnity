@@ -1,0 +1,21 @@
+{
+  "building": "VEC",
+  "corners": {
+    "north_west": {
+      "latitude": "33.783105427693386",
+      "longitude": "-118.11059227997305"
+    },
+    "north_east": {
+      "latitude": "33.783102548430534",
+      "longitude": "-118.11021237294244"
+    },
+    "south_west": {
+      "latitude": "33.782547783535655",
+      "longitude": "-118.11058648539942"
+    },
+    "south_east": {
+      "latitude": "33.78254106484976",
+      "longitude": "-118.11021579630238"
+    }
+  }
+}
