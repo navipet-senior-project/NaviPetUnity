@@ -1,0 +1,6 @@
+{
+    "name": "IndoorAr.Runtime",
+    "rootNamespace": "IndoorAr",
+    "references": ["Unity.InputSystem"],
+    "autoReferenced": true
+}
