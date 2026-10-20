@@ -13,12 +13,17 @@ if [[ "$(basename "$OUT")" != "unity-ar" ]]; then
   echo "refusing: the output folder must be named unity-ar (it is wiped)" >&2
   exit 1
 fi
+OUT_PARENT="$(dirname "$OUT")"
+if [[ ! -f "$OUT_PARENT/gradlew" && ! -f "$OUT_PARENT/settings.gradle" && ! -f "$OUT_PARENT/settings.gradle.kts" ]]; then
+  echo "refusing: $OUT_PARENT is not an Android Gradle project (no gradlew or settings.gradle)" >&2
+  exit 1
+fi
 
 EDITOR_DIR="${UNITY_EDITOR_DIR:-/Applications/Unity/Hub/Editor/6000.3.26f1}"
 UNITY="$EDITOR_DIR/Unity.app/Contents/MacOS/Unity"
 ANDROID_PLAYER="$EDITOR_DIR/PlaybackEngines/AndroidPlayer"
 # Unity ships Gradle as bare jars (no bin/gradle launcher): run GradleMain directly.
-GRADLE_LAUNCHER="$(ls "$ANDROID_PLAYER"/Tools/gradle/lib/gradle-launcher-*.jar 2>/dev/null | head -1)"
+GRADLE_LAUNCHER="$(find "$ANDROID_PLAYER/Tools/gradle/lib" -maxdepth 1 -name 'gradle-launcher-*.jar' 2>/dev/null | head -1)"
 JDK="$ANDROID_PLAYER/OpenJDK"
 [[ -x "$JDK/bin/java" ]] || JDK="$JDK/Contents/Home"
 for tool in "$UNITY" "$GRADLE_LAUNCHER" "$JDK/bin/java"; do
