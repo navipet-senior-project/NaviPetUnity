@@ -13,20 +13,26 @@ public class IndoorArContractTests
     public void ParsesAValidRequest()
     {
         Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119, out var request));
+        Assert.AreEqual("119", request.room);
         Assert.AreEqual("VEC119", request.doorKey);
         Assert.AreEqual("1", request.floor);
         Assert.AreEqual(-5.7651f, request.position.x, 1e-4f);
         Assert.AreEqual(22.6689f, request.position.z, 1e-4f);
         Assert.AreEqual(185.36f, request.headingDeg, 1e-3f);
         Assert.AreEqual("MSET_XTBY7AM7ZK77", request.mapCode);
+        Assert.AreEqual("multiset-mapset", request.frame);
     }
 
     [TestCase(null)]
     [TestCase("")]
     [TestCase("not json")]
-    [TestCase("{\"schemaVersion\":2,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\"}")]
-    [TestCase("{\"schemaVersion\":1,\"floor\":\"1\",\"mapCode\":\"M\"}")]
-    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"floor\":\"1\"}")]
+    [TestCase("{\"schemaVersion\":2,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
+    [TestCase("{\"schemaVersion\":1,\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
+    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
+    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
+    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"frame\":\"multiset-mapset\"}")]
+    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\"}")]
+    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"unity-world\"}")]
     public void RejectsABadRequest(string json)
     {
         Assert.IsFalse(IndoorArContract.TryParseRequest(json, out var request));
@@ -39,6 +45,17 @@ public class IndoorArContractTests
         Assert.AreEqual(
             "{\"status\":\"arrived\",\"checkDistanceM\":0.42,\"localizationQueries\":0,\"durationMs\":1234}",
             IndoorArContract.Arrived(0.42f, 0, 1234));
+    }
+
+    [TestCase(float.NaN)]
+    [TestCase(float.PositiveInfinity)]
+    [TestCase(float.NegativeInfinity)]
+    [TestCase(-0.1f)]
+    public void ArrivedWithAnInvalidDistanceBecomesAnError(float distance)
+    {
+        Assert.AreEqual(
+            "{\"status\":\"error\",\"errorCode\":\"BAD_REQUEST\",\"localizationQueries\":2,\"durationMs\":7}",
+            IndoorArContract.Arrived(distance, 2, 7));
     }
 
     [Test]

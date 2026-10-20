@@ -35,6 +35,7 @@ namespace IndoorAr
         public const int SchemaVersion = 1;
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
+        public const string Frame = "multiset-mapset";
 
         /// <summary>
         /// JsonUtility fills a missing object field with defaults, so a missing
@@ -58,7 +59,8 @@ namespace IndoorAr
                 || parsed.schemaVersion != SchemaVersion
                 || string.IsNullOrEmpty(parsed.doorKey)
                 || string.IsNullOrEmpty(parsed.floor)
-                || string.IsNullOrEmpty(parsed.mapCode))
+                || string.IsNullOrEmpty(parsed.mapCode)
+                || parsed.frame != Frame)
             {
                 return false;
             }
@@ -66,8 +68,15 @@ namespace IndoorAr
             return true;
         }
 
+        /// <summary>
+        /// A NaN, infinite or negative distance is a bug on this side, and the app
+        /// rejects it as BAD_RESULT. It is reported as an error result instead of
+        /// clamped: contract v1 has no better code than BAD_REQUEST.
+        /// </summary>
         public static string Arrived(float checkDistanceM, int localizationQueries, long durationMs) =>
-            Build("arrived", checkDistanceM, null, localizationQueries, durationMs);
+            float.IsNaN(checkDistanceM) || float.IsInfinity(checkDistanceM) || checkDistanceM < 0f
+                ? Error(BadRequest, localizationQueries, durationMs)
+                : Build("arrived", checkDistanceM, null, localizationQueries, durationMs);
 
         public static string Cancelled(int localizationQueries, long durationMs) =>
             Build("cancelled", null, null, localizationQueries, durationMs);
