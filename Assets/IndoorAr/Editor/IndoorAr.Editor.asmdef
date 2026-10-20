@@ -1,0 +1,12 @@
+{
+    "name": "IndoorAr.Editor",
+    "rootNamespace": "IndoorAr.Editor",
+    "references": [
+        "IndoorAr.Runtime",
+        "Unity.XR.Management",
+        "Unity.XR.Management.Editor",
+        "Unity.XR.ARFoundation",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": ["Editor"]
+}

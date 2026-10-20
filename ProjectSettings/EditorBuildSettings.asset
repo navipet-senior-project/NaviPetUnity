@@ -6,9 +6,12 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/SampleScene.unity
-    guid: 99c9720ab356a0642a771bea13969a05
+    path: Assets/IndoorAr/Scenes/IndoorArSpike.unity
+    guid: 318e79994427e4105873a15d9a64399a
   m_configObjects:
+    UnityEditor.XR.ARCore.ARCoreSettings: {fileID: 11400000, guid: 80642e7d54e2c4591a41da108517a31c, type: 2}
     com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+    com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 3e9ed6571a56d42ba9104c87aecdb840, type: 2}
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 865a4a8e807304524a6875a7899e949b, type: 2}
   m_UseUCBPForAssetBundles: 0
