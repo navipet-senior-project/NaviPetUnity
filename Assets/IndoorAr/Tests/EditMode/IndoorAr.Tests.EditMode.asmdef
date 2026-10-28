@@ -3,7 +3,8 @@
     "references": [
         "IndoorAr.Runtime",
         "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
+        "UnityEditor.TestRunner",
+        "Unity.XR.ARFoundation"
     ],
     "includePlatforms": [
         "Editor"

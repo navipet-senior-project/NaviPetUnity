@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Linq;
 using System.Reflection;
+using MultiSet;
+using UnityEngine.UI;
 using UnityEditor;
 using UnityEditor.Rendering;
 using UnityEditor.SceneManagement;
@@ -16,7 +18,7 @@ namespace IndoorAr.Editor
 {
     /// <summary>
     /// Scripted version of the manual Task 7 steps (XR plug-in, player settings,
-    /// URP AR background feature, spike scene) so they can run in batch mode and
+    /// URP AR background feature, verifier scene) so they can run in batch mode and
     /// be repeated. Idempotent.
     /// </summary>
     public static class IndoorArSetup
@@ -90,13 +92,41 @@ namespace IndoorAr.Editor
             }
         }
 
+        static void AddMultiSet(MultiSetLocalizer localizer, Camera camera)
+        {
+            var space = new GameObject("Map Space");
+            var sdk = new GameObject("MultiSet SDK").AddComponent<IndoorArSdkManager>();
+            var manager = new GameObject("MultiSet Localization").AddComponent<MapLocalizationManager>();
+            manager.enabled = false;
+            // These private serialized fields are wired exactly as in the SDK sample scene.
+            var serialized = new SerializedObject(manager);
+            serialized.FindProperty("arCamera").objectReferenceValue = camera;
+            serialized.FindProperty("mapSpace").objectReferenceValue = space;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            localizer.Configure(sdk, manager, space.transform);
+
+            // SDK network-error paths require ToastManager even with showAlert disabled.
+            // No Canvas and disabled Text keep its UI hidden behind our HUD.
+            var toastObject = new GameObject("SDK Toast (hidden)", typeof(RectTransform), typeof(CanvasGroup), typeof(Text));
+            toastObject.transform.SetParent(sdk.transform, false);
+            var toast = toastObject.AddComponent<ToastManager>();
+            toast.toastText = toastObject.GetComponent<Text>();
+            toast.toastText.enabled = false;
+            toast.canvasGroup = toastObject.GetComponent<CanvasGroup>();
+        }
+
         static void BuildScene()
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             EditorApplication.ExecuteMenuItem("GameObject/XR/AR Session");
             EditorApplication.ExecuteMenuItem("GameObject/XR/XR Origin (Mobile AR)");
-            var spike = new GameObject("IndoorArSpike");
-            spike.AddComponent<IndoorArSpike>();
+            var camera = Camera.main ?? scene.GetRootGameObjects()
+                .SelectMany(g => g.GetComponentsInChildren<Camera>()).First();
+            var runner = new GameObject("IndoorArRunner");
+            var localizer = runner.AddComponent<MultiSetLocalizer>();
+            AddMultiSet(localizer, camera);
+            runner.AddComponent<IndoorArRunner>().Configure(localizer,
+                AssetDatabase.LoadAssetAtPath<GameObject>("Assets/IndoorNavigation/Prefabs/DoorMarker.prefab"), camera);
             Debug.Log("[IndoorAr] scene roots: " + string.Join(", ", scene.GetRootGameObjects().Select(g => g.name)));
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };

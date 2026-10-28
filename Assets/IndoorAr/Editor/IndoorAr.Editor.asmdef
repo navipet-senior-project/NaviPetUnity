@@ -6,7 +6,10 @@
         "Unity.XR.Management",
         "Unity.XR.Management.Editor",
         "Unity.XR.ARFoundation",
-        "Unity.RenderPipelines.Universal.Runtime"
+        "Unity.RenderPipelines.Universal.Runtime",
+        "UnityEngine.UI"
     ],
-    "includePlatforms": ["Editor"]
+    "includePlatforms": [
+        "Editor"
+    ]
 }
