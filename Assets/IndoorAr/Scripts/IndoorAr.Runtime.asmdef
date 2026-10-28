@@ -1,6 +1,10 @@
 {
     "name": "IndoorAr.Runtime",
     "rootNamespace": "IndoorAr",
-    "references": ["Unity.InputSystem"],
+    "references": [
+        "Unity.InputSystem",
+        "Unity.XR.ARFoundation",
+        "MultiSet-SDK.Core"
+    ],
     "autoReferenced": true
 }
