@@ -50,6 +50,6 @@
     "com.unity.visualscripting": "1.9.12",
     "com.unity.xr.arcore": "6.3.5",
     "com.unity.xr.arfoundation": "6.3.5",
-    "com.multiset.sdk": "https://github.com/MultiSet-AI/multiset-unity-sdk.git#1.9.0"
+    "com.multiset.sdk": "https://github.com/MultiSet-AI/multiset-unity-sdk.git#7791b41975823afe2d039a2c51a9ee2e5d8a51f6"
   }
 }
