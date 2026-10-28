@@ -36,6 +36,10 @@ namespace IndoorAr
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
         public const string Frame = "multiset-mapset";
+        public const string MapMismatch = "MAP_MISMATCH";
+        public const string ArcoreUnsupported = "ARCORE_UNSUPPORTED";
+        public const string MultisetAuth = "MULTISET_AUTH";
+        public const string Network = "NETWORK";
 
         /// <summary>
         /// JsonUtility fills a missing object field with defaults, so a missing
@@ -59,14 +63,20 @@ namespace IndoorAr
                 || parsed.schemaVersion != SchemaVersion
                 || string.IsNullOrEmpty(parsed.doorKey)
                 || string.IsNullOrEmpty(parsed.floor)
-                || string.IsNullOrEmpty(parsed.mapCode)
-                || parsed.frame != Frame)
+                || string.IsNullOrEmpty(parsed.mapCode))
             {
                 return false;
             }
             request = parsed;
             return true;
         }
+
+        /// <summary>
+        /// A pose in another frame or map would put the pin in the wrong place, so
+        /// the session refuses it as MAP_MISMATCH instead of guessing.
+        /// </summary>
+        public static bool CheckMap(IndoorArRequest request, string buildMapCode) =>
+            request.frame == Frame && request.mapCode == buildMapCode;
 
         /// <summary>
         /// A NaN, infinite or negative distance is a bug on this side, and the app
@@ -80,6 +90,9 @@ namespace IndoorAr
 
         public static string Cancelled(int localizationQueries, long durationMs) =>
             Build("cancelled", null, null, localizationQueries, durationMs);
+
+        public static string LocalizationFailed(int localizationQueries, long durationMs) =>
+            Build("localizationFailed", null, null, localizationQueries, durationMs);
 
         public static string Error(string errorCode, int localizationQueries, long durationMs) =>
             Build("error", null, errorCode, localizationQueries, durationMs);
