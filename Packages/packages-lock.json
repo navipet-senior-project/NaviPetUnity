@@ -1,16 +1,20 @@
 {
   "dependencies": {
     "com.multiset.sdk": {
-      "version": "https://github.com/MultiSet-AI/multiset-unity-sdk.git#7791b41975823afe2d039a2c51a9ee2e5d8a51f6",
+      "version": "https://github.com/MultiSet-AI/multiset-unity-sdk.git#64e760fd6e56eabdcf502bb5ab81b41b8afa6214",
       "depth": 0,
       "source": "git",
       "dependencies": {
-        "com.unity.cloud.draco": "5.4.0",
-        "com.unity.cloud.gltfast": "6.14.1",
-        "com.unity.xr.arfoundation": "6.0.3",
-        "com.unity.ai.navigation": "2.0.5"
+        "com.unity.cloud.draco": "5.4.2",
+        "com.unity.cloud.gltfast": "6.15.1",
+        "com.unity.xr.arcore": "6.3.3",
+        "com.unity.xr.arfoundation": "6.3.3",
+        "com.unity.xr.arkit": "6.3.3",
+        "com.unity.ai.navigation": "2.0.11",
+        "com.unity.netcode.gameobjects": "2.9.2",
+        "com.unity.multiplayer.center": "1.0.1"
       },
-      "hash": "7791b41975823afe2d039a2c51a9ee2e5d8a51f6"
+      "hash": "64e760fd6e56eabdcf502bb5ab81b41b8afa6214"
     },
     "com.unity.2d.sprite": {
       "version": "1.0.0",
@@ -168,6 +172,16 @@
         "com.unity.modules.uielements": "1.0.0"
       }
     },
+    "com.unity.netcode.gameobjects": {
+      "version": "2.13.3",
+      "depth": 1,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.transport": "2.6.0",
+        "com.unity.nuget.mono-cecil": "1.11.4"
+      },
+      "url": "https://packages.unity.com"
+    },
     "com.unity.nuget.mono-cecil": {
       "version": "1.11.6",
       "depth": 1,
@@ -262,6 +276,17 @@
       },
       "url": "https://packages.unity.com"
     },
+    "com.unity.transport": {
+      "version": "2.7.4",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.burst": "1.8.24",
+        "com.unity.collections": "2.2.1",
+        "com.unity.mathematics": "1.3.2"
+      },
+      "url": "https://packages.unity.com"
+    },
     "com.unity.ugui": {
       "version": "2.0.0",
       "depth": 0,
@@ -309,6 +334,18 @@
         "com.unity.modules.particlesystem": "1.0.0",
         "com.unity.modules.unityanalytics": "1.0.0",
         "com.unity.modules.unitywebrequest": "1.0.0"
+      },
+      "url": "https://packages.unity.com"
+    },
+    "com.unity.xr.arkit": {
+      "version": "6.3.5",
+      "depth": 1,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.xr.core-utils": "2.2.2",
+        "com.unity.xr.management": "4.4.0",
+        "com.unity.xr.arfoundation": "6.3.5",
+        "com.unity.editorcoroutines": "1.0.0"
       },
       "url": "https://packages.unity.com"
     },
