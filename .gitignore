@@ -112,3 +112,7 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# MultiSet credentials (Client ID / Secret). Never commit: all repos are public.
+/[Aa]ssets/Samples/MultiSet-SDK/**/Resources/MultiSetConfig.asset
+/[Aa]ssets/Samples/MultiSet-SDK/**/Resources/MultiSetConfig.asset.meta
