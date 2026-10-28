@@ -49,6 +49,7 @@
     "com.unity.ugui": "2.0.0",
     "com.unity.visualscripting": "1.9.12",
     "com.unity.xr.arcore": "6.3.5",
-    "com.unity.xr.arfoundation": "6.3.5"
+    "com.unity.xr.arfoundation": "6.3.5",
+    "com.multiset.sdk": "https://github.com/MultiSet-AI/multiset-unity-sdk.git#1.9.0"
   }
 }
