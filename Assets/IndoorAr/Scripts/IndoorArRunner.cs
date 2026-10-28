@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 #if ENABLE_INPUT_SYSTEM
@@ -101,7 +102,12 @@ namespace IndoorAr
                     GUI.Label(new Rect(x, Screen.height * 0.22f, width, height),
                         $"{door.doorKey} is on floor {door.floor}", _label);
                 if (GUI.Button(new Rect(x, Screen.height * 0.74f, width, height), "I'm here", _button))
+                {
+                    Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                        "[IndoorAr] arrived door={0} camera=({1:F3}, {2:F3}, {3:F3})",
+                        door.doorKey, camera.x, camera.y, camera.z));
                     _session.ImHere(camera);
+                }
             }
             if (GUI.Button(new Rect(x, Screen.height * 0.86f, width, height), "Exit", _button))
                 _session.Cancel();
