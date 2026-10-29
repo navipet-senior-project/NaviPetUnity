@@ -116,3 +116,8 @@ InitTestScene*.unity*
 # MultiSet credentials (Client ID / Secret). Never commit: all repos are public.
 /[Aa]ssets/Samples/MultiSet-SDK/**/Resources/MultiSetConfig.asset
 /[Aa]ssets/Samples/MultiSet-SDK/**/Resources/MultiSetConfig.asset.meta
+
+# Imported SDK samples and generated Netcode defaults stay local.
+/[Aa]ssets/Samples/
+/[Aa]ssets/Samples.meta
+/[Aa]ssets/DefaultNetworkPrefabs.asset*
