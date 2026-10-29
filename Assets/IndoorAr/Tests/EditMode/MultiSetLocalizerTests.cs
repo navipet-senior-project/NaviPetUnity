@@ -69,10 +69,34 @@ public class MultiSetLocalizerTests
         Assert.AreEqual(1, localized);
     }
 
-    void ReportSuccess()
+    [Test]
+    public void MissingPoseDoesNotPinAndTheSessionRetries()
+    {
+        if (typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse") == null)
+            Assert.Ignore("Legacy SDK has no response event");
+        var session = new IndoorArSession(new IndoorArRequest
+        {
+            frame = IndoorArContract.Frame, mapCode = _adapter.MapCode,
+            position = new IndoorArVector3(),
+        }, _adapter.MapCode);
+        var attempts = 0;
+        session.LocalizeRequested += () => { attempts++; session.OnAttemptStarted(); };
+        _adapter.Localized += session.OnLocalized;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        ReportSuccess(false);
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual(1, session.Queries);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(2, attempts);
+        Assert.AreEqual(2, session.Queries);
+        Assert.IsNull(session.ResultJson);
+    }
+
+    void ReportSuccess(bool poseFound = true)
     {
         var callback = typeof(SingleFrameLocalizationManager).GetMethod("LocalizationSuccessCallback");
         callback.Invoke(_manager, callback.GetParameters().Length == 0 ? null
-            : new object[] { new LocalizationSuccessResponse { poseFound = true, confidence = 0.73f } });
+            : new object[] { new LocalizationSuccessResponse { poseFound = poseFound, confidence = 0.73f } });
     }
 }

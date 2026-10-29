@@ -102,7 +102,10 @@ namespace IndoorAr
             manager.LocalizeFrame();
         }
 
-        void OnLocalized(LocalizationSuccessResponse result) => Localized?.Invoke(result.confidence);
+        void OnLocalized(LocalizationSuccessResponse result)
+        {
+            if (result != null && result.poseFound) Localized?.Invoke(result.confidence);
+        }
         void OnLocalizedWithoutConfidence() => Localized?.Invoke(null);
 
         void OnDestroy()
