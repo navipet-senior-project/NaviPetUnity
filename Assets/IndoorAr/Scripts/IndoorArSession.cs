@@ -18,6 +18,7 @@ namespace IndoorAr
         float _elapsedS;
         float _localizingS;
         bool _retried;
+        float? _confidence;
 
         public IndoorArSession(IndoorArRequest request, string buildMapCode)
         {
@@ -56,15 +57,17 @@ namespace IndoorAr
             Finish(IndoorArContract.Error(code, Queries, ElapsedMs));
         }
 
-        public void OnQuerySent()
+        public void OnAttemptStarted()
         {
+            // localizationQueries counts attempts: an upper bound when capture/blur/offline checks block a VPS call.
             if (State == IndoorArState.Localizing) Queries++;
         }
 
-        public void OnLocalized()
+        public void OnLocalized(float? confidence = null)
         {
             if (State != IndoorArState.Localizing) return;
             State = IndoorArState.Pinned;
+            _confidence = confidence;
             WasPinned = true;
         }
 
@@ -95,7 +98,7 @@ namespace IndoorAr
         public void ImHere(Vector3 cameraInMap)
         {
             if (State != IndoorArState.Pinned) return;
-            Finish(IndoorArContract.Arrived(HorizontalDistance(cameraInMap), Queries, ElapsedMs));
+            Finish(IndoorArContract.Arrived(HorizontalDistance(cameraInMap), Queries, ElapsedMs, _confidence));
         }
 
         public void Cancel()

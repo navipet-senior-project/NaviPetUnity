@@ -83,10 +83,11 @@ namespace IndoorAr
         /// rejects it as BAD_RESULT. It is reported as an error result instead of
         /// clamped: contract v1 has no better code than BAD_REQUEST.
         /// </summary>
-        public static string Arrived(float checkDistanceM, int localizationQueries, long durationMs) =>
+        public static string Arrived(float checkDistanceM, int localizationQueries, long durationMs, float? confidence = null) =>
             float.IsNaN(checkDistanceM) || float.IsInfinity(checkDistanceM) || checkDistanceM < 0f
+                || (confidence.HasValue && (float.IsNaN(confidence.Value) || float.IsInfinity(confidence.Value)))
                 ? Error(BadRequest, localizationQueries, durationMs)
-                : Build("arrived", checkDistanceM, null, localizationQueries, durationMs);
+                : Build("arrived", checkDistanceM, null, localizationQueries, durationMs, confidence);
 
         public static string Cancelled(int localizationQueries, long durationMs) =>
             Build("cancelled", null, null, localizationQueries, durationMs);
@@ -100,12 +101,15 @@ namespace IndoorAr
         // Written by hand: JsonUtility cannot omit fields. Status and error codes
         // are constants from this file, so they need no escaping.
         static string Build(string status, float? checkDistanceM, string errorCode,
-            int localizationQueries, long durationMs)
+            int localizationQueries, long durationMs, float? confidence = null)
         {
             var json = new StringBuilder("{\"status\":\"").Append(status).Append('"');
             if (checkDistanceM.HasValue)
                 json.Append(",\"checkDistanceM\":")
                     .Append(checkDistanceM.Value.ToString("0.###", CultureInfo.InvariantCulture));
+            if (confidence.HasValue)
+                json.Append(",\"confidence\":")
+                    .Append(confidence.Value.ToString("R", CultureInfo.InvariantCulture));
             if (errorCode != null)
                 json.Append(",\"errorCode\":\"").Append(errorCode).Append('"');
             json.Append(",\"localizationQueries\":")

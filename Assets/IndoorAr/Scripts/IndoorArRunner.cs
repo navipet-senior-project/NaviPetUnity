@@ -46,7 +46,7 @@ namespace IndoorAr
             _session.LocalizeRequested += _localizer.Localize;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
-            _localizer.QuerySent += _session.OnQuerySent;
+            _localizer.AttemptStarted += _session.OnAttemptStarted;
             _localizer.Localized += _session.OnLocalized;
 
             yield return ARSession.CheckAvailability();
@@ -131,7 +131,7 @@ namespace IndoorAr
             _session.LocalizeRequested -= _localizer.Localize;
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
-            _localizer.QuerySent -= _session.OnQuerySent;
+            _localizer.AttemptStarted -= _session.OnAttemptStarted;
             _localizer.Localized -= _session.OnLocalized;
         }
 

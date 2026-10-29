@@ -15,14 +15,14 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
 {
     public event Action Authenticated;
     public event Action<bool> AuthFailed;
-    public event Action QuerySent;
-    public event Action Localized;
+    public event Action AttemptStarted;
+    public event Action<float?> Localized;
     public Transform MapSpace => transform;
     public string MapCode => "MSET_XTBY7AM7ZK77";
     public int AuthenticationCalls { get; private set; }
     public void Authenticate() { AuthenticationCalls++; Authenticated?.Invoke(); }
     public bool Succeed = true;
-    public void Localize() { QuerySent?.Invoke(); if (Succeed) Localized?.Invoke(); }
+    public void Localize() { AttemptStarted?.Invoke(); if (Succeed) Localized?.Invoke(0.73f); }
 }
 
 public class IndoorArRunnerTests
@@ -109,6 +109,19 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void BlockedCaptureStillCountsOneAttempt()
+    {
+        var runner = Runner();
+        _host.GetComponent<RunnerFakeLocalizer>().Succeed = false;
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual(1, session.Queries);
+    }
+
+    [Test]
     public void PinUsesMapLocalPoseAndHidesOnTrackingLoss()
     {
         var runner = Runner();
@@ -137,7 +150,7 @@ public class IndoorArRunnerTests
             var objects = scene.GetRootGameObjects().SelectMany(g => g.GetComponentsInChildren<Transform>(true)).ToArray();
             var runner = objects.Select(t=>t.GetComponent<IndoorArRunner>()).FirstOrDefault(c=>c!=null);
             var localizer = objects.Select(t=>t.GetComponent<MultiSetLocalizer>()).FirstOrDefault(c=>c!=null);
-            var manager = objects.Select(t=>t.GetComponent<MapLocalizationManager>()).FirstOrDefault(c=>c!=null);
+            var manager = objects.Select(t=>t.GetComponent<SingleFrameLocalizationManager>()).FirstOrDefault(c=>c!=null);
             Assert.IsNotNull(runner);
             Assert.IsNotNull(localizer);
             Assert.IsNotNull(manager);

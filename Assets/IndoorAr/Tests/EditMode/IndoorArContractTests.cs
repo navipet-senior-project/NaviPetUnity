@@ -91,6 +91,23 @@ public class IndoorArContractTests
     }
 
     [Test]
+    public void BuildsArrivedWithConfidence()
+    {
+        Assert.AreEqual(
+            "{\"status\":\"arrived\",\"checkDistanceM\":0.42,\"confidence\":0.73,\"localizationQueries\":1,\"durationMs\":1234}",
+            IndoorArContract.Arrived(0.42f, 1, 1234, 0.73f));
+    }
+
+    [TestCase(float.NaN)]
+    [TestCase(float.PositiveInfinity)]
+    [TestCase(float.NegativeInfinity)]
+    public void InvalidConfidenceBecomesAnError(float confidence)
+    {
+        StringAssert.Contains("\"errorCode\":\"BAD_REQUEST\"",
+            IndoorArContract.Arrived(1f, 1, 3, confidence));
+    }
+
+    [Test]
     public void BuildsCancelledAndError()
     {
         Assert.AreEqual(
@@ -109,6 +126,7 @@ public class IndoorArContractTests
         {
             CultureInfo.CurrentCulture = new CultureInfo("de-DE");
             StringAssert.Contains("\"checkDistanceM\":1.5,", IndoorArContract.Arrived(1.5f, 0, 1));
+            StringAssert.Contains("\"confidence\":0.1234567,", IndoorArContract.Arrived(1.5f, 0, 1, 0.1234567f));
         }
         finally
         {

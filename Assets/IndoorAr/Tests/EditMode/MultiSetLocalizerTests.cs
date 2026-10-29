@@ -7,7 +7,7 @@ public class MultiSetLocalizerTests
 {
     GameObject _host;
     GameObject _sdkHost;
-    MapLocalizationManager _manager;
+    SingleFrameLocalizationManager _manager;
     MultiSetLocalizer _adapter;
 
     [SetUp]
@@ -16,7 +16,7 @@ public class MultiSetLocalizerTests
         _sdkHost = new GameObject("SDK");
         _sdkHost.SetActive(false);
         var sdk = _sdkHost.AddComponent<IndoorArSdkManager>();
-        _manager = _sdkHost.AddComponent<MapLocalizationManager>();
+        _manager = _sdkHost.AddComponent<SingleFrameLocalizationManager>();
         _host = new GameObject("Adapter");
         _host.SetActive(false);
         _adapter = _host.AddComponent<MultiSetLocalizer>();
@@ -28,12 +28,13 @@ public class MultiSetLocalizerTests
     [TearDown]
     public void TearDown()
     {
+        if (_adapter != null) typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Object.DestroyImmediate(_host);
         Object.DestroyImmediate(_sdkHost);
     }
 
     [Test]
-    public void SessionOwnsAllLocalizationTriggers()
+    public void SessionOwnsSingleFrameAttemptsAndRetries()
     {
         Assert.AreEqual(LocalizationType.Mapset, _manager.localizationType);
         Assert.AreEqual("MSET_XTBY7AM7ZK77", _manager.mapOrMapsetCode);
@@ -41,26 +42,37 @@ public class MultiSetLocalizerTests
         Assert.IsFalse(_manager.backgroundLocalization);
         Assert.IsFalse(_manager.relocalization);
         Assert.IsFalse(_manager.firstLocalizationUntilSuccess);
+        Assert.IsFalse(_manager.confidenceCheck);
         Assert.IsFalse(_manager.showAlert);
-        Assert.IsFalse(_manager.enabled, "no auth listener or capture until authenticated");
+        Assert.IsFalse(_manager.enabled);
         Assert.AreSame(_sdkHost.transform, _adapter.MapSpace);
+        var mode = typeof(SingleFrameLocalizationManager).GetField("queryMode");
+        if (mode != null) Assert.AreEqual("Vps1", mode.GetValue(_manager).ToString());
+        else Assert.AreEqual(1, typeof(SingleFrameLocalizationManager).GetField("_requestAttempts").GetValue(_manager));
     }
 
     [Test]
-    public void SdkEventsCountOneRequestAndReportSuccess()
+    public void SdkResponseCarriesConfidenceAndUnsubscribes()
     {
-        var queries = 0;
         var localized = 0;
-        _adapter.QuerySent += () => queries++;
-        _adapter.Localized += () => localized++;
-        _manager.LocalizationRequested.Invoke();
-        _manager.LocalizationSuccess.Invoke();
-        Assert.AreEqual(1, queries);
+        float? confidence = null;
+        _adapter.Localized += value => { localized++; confidence = value; };
+        ReportSuccess();
         Assert.AreEqual(1, localized);
+        if (typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse") != null)
+            Assert.AreEqual(0.73f, confidence);
+        else Assert.IsNull(confidence, "legacy SDK has no public response callback");
+        // EditMode does not invoke runtime lifecycle callbacks for this test object.
+        typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Object.DestroyImmediate(_host);
-        _manager.LocalizationRequested.Invoke();
-        _manager.LocalizationSuccess.Invoke();
-        Assert.AreEqual(1, queries, "destroyed adapter must unsubscribe");
+        ReportSuccess();
         Assert.AreEqual(1, localized);
+    }
+
+    void ReportSuccess()
+    {
+        var callback = typeof(SingleFrameLocalizationManager).GetMethod("LocalizationSuccessCallback");
+        callback.Invoke(_manager, callback.GetParameters().Length == 0 ? null
+            : new object[] { new LocalizationSuccessResponse { poseFound = true, confidence = 0.73f } });
     }
 }

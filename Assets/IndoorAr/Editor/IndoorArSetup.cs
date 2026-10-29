@@ -96,7 +96,7 @@ namespace IndoorAr.Editor
         {
             var space = new GameObject("Map Space");
             var sdk = new GameObject("MultiSet SDK").AddComponent<IndoorArSdkManager>();
-            var manager = new GameObject("MultiSet Localization").AddComponent<MapLocalizationManager>();
+            var manager = new GameObject("MultiSet Localization").AddComponent<SingleFrameLocalizationManager>();
             manager.enabled = false;
             // These private serialized fields are wired exactly as in the SDK sample scene.
             var serialized = new SerializedObject(manager);

@@ -56,13 +56,13 @@ public class IndoorArSessionTests
     }
 
     [Test]
-    public void AuthStartsLocalizingAndCountsQueries()
+    public void AuthStartsLocalizingAndCountsAttempts()
     {
         var session = Localizing(out var requests);
         Assert.AreEqual(IndoorArState.Localizing, session.State);
         Assert.AreEqual(1, requests);
-        session.OnQuerySent();
-        session.OnQuerySent();
+        session.OnAttemptStarted();
+        session.OnAttemptStarted();
         Assert.AreEqual(2, session.Queries);
     }
 
@@ -74,7 +74,7 @@ public class IndoorArSessionTests
         session.LocalizeRequested += () => requests++;
         session.OnArSupport(true);
         session.OnAuthenticated();
-        session.OnQuerySent();
+        session.OnAttemptStarted();
 
         session.Tick(IndoorArSession.LocalizeTimeoutS);
         Assert.AreEqual(IndoorArState.Localizing, session.State);
@@ -120,6 +120,27 @@ public class IndoorArSessionTests
         Assert.AreEqual(
             "{\"status\":\"arrived\",\"checkDistanceM\":5,\"localizationQueries\":0,\"durationMs\":1500}",
             session.ResultJson);
+    }
+
+    [Test]
+    public void ArrivalUsesLatestLocalizationConfidence()
+    {
+        var session = Localizing(out _);
+        session.OnLocalized(0.2f);
+        session.OnTrackingLost();
+        session.OnLocalized(0.73f);
+        session.ImHere(new Vector3(-5.7651f, 0f, 22.6689f));
+        StringAssert.Contains("\"confidence\":0.73,", session.ResultJson);
+    }
+
+    [Test]
+    public void AttemptCanCountWithoutALocalizationResponse()
+    {
+        var session = Localizing(out _);
+        session.OnAttemptStarted(); // capture/blur/offline checks may prevent a real VPS call
+        Assert.AreEqual(1, session.Queries);
+        session.Cancel();
+        StringAssert.Contains("\"localizationQueries\":1,", session.ResultJson);
     }
 
     [Test]
