@@ -12,11 +12,13 @@ namespace IndoorAr
     /// </summary>
     public sealed class IndoorArSession
     {
+        public const float StartupTimeoutS = 20f;
         public const float LocalizeTimeoutS = 30f;
         public const float WrongFloorM = 2f;
 
         float _elapsedS;
         float _localizingS;
+        float _startupS;
         bool _retried;
         float? _confidence;
 
@@ -41,7 +43,11 @@ namespace IndoorAr
         public void OnArSupport(bool supported)
         {
             if (State != IndoorArState.Init) return;
-            if (supported) State = IndoorArState.Auth;
+            if (supported)
+            {
+                State = IndoorArState.Auth;
+                _startupS = 0f;
+            }
             else Finish(IndoorArContract.Error(IndoorArContract.ArcoreUnsupported, Queries, ElapsedMs));
         }
 
@@ -81,6 +87,13 @@ namespace IndoorAr
         {
             if (State == IndoorArState.Done) return;
             _elapsedS += dt;
+            if (State == IndoorArState.Init || State == IndoorArState.Auth)
+            {
+                _startupS += dt;
+                if (_startupS >= StartupTimeoutS)
+                    Finish(IndoorArContract.Error(IndoorArContract.Network, Queries, ElapsedMs));
+                return;
+            }
             if (State != IndoorArState.Localizing) return;
             _localizingS += dt;
             if (_localizingS < LocalizeTimeoutS) return;

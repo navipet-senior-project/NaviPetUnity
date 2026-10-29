@@ -55,6 +55,34 @@ public class IndoorArSessionTests
         StringAssert.Contains($"\"errorCode\":\"{code}\"", session.ResultJson);
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void StartupTimeoutReportsNetworkAndIgnoresLateAuthentication(bool auth)
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        if (auth) session.OnArSupport(true);
+        session.Tick(19f);
+        Assert.AreEqual(auth ? IndoorArState.Auth : IndoorArState.Init, session.State);
+        session.Tick(1f);
+        Assert.AreEqual(IndoorArState.Done, session.State);
+        Assert.AreEqual("{\"status\":\"error\",\"errorCode\":\"NETWORK\",\"localizationQueries\":0,\"durationMs\":20000}", session.ResultJson);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        Assert.AreEqual(IndoorArState.Done, session.State);
+    }
+
+    [Test]
+    public void AuthenticationGetsItsOwnTimeoutBudget()
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        session.Tick(19f);
+        session.OnArSupport(true);
+        session.Tick(19f);
+        Assert.AreEqual(IndoorArState.Auth, session.State);
+        session.Tick(1f);
+        StringAssert.Contains("\"errorCode\":\"NETWORK\"", session.ResultJson);
+    }
+
     [Test]
     public void AuthStartsLocalizingAndCountsAttempts()
     {
