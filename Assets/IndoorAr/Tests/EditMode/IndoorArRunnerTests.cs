@@ -19,7 +19,8 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
     public event Action Localized;
     public Transform MapSpace => transform;
     public string MapCode => "MSET_XTBY7AM7ZK77";
-    public void Authenticate() => Authenticated?.Invoke();
+    public int AuthenticationCalls { get; private set; }
+    public void Authenticate() { AuthenticationCalls++; Authenticated?.Invoke(); }
     public bool Succeed = true;
     public void Localize() { QuerySent?.Invoke(); if (Succeed) Localized?.Invoke(); }
 }
@@ -87,6 +88,24 @@ public class IndoorArRunnerTests
         Assert.AreEqual(IndoorArState.Done, session.State);
         Call(runner, "Update");
         LogAssert.NoUnexpectedReceived();
+    }
+
+    [Test]
+    public void EditorAvailabilityNeverAuthenticates()
+    {
+        var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        try
+        {
+            state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.Ready });
+            var runner = Runner();
+            var start = (IEnumerator)Call(runner, "Start");
+            Assert.IsTrue(start.MoveNext());
+            Assert.IsFalse(start.MoveNext());
+            Assert.AreEqual(0, _host.GetComponent<RunnerFakeLocalizer>().AuthenticationCalls);
+            Assert.AreEqual(IndoorArState.Done, Field<IndoorArSession>(runner, "_session").State);
+        }
+        finally { state.Invoke(null, new object[] { previous }); }
     }
 
     [Test]

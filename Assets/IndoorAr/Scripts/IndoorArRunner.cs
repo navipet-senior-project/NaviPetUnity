@@ -50,7 +50,8 @@ namespace IndoorAr
             _localizer.Localized += _session.OnLocalized;
 
             yield return ARSession.CheckAvailability();
-            _session.OnArSupport(ARSession.state != ARSessionState.Unsupported);
+            // Editor smoke must never authenticate or consume VPS quota.
+            _session.OnArSupport(!Application.isEditor && ARSession.state != ARSessionState.Unsupported);
             if (_session.State == IndoorArState.Auth) _localizer.Authenticate();
         }
 
