@@ -36,6 +36,10 @@ namespace IndoorAr
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
         public const string Frame = "multiset-mapset";
+        public const string MapMismatch = "MAP_MISMATCH";
+        public const string ArcoreUnsupported = "ARCORE_UNSUPPORTED";
+        public const string MultisetAuth = "MULTISET_AUTH";
+        public const string Network = "NETWORK";
 
         /// <summary>
         /// JsonUtility fills a missing object field with defaults, so a missing
@@ -59,8 +63,7 @@ namespace IndoorAr
                 || parsed.schemaVersion != SchemaVersion
                 || string.IsNullOrEmpty(parsed.doorKey)
                 || string.IsNullOrEmpty(parsed.floor)
-                || string.IsNullOrEmpty(parsed.mapCode)
-                || parsed.frame != Frame)
+                || string.IsNullOrEmpty(parsed.mapCode))
             {
                 return false;
             }
@@ -69,17 +72,28 @@ namespace IndoorAr
         }
 
         /// <summary>
+        /// A pose in another frame or map would put the pin in the wrong place, so
+        /// the session refuses it as MAP_MISMATCH instead of guessing.
+        /// </summary>
+        public static bool CheckMap(IndoorArRequest request, string buildMapCode) =>
+            request.frame == Frame && request.mapCode == buildMapCode;
+
+        /// <summary>
         /// A NaN, infinite or negative distance is a bug on this side, and the app
         /// rejects it as BAD_RESULT. It is reported as an error result instead of
         /// clamped: contract v1 has no better code than BAD_REQUEST.
         /// </summary>
-        public static string Arrived(float checkDistanceM, int localizationQueries, long durationMs) =>
+        public static string Arrived(float checkDistanceM, int localizationQueries, long durationMs, float? confidence = null) =>
             float.IsNaN(checkDistanceM) || float.IsInfinity(checkDistanceM) || checkDistanceM < 0f
+                || (confidence.HasValue && (float.IsNaN(confidence.Value) || float.IsInfinity(confidence.Value)))
                 ? Error(BadRequest, localizationQueries, durationMs)
-                : Build("arrived", checkDistanceM, null, localizationQueries, durationMs);
+                : Build("arrived", checkDistanceM, null, localizationQueries, durationMs, confidence);
 
         public static string Cancelled(int localizationQueries, long durationMs) =>
             Build("cancelled", null, null, localizationQueries, durationMs);
+
+        public static string LocalizationFailed(int localizationQueries, long durationMs) =>
+            Build("localizationFailed", null, null, localizationQueries, durationMs);
 
         public static string Error(string errorCode, int localizationQueries, long durationMs) =>
             Build("error", null, errorCode, localizationQueries, durationMs);
@@ -87,12 +101,15 @@ namespace IndoorAr
         // Written by hand: JsonUtility cannot omit fields. Status and error codes
         // are constants from this file, so they need no escaping.
         static string Build(string status, float? checkDistanceM, string errorCode,
-            int localizationQueries, long durationMs)
+            int localizationQueries, long durationMs, float? confidence = null)
         {
             var json = new StringBuilder("{\"status\":\"").Append(status).Append('"');
             if (checkDistanceM.HasValue)
                 json.Append(",\"checkDistanceM\":")
                     .Append(checkDistanceM.Value.ToString("0.###", CultureInfo.InvariantCulture));
+            if (confidence.HasValue)
+                json.Append(",\"confidence\":")
+                    .Append(confidence.Value.ToString("R", CultureInfo.InvariantCulture));
             if (errorCode != null)
                 json.Append(",\"errorCode\":\"").Append(errorCode).Append('"');
             json.Append(",\"localizationQueries\":")

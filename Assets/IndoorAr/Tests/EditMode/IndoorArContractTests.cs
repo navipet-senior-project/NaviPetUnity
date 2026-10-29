@@ -31,12 +31,44 @@ public class IndoorArContractTests
     [TestCase("{\"schemaVersion\":1,\"doorKey\":\"\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
     [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
     [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"frame\":\"multiset-mapset\"}")]
-    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\"}")]
-    [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"unity-world\"}")]
     public void RejectsABadRequest(string json)
     {
         Assert.IsFalse(IndoorArContract.TryParseRequest(json, out var request));
         Assert.IsNull(request);
+    }
+
+    [Test]
+    public void ParsesAForeignFrameSoTheSessionCanReportMapMismatch()
+    {
+        var json = Vec119.Replace("multiset-mapset", "unity-world");
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.AreEqual("unity-world", request.frame);
+    }
+
+    [TestCase("multiset-mapset", "MSET_XTBY7AM7ZK77", true)]
+    [TestCase("unity-world", "MSET_XTBY7AM7ZK77", false)]
+    [TestCase("multiset-mapset", "MSET_OTHER", false)]
+    public void ChecksFrameAndMapCode(string frame, string mapCode, bool expected)
+    {
+        var request = new IndoorArRequest { frame = frame, mapCode = mapCode };
+        Assert.AreEqual(expected, IndoorArContract.CheckMap(request, "MSET_XTBY7AM7ZK77"));
+    }
+
+    [Test]
+    public void BuildsLocalizationFailed()
+    {
+        Assert.AreEqual(
+            "{\"status\":\"localizationFailed\",\"localizationQueries\":4,\"durationMs\":60000}",
+            IndoorArContract.LocalizationFailed(4, 60000));
+    }
+
+    [Test]
+    public void ErrorCodesMatchTheDartContract()
+    {
+        Assert.AreEqual("MAP_MISMATCH", IndoorArContract.MapMismatch);
+        Assert.AreEqual("ARCORE_UNSUPPORTED", IndoorArContract.ArcoreUnsupported);
+        Assert.AreEqual("MULTISET_AUTH", IndoorArContract.MultisetAuth);
+        Assert.AreEqual("NETWORK", IndoorArContract.Network);
     }
 
     [Test]
@@ -59,6 +91,23 @@ public class IndoorArContractTests
     }
 
     [Test]
+    public void BuildsArrivedWithConfidence()
+    {
+        Assert.AreEqual(
+            "{\"status\":\"arrived\",\"checkDistanceM\":0.42,\"confidence\":0.73,\"localizationQueries\":1,\"durationMs\":1234}",
+            IndoorArContract.Arrived(0.42f, 1, 1234, 0.73f));
+    }
+
+    [TestCase(float.NaN)]
+    [TestCase(float.PositiveInfinity)]
+    [TestCase(float.NegativeInfinity)]
+    public void InvalidConfidenceBecomesAnError(float confidence)
+    {
+        StringAssert.Contains("\"errorCode\":\"BAD_REQUEST\"",
+            IndoorArContract.Arrived(1f, 1, 3, confidence));
+    }
+
+    [Test]
     public void BuildsCancelledAndError()
     {
         Assert.AreEqual(
@@ -77,6 +126,7 @@ public class IndoorArContractTests
         {
             CultureInfo.CurrentCulture = new CultureInfo("de-DE");
             StringAssert.Contains("\"checkDistanceM\":1.5,", IndoorArContract.Arrived(1.5f, 0, 1));
+            StringAssert.Contains("\"confidence\":0.1234567,", IndoorArContract.Arrived(1.5f, 0, 1, 0.1234567f));
         }
         finally
         {

@@ -1,9 +1,22 @@
 {
     "name": "IndoorAr.Tests.EditMode",
-    "references": ["IndoorAr.Runtime", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
-    "includePlatforms": ["Editor"],
+    "references": [
+        "IndoorAr.Runtime",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "Unity.XR.ARFoundation",
+        "IndoorAr.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
     "overrideReferences": true,
-    "precompiledReferences": ["nunit.framework.dll"],
-    "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "MultiSetSDK.dll"
+    ],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "autoReferenced": false
 }
