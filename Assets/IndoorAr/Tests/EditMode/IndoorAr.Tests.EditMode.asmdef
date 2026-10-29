@@ -4,7 +4,8 @@
         "IndoorAr.Runtime",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Unity.XR.ARFoundation"
+        "Unity.XR.ARFoundation",
+        "IndoorAr.Editor"
     ],
     "includePlatforms": [
         "Editor"
