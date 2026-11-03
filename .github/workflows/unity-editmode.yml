@@ -52,20 +52,9 @@ jobs:
           cliVersion: v0.1.72
           githubToken: ""
 
-      # shortcut: any failure before results XML is a notice, including a bad image pull; split license errors out when the action exposes its exit code.
-      - name: Notice when tests never reported
+      # The runner exposes no exit code or Unity log, so a license failure cannot be told apart from a compile error or crash; all fail.
+      - name: Fail when tests failed or never reported
         if: steps.tests.outcome == 'failure'
         run: |
-          set -euo pipefail
-          shopt -s globstar nullglob
-          files=(artifacts/**/*.xml)
-          if ((${#files[@]} == 0)); then
-            echo "::notice title=Unity license or editor startup::EditMode tests produced no results. A missing or rejected Unity license ends as a notice, not a failed check."
-            exit 0
-          fi
-          failed="$(grep -l 'result="Failed"' "${files[@]}" || true)"
-          if [ -n "$failed" ]; then
-            echo "EditMode tests failed. See: $failed"
-            exit 1
-          fi
-          echo "::notice title=Unity license or editor startup::The test runner failed before any EditMode test failed. Reported as a notice, not a failed check."
+          echo "::error title=Unity EditMode::The test runner failed: test failures, script compile errors, editor crash, or a rejected license. See the EditMode tests step log."
+          exit 1

@@ -19,8 +19,12 @@ Leave the other license secret unset. `UNITY_LICENSE` wins if both are set.
 
 How to get the license file: [GameCI activation](https://game.ci/docs/github/activation). For a personal license, activate it in Unity Hub (Preferences → Licenses → Add → Get a free personal license), then copy the `.ulf` from `/Library/Application Support/Unity/Unity_lic.ulf` on macOS into `UNITY_LICENSE`. For Plus or Pro, copy the serial from the Unity subscriptions page into `UNITY_SERIAL`.
 
-If `UNITY_LICENSE` and `UNITY_SERIAL` are both unset, the job prints a notice and stays green. A rejected license that never produces test results does the same. EditMode failures still fail the check.
+If `UNITY_LICENSE` and `UNITY_SERIAL` are both unset, the job prints a notice and stays green. That is the only notice.
+
+Once a secret is set, any test runner failure fails the check: test failures, script compile errors, editor crashes, and a rejected license alike.
 
 ## Not verified
+
+GameCI `unity-test-runner` v4.4.0 exposes no exit code or Unity log to later steps, so a rejected license cannot be told apart from a compile error or crash. A rejected license therefore shows red, not a notice. Telling them apart needs a separate license-activation step, which this change does not add.
 
 GameCI's current activation and test-runner docs describe the personal (`.ulf` as `UNITY_LICENSE`) and professional (`UNITY_SERIAL`) environment variables. They do not document a Unity 6000.3-specific license path. This workflow uses those documented names and does not claim a separate 6000.3 activation procedure.
