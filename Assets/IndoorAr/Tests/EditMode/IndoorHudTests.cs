@@ -72,6 +72,28 @@ namespace IndoorAr.Tests
         }
 
         [Test]
+        public void TinyPoseChangeKeepsTheRouteObjects()
+        {
+            var cameraObject = new GameObject("Camera", typeof(Camera));
+            var root = new GameObject("HUD");
+            try
+            {
+                var hud = root.AddComponent<IndoorHud>();
+                hud.Initialize(cameraObject.GetComponent<Camera>());
+                var view = MockIndoorRoute.Snapshot(IndoorHudState.Straight, 1);
+                hud.Show(view);
+                var trail = root.transform.Find("Route chevrons");
+                view.Waypoints[0] += Vector3.forward * .05f;
+                hud.Show(view);
+                Assert.AreSame(trail, root.transform.Find("Route chevrons"));
+                view.Waypoints[0] += Vector3.forward * 1f;
+                hud.Show(view);
+                Assert.AreNotSame(trail, root.transform.Find("Route chevrons"));
+            }
+            finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
+        }
+
+        [Test]
         public void ChevronShaderIsSpritesDefault()
         {
             var shader = IndoorHud.ChevronShader();

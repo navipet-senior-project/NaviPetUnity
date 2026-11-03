@@ -42,6 +42,8 @@ namespace IndoorAr
         Font _font;
         Text _detail;
         string _chrome;
+        Vector3[] _drawn;
+        const float RedrawMeters = .25f;
         public event Action ExitRequested;
 
         // Referenced material keeps Sprites/Default in the player when Shader.Find would miss it.
@@ -88,6 +90,7 @@ namespace IndoorAr
                 RemoveObject(child.gameObject);
             }
             ClearTrail();
+            _drawn = null;
             var state = view.State;
 
             Panel(_root, "Destination", new Vector2(0, -110), new Vector2(980, 112), White, new Vector2(.5f, 1));
@@ -132,8 +135,18 @@ namespace IndoorAr
             }
         }
 
+        bool RouteUnchanged(Vector3[] points)
+        {
+            if (_drawn == null || points == null || _drawn.Length != points.Length) return false;
+            for (int i = 0; i < points.Length; i++)
+                if ((points[i] - _drawn[i]).sqrMagnitude >= RedrawMeters * RedrawMeters) return false;
+            return true;
+        }
+
         void RefreshRoute(IndoorHudView view, Color accent)
         {
+            if (RouteUnchanged(view.Waypoints)) return;
+            _drawn = view.Waypoints == null ? null : (Vector3[])view.Waypoints.Clone();
             var existing = _root.Find("Mini map");
             if (existing != null)
             {
