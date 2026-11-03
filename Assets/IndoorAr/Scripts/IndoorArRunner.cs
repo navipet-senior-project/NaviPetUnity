@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Globalization;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.XR.ARFoundation;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -22,6 +24,10 @@ namespace IndoorAr
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
         Transform _pin;
+        IndoorHud _hud;
+        float _pinnedFor;
+        float _failureLeft = -1f;
+        bool _failureRelease;
         bool _delivered;
         GUIStyle _label;
         GUIStyle _button;
@@ -43,6 +49,7 @@ namespace IndoorAr
             }
             _session = new IndoorArSession(request, _localizer.MapCode);
             if (_session.State == IndoorArState.Done) yield break; // MAP_MISMATCH, delivered in Update
+            AttachHud();
             _session.LocalizeRequested += _localizer.Localize;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
@@ -58,12 +65,47 @@ namespace IndoorAr
         void Update()
         {
             if (_session == null || _delivered) return;
-            if (BackPressed()) _session.Cancel();
+            if (BackPressed()) OnHudExit();
             if (_session.State == IndoorArState.Pinned && ARSession.state != ARSessionState.SessionTracking)
                 _session.OnTrackingLost();
+            if (_session.State == IndoorArState.Pinned) _pinnedFor += Time.unscaledDeltaTime;
+            else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
             UpdatePin();
-            if (_session.State == IndoorArState.Done) Deliver(_session.ResultJson);
+            // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
+            if (LiveDoorHud.LocalizationFailed(_session) && _failureLeft < 0f)
+                _failureLeft = Application.isEditor ? 0f : 4f;
+            var holdingFailure = _failureLeft > 0f && !_failureRelease;
+            if (holdingFailure) _failureLeft -= Time.unscaledDeltaTime;
+            UpdateHud();
+            if (_session.State == IndoorArState.Done && !holdingFailure) Deliver(_session.ResultJson);
+        }
+
+        void AttachHud()
+        {
+            var hudObject = new GameObject("Indoor HUD");
+            hudObject.transform.SetParent(_localizer.MapSpace, false);
+            _hud = hudObject.AddComponent<IndoorHud>();
+            _hud.Initialize(arCamera);
+            _hud.ExitRequested += OnHudExit;
+            if (EventSystem.current == null)
+            {
+                var events = new GameObject("HUD EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
+                events.transform.SetParent(transform, false);
+            }
+        }
+
+        void OnHudExit()
+        {
+            _failureRelease = true;
+            _session?.Cancel();
+        }
+
+        void UpdateHud()
+        {
+            if (_hud == null || _delivered) return;
+            if (_session.State == IndoorArState.Done && !LiveDoorHud.LocalizationFailed(_session)) return;
+            _hud.Show(LiveDoorHud.Compose(_session, CameraInMap(), _pinnedFor));
         }
 
         void UpdatePin()
@@ -83,7 +125,7 @@ namespace IndoorAr
 
         void OnGUI()
         {
-            if (_session == null || _delivered) return;
+            if (_session == null || _delivered || _session.State != IndoorArState.Pinned) return;
             var fontSize = Screen.height / 32;
             _label ??= new GUIStyle(GUI.skin.label)
                 { fontSize = fontSize, alignment = TextAnchor.MiddleCenter, wordWrap = true };
@@ -91,42 +133,23 @@ namespace IndoorAr
             var width = Screen.width * 0.8f;
             var height = Screen.height * 0.08f;
             var x = (Screen.width - width) / 2f;
-
-            GUI.Label(new Rect(x, Screen.height * 0.06f, width, height), StatusText(), _label);
-            if (_session.State == IndoorArState.Pinned)
+            var camera = CameraInMap();
+            var door = _session.Request;
+            if (_session.IsWrongFloor(camera))
+                GUI.Label(new Rect(x, Screen.height * 0.42f, width, height),
+                    $"{door.doorKey} is on floor {door.floor}", _label);
+            if (GUI.Button(new Rect(x, Screen.height * 0.78f, width, height), "I'm here", _button))
             {
-                var camera = CameraInMap();
-                var door = _session.Request;
-                GUI.Label(new Rect(x, Screen.height * 0.14f, width, height),
-                    $"{door.doorKey} · floor {door.floor} · {_session.HorizontalDistance(camera):0.0} m", _label);
-                if (_session.IsWrongFloor(camera))
-                    GUI.Label(new Rect(x, Screen.height * 0.22f, width, height),
-                        $"{door.doorKey} is on floor {door.floor}", _label);
-                if (GUI.Button(new Rect(x, Screen.height * 0.74f, width, height), "I'm here", _button))
-                {
-                    Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                        "[IndoorAr] arrived door={0} camera=({1:F3}, {2:F3}, {3:F3})",
-                        door.doorKey, camera.x, camera.y, camera.z));
-                    _session.ImHere(camera);
-                }
+                Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                    "[IndoorAr] arrived door={0} camera=({1:F3}, {2:F3}, {3:F3})",
+                    door.doorKey, camera.x, camera.y, camera.z));
+                _session.ImHere(camera);
             }
-            if (GUI.Button(new Rect(x, Screen.height * 0.86f, width, height), "Exit", _button))
-                _session.Cancel();
         }
-
-        string StatusText() => _session.State switch
-        {
-            IndoorArState.Init => "Starting AR…",
-            IndoorArState.Auth => "Connecting to MultiSet…",
-            IndoorArState.Localizing => _session.WasPinned
-                ? "Re-finding your position"
-                : "Point at walls, doors and signs",
-            IndoorArState.Pinned => "Walk to the pin, then tap I'm here",
-            _ => "",
-        };
 
         void OnDestroy()
         {
+            if (_hud != null) _hud.ExitRequested -= OnHudExit;
             if (_session == null || _localizer == null) return;
             _session.LocalizeRequested -= _localizer.Localize;
             _localizer.Authenticated -= _session.OnAuthenticated;

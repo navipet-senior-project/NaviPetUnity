@@ -1,9 +1,17 @@
-# Indoor AR HUD preview
+# Indoor AR HUD
 
-This is a mock preview, not live navigation. The corridor, positions, route, distances and destinations are illustrative. No localization, routing, map alignment, floor transitions, rerouting or arrival detection is connected. The existing Flutter bridge and door verifier are unchanged; in particular, Unity's v2 token support is still needed before the current Flutter launch can localize.
+On the phone, `IndoorArRunner` parents `IndoorHud` to the MultiSet map and feeds it `LiveDoorHud`. The background is the live AR camera (`ARCameraBackground` on the XR camera in `IndoorArSpike`). That scene has no generated hallway.
 
-In Unity, choose **Indoor AR → Open Mock HUD Preview**, press Play, then select **Mock HUD preview** in the Hierarchy. Change **State** and **Floor** in the Inspector to review the seven states and both mock destinations. The preview scene is temporary and does not change the shipping scene.
+While MultiSet is localizing, the card says the phone is scanning. After a fix, it says the location was found, then arrows run in a straight line from the live pose to the door pose Flutter passed at launch. They do not route around walls. If localization fails, the card says it could not find the location. On a device that card stays up for about four seconds, then the activity returns `localizationFailed`. Editor play returns immediately.
 
-To connect real navigation later, initialize `IndoorHud` with the AR camera, parent it in the route's map frame, and call `Show(IndoorHudView)` as the provider changes state. Supply the current remaining waypoints in that frame, destination, floor and distance; subscribe to `ExitRequested` and connect an EventSystem for the button. The first waypoint is the displayed position on the mini-map. The provider owns localization, timeout, turn direction, recalculation and arrival decisions. The current turn card illustrates a right turn only.
+**Indoor AR → Open Mock HUD Preview** is still the editor preview. It uses `MockIndoorRoute` and a generated corridor, and it does not change the shipping scene. The seven cards rendered over that corridor are in `docs/hud-states/`. To regenerate them, set `NAVIPET_HUD_SHOTS` to an output directory and run Unity in batch mode with `-executeMethod IndoorAr.Editor.IndoorHudCapture.Capture`.
 
-To reproduce screenshots, set `NAVIPET_HUD_SHOTS` to an output directory and run Unity in batch mode with `-executeMethod IndoorAr.Editor.IndoorHudCapture.Capture`. The images are rendered by Unity over a generated corridor, not a live camera feed.
+Still not real: the Gradle AAR was not assembled and the phone install was not run, floors 3-5 are out of scope, and there is no NavMesh route. There is no Supabase room data. The door pose is whatever Flutter sends.
+
+The captain builds the phone library on a Mac that already has the gitignored `Assets/Samples/MultiSet-SDK/**/Resources/MultiSetConfig.asset`. Never commit, print, or request that file.
+
+```
+tools/build-indoor-ar-aar.sh /path/to/NaviPetFlutter/android/unity-ar
+```
+
+Requires Unity `6000.3.26f1` with Android Build Support. The script exports `Builds/IndoorArAndroid` and copies the release AARs into that `unity-ar` folder.

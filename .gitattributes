@@ -129,6 +129,8 @@ Packages/packages-lock.json linguist-generated
 *.jpg                   lfs
 *.pict                  lfs
 *.png                   lfs
+# HUD screenshots stay in git so a clean clone does not need the LFS server.
+docs/hud-states/*.png   -filter -diff -merge -text
 *.psd                   lfs
 *.tga                   lfs
 *.tif                   lfs
