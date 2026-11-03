@@ -1,0 +1,71 @@
+name: Unity EditMode
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  editmode:
+    name: Unity EditMode
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Unity license secrets
+        id: license
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        run: |
+          set -euo pipefail
+          license="${UNITY_LICENSE-}"
+          serial="${UNITY_SERIAL-}"
+          license="${license//[[:space:]]/}"
+          serial="${serial//[[:space:]]/}"
+          if [ -n "$license" ] || [ -n "$serial" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Unity EditMode skipped::UNITY_LICENSE and UNITY_SERIAL are unset, so EditMode tests did not run."
+          fi
+
+      - name: Checkout
+        if: steps.license.outputs.present == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: EditMode tests
+        id: tests
+        if: steps.license.outputs.present == 'true'
+        continue-on-error: true
+        uses: game-ci/unity-test-runner@32e57712352b500e17974b245a6dce9e11a73213 # v4.4.0
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          unityVersion: 6000.3.26f1
+          testMode: editmode
+          coverageEnabled: false
+          cliVersion: v0.1.72
+          githubToken: ""
+
+      # shortcut: any failure before results XML is a notice, including a bad image pull; split license errors out when the action exposes its exit code.
+      - name: Notice when tests never reported
+        if: steps.tests.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          files=(artifacts/**/*.xml)
+          if ((${#files[@]} == 0)); then
+            echo "::notice title=Unity license or editor startup::EditMode tests produced no results. A missing or rejected Unity license ends as a notice, not a failed check."
+            exit 0
+          fi
+          failed="$(grep -l 'result="Failed"' "${files[@]}" || true)"
+          if [ -n "$failed" ]; then
+            echo "EditMode tests failed. See: $failed"
+            exit 1
+          fi
+          echo "::notice title=Unity license or editor startup::The test runner failed before any EditMode test failed. Reported as a notice, not a failed check."
