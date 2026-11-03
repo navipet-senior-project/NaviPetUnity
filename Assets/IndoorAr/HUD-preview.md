@@ -4,7 +4,7 @@ On the phone, `IndoorArRunner` parents `IndoorHud` to the MultiSet map and feeds
 
 While MultiSet is localizing, the card says the phone is scanning. After a fix, it says the location was found, then arrows run in a straight line from the live pose to the door pose Flutter passed at launch. They do not route around walls. If localization fails, the card says it could not find the location. On a device that card stays up for about four seconds, then the activity returns `localizationFailed`. Editor play returns immediately.
 
-**Indoor AR → Open Mock HUD Preview** is still the editor preview. It uses `MockIndoorRoute` and a generated corridor, and it does not change the shipping scene. The seven cards rendered over that corridor are in `docs/hud-states/`.
+**Indoor AR → Open Mock HUD Preview** is still the editor preview. It uses `MockIndoorRoute` and a generated corridor, and it does not change the shipping scene. The seven cards rendered over that corridor are in `docs/hud-states/`. To regenerate them, set `NAVIPET_HUD_SHOTS` to an output directory and run Unity in batch mode with `-executeMethod IndoorAr.Editor.IndoorHudCapture.Capture`.
 
 Still not real: the Gradle AAR was not assembled and the phone install was not run, floors 3-5 are out of scope, and there is no NavMesh route. There is no Supabase room data. The door pose is whatever Flutter sends.
 
