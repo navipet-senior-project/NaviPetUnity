@@ -49,5 +49,63 @@ namespace IndoorAr.Tests
             first.Waypoints[0] = Vector3.one * 100;
             Assert.AreNotEqual(first.Waypoints[0], MockIndoorRoute.Snapshot(IndoorHudState.Straight, 1).Waypoints[0]);
         }
+
+        [Test]
+        public void SameCardKeepsTheExitButtonWhenThePoseChanges()
+        {
+            var cameraObject = new GameObject("Camera", typeof(Camera));
+            var root = new GameObject("HUD");
+            try
+            {
+                var hud = root.AddComponent<IndoorHud>();
+                hud.Initialize(cameraObject.GetComponent<Camera>());
+                var view = MockIndoorRoute.Snapshot(IndoorHudState.Straight, 1);
+                hud.Show(view);
+                var button = root.GetComponentInChildren<Button>();
+                view.Distance = 4f;
+                view.Waypoints = new[] { Vector3.zero, Vector3.forward * 4f };
+                hud.Show(view);
+                Assert.AreSame(button, root.GetComponentInChildren<Button>());
+                CollectionAssert.Contains(root.GetComponentsInChildren<Text>().Select(t => t.text).ToArray(), "Follow the arrows ahead · 4 m");
+            }
+            finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
+        }
+
+        [Test]
+        public void ChevronShaderIsSpritesDefault()
+        {
+            var shader = IndoorHud.ChevronShader();
+            Assert.IsNotNull(shader);
+            Assert.AreEqual("Sprites/Default", shader.name);
+        }
+
+        [Test]
+        public void LiveViewScansThenPointsAtTheDoorAndFailsClosed()
+        {
+            var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
+            var session = new IndoorArSession(request, request.mapCode);
+            var camera = new Vector3(1f, 4f, 3f);
+            Assert.AreEqual(IndoorHudState.Scanning, LiveDoorHud.Compose(session, camera, 0f).State);
+
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            Assert.AreEqual(IndoorHudState.Scanning, LiveDoorHud.Compose(session, camera, 0f).State);
+            session.OnLocalized(0.5f);
+            var found = LiveDoorHud.Compose(session, camera, 0f);
+            Assert.AreEqual(IndoorHudState.Localized, found.State);
+            Assert.AreEqual("VEC 119", found.Destination);
+            Assert.AreEqual(1, found.Floor);
+
+            var guiding = LiveDoorHud.Compose(session, camera, LiveDoorHud.LocationFoundHoldS);
+            Assert.AreEqual(IndoorHudState.Straight, guiding.State);
+            Assert.AreEqual(new Vector3(camera.x, request.position.y, camera.z), guiding.Waypoints[0]);
+            Assert.AreEqual(new Vector3(request.position.x, request.position.y, request.position.z), guiding.Waypoints[1]);
+            Assert.AreEqual(session.HorizontalDistance(camera), guiding.Distance);
+
+            session.OnTrackingLost();
+            session.Tick(IndoorArSession.LocalizeTimeoutS);
+            session.Tick(IndoorArSession.LocalizeTimeoutS);
+            Assert.AreEqual(IndoorHudState.NotFound, LiveDoorHud.Compose(session, camera, 0f).State);
+        }
     }
 }

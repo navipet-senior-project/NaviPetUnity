@@ -161,7 +161,46 @@ public class IndoorArRunnerTests
             Assert.IsNotNull(camera.GetComponent<UnityEngine.XR.ARFoundation.ARCameraManager>());
             Assert.IsNotNull(Field<GameObject>(runner,"doorPinPrefab"));
             Assert.IsFalse(manager.enabled);
+            Assert.IsNotNull(camera.GetComponent<UnityEngine.XR.ARFoundation.ARCameraBackground>());
+            Assert.AreEqual(CameraClearFlags.SolidColor, camera.clearFlags);
+            Assert.IsFalse(objects.Any(t => t.name == "Left wall" || t.name == "Floor" || t.name == "Right wall"));
         }
         finally { EditorSceneManager.CloseScene(scene, true); }
+    }
+
+    [Test]
+    public void PinnedHudDrawsChevronsFromTheCameraTowardTheDoor()
+    {
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        var camObject = new GameObject("AR Camera", typeof(Camera));
+        camObject.transform.SetParent(_host.transform, false);
+        camObject.transform.localPosition = new Vector3(1f, 1.6f, 3f);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
+        var arState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        arState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        try
+        {
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized(0.5f);
+        runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+            .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+        Call(runner, "Update");
+        var hud = _host.GetComponentInChildren<IndoorHud>();
+        Assert.AreSame(localizer.MapSpace, hud.transform.parent);
+        var marker = hud.GetComponentInChildren<MeshRenderer>().transform;
+        var door = new Vector3(-5.7651f, -1.8186f, 22.6689f);
+        var from = new Vector3(1f, door.y, 3f);
+        var along = door - from;
+        var offset = marker.localPosition - from;
+        offset.y = 0f;
+        Assert.That(Vector3.Dot(offset.normalized, along.normalized), Is.GreaterThan(0.99f));
+        CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Continue straight");
+        }
+        finally { arState.Invoke(null, new object[] { previous }); }
     }
 }

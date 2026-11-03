@@ -40,7 +40,17 @@ namespace IndoorAr
         Material _trailMaterial;
         Sprite _round;
         Font _font;
+        Text _detail;
+        string _chrome;
         public event Action ExitRequested;
+
+        // Referenced material keeps Sprites/Default in the player when Shader.Find would miss it.
+        public static Shader ChevronShader()
+        {
+            var source = Resources.Load<Material>("Chevron");
+            if (source != null && source.shader != null) return source.shader;
+            return Shader.Find("Sprites/Default");
+        }
 
         public void Initialize(Camera camera)
         {
@@ -62,6 +72,15 @@ namespace IndoorAr
         public void Show(IndoorHudView view)
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
+            var accent = view.State == IndoorHudState.WrongWay ? Orange : Blue;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor;
+            if (_chrome == chrome)
+            {
+                if (_detail != null && (view.State == IndoorHudState.Straight || view.State == IndoorHudState.Turn))
+                    _detail.text = DetailText(view);
+                RefreshRoute(view, accent);
+                return;
+            }
             while (_root.childCount > 0)
             {
                 var child = _root.GetChild(0);
@@ -70,9 +89,6 @@ namespace IndoorAr
             }
             ClearTrail();
             var state = view.State;
-            bool navigating = state == IndoorHudState.Localized || state == IndoorHudState.Straight || state == IndoorHudState.Turn || state == IndoorHudState.WrongWay || state == IndoorHudState.Arrived;
-            bool warning = state == IndoorHudState.WrongWay;
-            Color accent = warning ? Orange : Blue;
 
             Panel(_root, "Destination", new Vector2(0, -110), new Vector2(980, 112), White, new Vector2(.5f, 1));
             Label(_root, "DestinationLabel", "TO  " + view.Destination + "  ·  FLOOR " + view.Floor, new Vector2(-80, -110), new Vector2(690, 90), 32, Ink, TextAnchor.MiddleLeft, new Vector2(.5f, 1), FontStyle.Bold);
@@ -81,22 +97,52 @@ namespace IndoorAr
             var button = exit.gameObject.AddComponent<Button>();
             button.onClick.AddListener(() => ExitRequested?.Invoke());
 
-            string title, detail, icon;
+            string title, icon;
             switch (state)
             {
-                case IndoorHudState.Scanning: title = "Scanning area..."; detail = "Slowly move your phone across the hallway."; icon = "◌"; break;
-                case IndoorHudState.NotFound: title = "Could not find your location"; detail = "Step into a hallway and scan the walls and signs."; icon = "!"; break;
-                case IndoorHudState.Localized: title = "Location found"; detail = "You're ready to navigate."; icon = "✓"; break;
-                case IndoorHudState.Straight: title = "Continue straight"; detail = "Follow the arrows ahead · " + view.Distance.ToString("0") + " m"; icon = "↑"; break;
-                case IndoorHudState.Turn: title = "Turn right"; detail = "In " + view.Distance.ToString("0") + " m"; icon = "↱"; break;
-                case IndoorHudState.WrongWay: title = "Recalculating route"; detail = "Finding a new way to your destination."; icon = "↻"; break;
-                default: title = "You have arrived"; detail = view.Destination + " is here."; icon = "✓"; break;
+                case IndoorHudState.Scanning: title = "Scanning area..."; icon = "◌"; break;
+                case IndoorHudState.NotFound: title = "Could not find your location"; icon = "!"; break;
+                case IndoorHudState.Localized: title = "Location found"; icon = "✓"; break;
+                case IndoorHudState.Straight: title = "Continue straight"; icon = "↑"; break;
+                case IndoorHudState.Turn: title = "Turn right"; icon = "↱"; break;
+                case IndoorHudState.WrongWay: title = "Recalculating route"; icon = "↻"; break;
+                default: title = "You have arrived"; icon = "✓"; break;
             }
             var card = Panel(_root, "Instruction", new Vector2(0, -280), new Vector2(980, 190), White, new Vector2(.5f, 1));
             Panel(card, "IconBackground", new Vector2(-390, 0), new Vector2(120, 120), accent, new Vector2(.5f, .5f));
             Label(card, "Icon", icon, new Vector2(-390, 0), new Vector2(120, 120), 67, White, TextAnchor.MiddleCenter, new Vector2(.5f, .5f), FontStyle.Bold);
             Label(card, "Title", title, new Vector2(65, 32), new Vector2(680, 65), 43, Ink, TextAnchor.MiddleLeft, new Vector2(.5f, .5f), FontStyle.Bold);
-            Label(card, "Detail", detail, new Vector2(65, -37), new Vector2(680, 64), 28, Muted, TextAnchor.MiddleLeft, new Vector2(.5f, .5f));
+            Label(card, "Detail", DetailText(view), new Vector2(65, -37), new Vector2(680, 64), 28, Muted, TextAnchor.MiddleLeft, new Vector2(.5f, .5f));
+            _detail = card.Find("Detail").GetComponent<Text>();
+            _chrome = chrome;
+            RefreshRoute(view, accent);
+        }
+
+        static string DetailText(IndoorHudView view)
+        {
+            switch (view.State)
+            {
+                case IndoorHudState.Scanning: return "Slowly move your phone across the hallway.";
+                case IndoorHudState.NotFound: return "Step into a hallway and scan the walls and signs.";
+                case IndoorHudState.Localized: return "You're ready to navigate.";
+                case IndoorHudState.Straight: return "Follow the arrows ahead · " + view.Distance.ToString("0") + " m";
+                case IndoorHudState.Turn: return "In " + view.Distance.ToString("0") + " m";
+                case IndoorHudState.WrongWay: return "Finding a new way to your destination.";
+                default: return view.Destination + " is here.";
+            }
+        }
+
+        void RefreshRoute(IndoorHudView view, Color accent)
+        {
+            var existing = _root.Find("Mini map");
+            if (existing != null)
+            {
+                existing.SetParent(null);
+                RemoveObject(existing.gameObject);
+            }
+            ClearTrail();
+            var state = view.State;
+            bool navigating = state == IndoorHudState.Localized || state == IndoorHudState.Straight || state == IndoorHudState.Turn || state == IndoorHudState.WrongWay || state == IndoorHudState.Arrived;
             if (navigating) DrawMap(view, accent);
             if (state == IndoorHudState.Straight || state == IndoorHudState.Turn) DrawTrail(view.Waypoints, accent);
         }
@@ -131,9 +177,15 @@ namespace IndoorAr
         void DrawTrail(Vector3[] waypoints, Color color)
         {
             if (waypoints == null || waypoints.Length < 2) return;
-            _trail = new GameObject("Route chevrons (mock)");
+            var shader = ChevronShader();
+            if (shader == null)
+            {
+                Debug.LogError("[IndoorHud] Sprites/Default is missing from the player build");
+                return;
+            }
+            _trail = new GameObject("Route chevrons");
             _trail.transform.SetParent(transform, false);
-            _trailMaterial = new Material(Shader.Find("Sprites/Default")) { color = color };
+            _trailMaterial = new Material(shader) { color = color };
             for (int segment = 0; segment < waypoints.Length - 1; segment++)
             {
                 var a = waypoints[segment]; var b = waypoints[segment + 1];
