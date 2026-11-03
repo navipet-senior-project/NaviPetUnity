@@ -6,7 +6,7 @@ While MultiSet is localizing, the card says the phone is scanning. After a fix, 
 
 **Indoor AR → Open Mock HUD Preview** is still the editor preview. It uses `MockIndoorRoute` and a generated corridor, and it does not change the shipping scene. The seven cards rendered over that corridor are in `docs/hud-states/`.
 
-Still not real: there is no walkable-map routing, no Supabase room data, and no floor-to-floor guidance. The door pose is whatever Flutter sends.
+Still not real: the Gradle AAR was not assembled and the phone install was not run, floors 3-5 are out of scope, and there is no NavMesh route. There is no Supabase room data. The door pose is whatever Flutter sends.
 
 The captain builds the phone library on a Mac that already has the gitignored `Assets/Samples/MultiSet-SDK/**/Resources/MultiSetConfig.asset`. Never commit, print, or request that file.
 
