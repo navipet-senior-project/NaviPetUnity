@@ -133,7 +133,8 @@ namespace IndoorAr
             if (waypoints == null || waypoints.Length < 2) return;
             _trail = new GameObject("Route chevrons (mock)");
             _trail.transform.SetParent(transform, false);
-            _trailMaterial = new Material(Shader.Find("Sprites/Default")) { color = color };
+            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+            _trailMaterial = new Material(shader) { color = color };
             for (int segment = 0; segment < waypoints.Length - 1; segment++)
             {
                 var a = waypoints[segment]; var b = waypoints[segment + 1];

@@ -24,6 +24,28 @@ namespace IndoorAr.Editor
             Selection.activeGameObject = preview.gameObject;
         }
 
+        public static void BuildPreview()
+        {
+            var output = Environment.GetEnvironmentVariable("NAVIPET_HUD_BUILD");
+            if (string.IsNullOrEmpty(output)) throw new Exception("NAVIPET_HUD_BUILD is required");
+            const string scene = "Assets/IndoorAr/Scenes/IndoorHudBuildPreview.unity";
+            OpenPreview();
+            EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), scene);
+            try
+            {
+                var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { scene }, locationPathName = output,
+                    target = BuildTarget.Android, options = BuildOptions.Development
+                });
+                Debug.Log("[IndoorHud] preview build " + report.summary.result);
+                if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
+                    throw new Exception("Preview build failed: " + report.summary.result);
+            }
+            finally { AssetDatabase.DeleteAsset(scene); }
+            EditorApplication.Exit(0);
+        }
+
         // Batch-render a deliberately illustrative corridor and each real HUD state.
         public static void Capture()
         {
@@ -62,6 +84,9 @@ namespace IndoorAr.Editor
                     Canvas.ForceUpdateCanvases();
                     camera.Render();
                     if (++frames < 4) { EditorApplication.QueuePlayerLoopUpdate(); return; }
+                    var destination = hud.transform.Find("HUD Canvas/DestinationLabel").GetComponent<UnityEngine.UI.Text>();
+                    var canvas = destination.canvas;
+                    Debug.Log($"[IndoorHud diagnostics] state={states[index]} enabled={destination.enabled} active={destination.gameObject.activeInHierarchy} alpha={destination.color.a} color={destination.color} rect={destination.rectTransform.rect.size} font={destination.font.name} dynamic={destination.font.dynamic} preferredWidth={destination.preferredWidth} layer={destination.gameObject.layer} cameraMask={camera.cullingMask} sortingOrder={canvas.sortingOrder} canvasMode={canvas.renderMode} background={hud.transform.Find("HUD Canvas/Destination").GetComponent<UnityEngine.UI.Image>().color}");
                     RenderTexture.active = camera.targetTexture;
                     var image = new Texture2D(720, 1280, TextureFormat.RGB24, false);
                     image.ReadPixels(new Rect(0, 0, 720, 1280), 0, 0); image.Apply();
