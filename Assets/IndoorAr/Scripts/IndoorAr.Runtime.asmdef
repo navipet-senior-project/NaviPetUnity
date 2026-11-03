@@ -4,7 +4,8 @@
     "references": [
         "Unity.InputSystem",
         "Unity.XR.ARFoundation",
-        "MultiSet-SDK.Core"
+        "MultiSet-SDK.Core",
+        "Unity.ugui"
     ],
     "autoReferenced": true
 }
