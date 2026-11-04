@@ -14,8 +14,9 @@ namespace IndoorAr
     }
 
     /// <summary>
-    /// Bridge contract v1 request from the Flutter app. The pose is in the
-    /// MultiSet MapSet frame and is used as is.
+    /// Bridge contract v1/v2 request from the Flutter app. The pose is in the
+    /// MultiSet MapSet frame and is used as is. arToken is sent by v2 only and
+    /// is not used yet.
     /// </summary>
     [Serializable]
     public class IndoorArRequest
@@ -28,11 +29,13 @@ namespace IndoorAr
         public float headingDeg;
         public string mapCode;
         public string frame;
+        public string arToken;
     }
 
     public static class IndoorArContract
     {
         public const int SchemaVersion = 1;
+        public const int SchemaVersionV2 = 2;
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
         public const string Frame = "multiset-mapset";
@@ -60,7 +63,7 @@ namespace IndoorAr
                 return false;
             }
             if (parsed == null
-                || parsed.schemaVersion != SchemaVersion
+                || (parsed.schemaVersion != SchemaVersion && parsed.schemaVersion != SchemaVersionV2)
                 || string.IsNullOrEmpty(parsed.doorKey)
                 || string.IsNullOrEmpty(parsed.floor)
                 || string.IsNullOrEmpty(parsed.mapCode))
