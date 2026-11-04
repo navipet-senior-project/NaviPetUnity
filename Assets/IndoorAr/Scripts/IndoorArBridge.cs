@@ -1,11 +1,13 @@
+using System;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace IndoorAr
 {
     /// <summary>
-    /// Android host access. The request comes from the launch intent set by the
-    /// app's IndoorArChannel; the result goes back through
-    /// UnityHostActivity.deliverResult, which finishes the activity.
+    /// Host access. Android reads the launch intent extra and answers through
+    /// UnityHostActivity.deliverResult. iOS reads and answers through IndoorArHost
+    /// in the embedded UnityFramework. Editor and other players use the stand-in.
     /// </summary>
     public static class IndoorArBridge
     {
@@ -22,6 +24,8 @@ namespace IndoorAr
             using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
             using var intent = activity.Call<AndroidJavaObject>("getIntent");
             return intent.Call<string>("getStringExtra", IndoorArContract.RequestExtra);
+#elif UNITY_IOS && !UNITY_EDITOR
+            return Marshal.PtrToStringUTF8(IndoorArReadRequest());
 #else
             return EditorRequestJson;
 #endif
@@ -34,7 +38,17 @@ namespace IndoorAr
             using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
             using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
             activity.Call("deliverResult", resultJson);
+#elif UNITY_IOS && !UNITY_EDITOR
+            IndoorArDeliverResult(resultJson);
 #endif
         }
+
+#if UNITY_IOS && !UNITY_EDITOR
+        [DllImport("__Internal")]
+        static extern IntPtr IndoorArReadRequest();
+
+        [DllImport("__Internal")]
+        static extern void IndoorArDeliverResult([MarshalAs(UnmanagedType.LPUTF8Str)] string resultJson);
+#endif
     }
 }

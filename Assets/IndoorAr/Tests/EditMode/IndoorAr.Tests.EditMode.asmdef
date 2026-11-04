@@ -5,6 +5,10 @@
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Unity.XR.ARFoundation",
+        "Unity.XR.ARKit",
+        "Unity.XR.ARKit.Editor",
+        "Unity.XR.Management",
+        "Unity.XR.Management.Editor",
         "IndoorAr.Editor",
         "Unity.ugui"
     ],

@@ -339,7 +339,7 @@
     },
     "com.unity.xr.arkit": {
       "version": "6.3.5",
-      "depth": 1,
+      "depth": 0,
       "source": "registry",
       "dependencies": {
         "com.unity.xr.core-utils": "2.2.2",
