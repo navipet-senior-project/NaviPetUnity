@@ -41,19 +41,6 @@ namespace IndoorAr.Editor
             if (Application.isBatchMode) EditorApplication.Exit(0);
         }
 
-        /// <summary>
-        /// Writes the Android and iOS XR loaders and player settings. Does not
-        /// rebuild the scene. Batch mode exits when this method is the entry point.
-        /// </summary>
-        public static void ApplyPlatformSettings()
-        {
-            ConfigureXr();
-            ConfigurePlayer();
-            AssetDatabase.SaveAssets();
-            Debug.Log("[IndoorAr] platform settings applied");
-            if (Application.isBatchMode) EditorApplication.Exit(0);
-        }
-
         static void ConfigureXr()
         {
             AssignLoader(BuildTargetGroup.Android, ArCoreLoader);
