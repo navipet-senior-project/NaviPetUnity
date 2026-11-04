@@ -23,10 +23,30 @@ public class IndoorArContractTests
         Assert.AreEqual("multiset-mapset", request.frame);
     }
 
+    [Test]
+    public void ParsesAV2RequestWithArToken()
+    {
+        var json = Vec119.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")
+            .Replace("\"frame\"", "\"arToken\":\"tok\",\"frame\"");
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.AreEqual(2, request.schemaVersion);
+        Assert.AreEqual("tok", request.arToken);
+        Assert.AreEqual("VEC119", request.doorKey);
+    }
+
+    [Test]
+    public void ParsesAV2RequestWithoutArToken()
+    {
+        var json = Vec119.Replace("\"schemaVersion\":1", "\"schemaVersion\":2");
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.IsNull(request.arToken);
+    }
+
     [TestCase(null)]
     [TestCase("")]
     [TestCase("not json")]
-    [TestCase("{\"schemaVersion\":2,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
+    [TestCase("{\"schemaVersion\":0,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
+    [TestCase("{\"schemaVersion\":3,\"doorKey\":\"VEC119\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
     [TestCase("{\"schemaVersion\":1,\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
     [TestCase("{\"schemaVersion\":1,\"doorKey\":\"\",\"floor\":\"1\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
     [TestCase("{\"schemaVersion\":1,\"doorKey\":\"VEC119\",\"mapCode\":\"M\",\"frame\":\"multiset-mapset\"}")]
