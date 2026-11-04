@@ -1,0 +1,17 @@
+#import <Foundation/Foundation.h>
+
+NS_ASSUME_NONNULL_BEGIN
+
+/// Host side of the indoor AR request/result bridge inside UnityFramework.
+///
+/// The request JSON is the same string Android stores in the
+/// `navipet.indoorAr.request` intent extra. The result JSON is the same string
+/// `UnityHostActivity.deliverResult` returns. Set both before Unity's first
+/// scene runs. The result handler is called at most once, on the main queue.
+/// Do not log the request: a v2 request may carry an arToken.
+@interface IndoorArHost : NSObject
++ (void)setRequest:(NSString *)json;
++ (void)setResultHandler:(void (^ _Nullable)(NSString *json))handler;
+@end
+
+NS_ASSUME_NONNULL_END

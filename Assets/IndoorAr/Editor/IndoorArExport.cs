@@ -35,5 +35,30 @@ namespace IndoorAr.Editor
             Debug.Log($"[IndoorAr] export {report.summary.result} to {ExportPath}");
             if (Application.isBatchMode) EditorApplication.Exit(succeeded ? 0 : 1);
         }
+
+        public const string IosExportPath = "Builds/IndoorArIos";
+
+        [MenuItem("Indoor AR/Export iOS Xcode Project")]
+        public static void ExportIos()
+        {
+            if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.iOS, BuildTarget.iOS))
+            {
+                Debug.LogError("[IndoorAr] iOS Build Support is not installed for this editor");
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                return;
+            }
+            PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
+            PlayerSettings.SetArchitecture(NamedBuildTarget.iOS, 1);
+            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            {
+                scenes = Scenes,
+                locationPathName = IosExportPath,
+                target = BuildTarget.iOS,
+                options = BuildOptions.None,
+            });
+            var succeeded = report.summary.result == BuildResult.Succeeded;
+            Debug.Log($"[IndoorAr] iOS export {report.summary.result} to {IosExportPath}");
+            if (Application.isBatchMode) EditorApplication.Exit(succeeded ? 0 : 1);
+        }
     }
 }

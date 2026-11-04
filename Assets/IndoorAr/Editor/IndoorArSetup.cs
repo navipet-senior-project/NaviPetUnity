@@ -11,6 +11,7 @@ using UnityEditor.XR.Management.Metadata;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
+using UnityEditor.XR.ARKit;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.Management;
 
@@ -25,6 +26,8 @@ namespace IndoorAr.Editor
     {
         const string ScenePath = "Assets/IndoorAr/Scenes/IndoorArSpike.unity";
         const string ArCoreLoader = "UnityEngine.XR.ARCore.ARCoreLoader";
+        const string ArKitLoader = "UnityEngine.XR.ARKit.ARKitLoader";
+        const string ArKitSettingsPath = "Assets/XR/Settings/ARKitSettings.asset";
 
         [MenuItem("Indoor AR/Configure Project")]
         public static void Configure()
@@ -40,18 +43,34 @@ namespace IndoorAr.Editor
 
         static void ConfigureXr()
         {
+            AssignLoader(BuildTargetGroup.Android, ArCoreLoader);
+            AssignLoader(BuildTargetGroup.iOS, ArKitLoader);
+            // Optional, matching ARCore: the Flutter host still installs on phones without AR.
+            var arkit = AssetDatabase.LoadAssetAtPath<ARKitSettings>(ArKitSettingsPath);
+            if (arkit == null)
+            {
+                arkit = ScriptableObject.CreateInstance<ARKitSettings>();
+                AssetDatabase.CreateAsset(arkit, ArKitSettingsPath);
+            }
+            arkit.requirement = ARKitSettings.Requirement.Optional;
+            arkit.faceTracking = false;
+            ARKitSettings.currentSettings = arkit;
+            EditorUtility.SetDirty(arkit);
+        }
+
+        static void AssignLoader(BuildTargetGroup group, string loaderType)
+        {
             var getOrCreate = typeof(XRGeneralSettingsPerBuildTarget).GetMethod(
                 "GetOrCreate", BindingFlags.Static | BindingFlags.NonPublic);
             var perTarget = (XRGeneralSettingsPerBuildTarget)getOrCreate.Invoke(null, null);
-            const BuildTargetGroup android = BuildTargetGroup.Android;
-            if (!perTarget.HasSettingsForBuildTarget(android))
-                perTarget.CreateDefaultSettingsForBuildTarget(android);
-            if (!perTarget.HasManagerSettingsForBuildTarget(android))
-                perTarget.CreateDefaultManagerSettingsForBuildTarget(android);
-            var manager = perTarget.ManagerSettingsForBuildTarget(android);
-            if (!XRPackageMetadataStore.AssignLoader(manager, ArCoreLoader, android)
-                && !XRPackageMetadataStore.IsLoaderAssigned(ArCoreLoader, android))
-                throw new System.Exception("could not assign the ARCore loader");
+            if (!perTarget.HasSettingsForBuildTarget(group))
+                perTarget.CreateDefaultSettingsForBuildTarget(group);
+            if (!perTarget.HasManagerSettingsForBuildTarget(group))
+                perTarget.CreateDefaultManagerSettingsForBuildTarget(group);
+            var manager = perTarget.ManagerSettingsForBuildTarget(group);
+            if (!XRPackageMetadataStore.AssignLoader(manager, loaderType, group)
+                && !XRPackageMetadataStore.IsLoaderAssigned(loaderType, group))
+                throw new System.Exception($"could not assign {loaderType}");
             EditorUtility.SetDirty(perTarget);
             EditorUtility.SetDirty(manager);
         }
@@ -63,6 +82,14 @@ namespace IndoorAr.Editor
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel26;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3 });
+
+            // ARKit's floor is iOS 11. This project already targets 15, which stays.
+            PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
+            PlayerSettings.iOS.targetOSVersionString = "15.0";
+            PlayerSettings.iOS.cameraUsageDescription = "NaviPet uses the camera to show indoor AR directions.";
+            PlayerSettings.SetArchitecture(UnityEditor.Build.NamedBuildTarget.iOS, 1);
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.iOS, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.iOS, new[] { UnityEngine.Rendering.GraphicsDeviceType.Metal });
         }
 
         // Without this feature the camera feed renders black under URP.
