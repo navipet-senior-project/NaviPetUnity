@@ -14,6 +14,10 @@ namespace IndoorAr
         public int Floor;
         public float Distance;
         public Vector3[] Waypoints;
+        public float ArrowYaw;
+        public bool ScanTooFast;
+        public string TitleOverride;
+        public string DetailOverride;
     }
 
     public static class MockIndoorRoute
@@ -36,23 +40,17 @@ namespace IndoorAr
         static readonly Color Muted = new Color32(94, 108, 128, 255);
         static readonly Color White = Color.white;
         Transform _root;
-        GameObject _trail;
-        Material _trailMaterial;
         Sprite _round;
+        Sprite _arrowSprite;
         Font _font;
         Text _detail;
         string _chrome;
         Vector3[] _drawn;
+        RectTransform _arrow;
+        RectTransform _look;
+        RectTransform _slow;
         const float RedrawMeters = .25f;
         public event Action ExitRequested;
-
-        // Referenced material keeps Sprites/Default in the player when Shader.Find would miss it.
-        public static Shader ChevronShader()
-        {
-            var source = Resources.Load<Material>("Chevron");
-            if (source != null && source.shader != null) return source.shader;
-            return Shader.Find("Sprites/Default");
-        }
 
         public void Initialize(Camera camera)
         {
@@ -75,7 +73,7 @@ namespace IndoorAr
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             var accent = view.State == IndoorHudState.WrongWay ? Orange : Blue;
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride;
             if (_chrome == chrome)
             {
                 if (_detail != null && (view.State == IndoorHudState.Straight || view.State == IndoorHudState.Turn))
@@ -83,13 +81,15 @@ namespace IndoorAr
                 RefreshRoute(view, accent);
                 return;
             }
+            _arrow = null;
+            _look = null;
+            _slow = null;
             while (_root.childCount > 0)
             {
                 var child = _root.GetChild(0);
                 child.SetParent(null);
                 RemoveObject(child.gameObject);
             }
-            ClearTrail();
             _drawn = null;
             var state = view.State;
 
@@ -106,29 +106,32 @@ namespace IndoorAr
                 case IndoorHudState.Scanning: title = "Scanning area..."; icon = "◌"; break;
                 case IndoorHudState.NotFound: title = "Could not find your location"; icon = "!"; break;
                 case IndoorHudState.Localized: title = "Location found"; icon = "✓"; break;
-                case IndoorHudState.Straight: title = "Continue straight"; icon = "↑"; break;
+                case IndoorHudState.Straight: title = "Continue ahead"; icon = "●"; break;
                 case IndoorHudState.Turn: title = "Turn right"; icon = "↱"; break;
                 case IndoorHudState.WrongWay: title = "Recalculating route"; icon = "↻"; break;
                 default: title = "You have arrived"; icon = "✓"; break;
             }
+            if (!string.IsNullOrEmpty(view.TitleOverride)) title = view.TitleOverride;
             var card = Panel(_root, "Instruction", new Vector2(0, -280), new Vector2(980, 190), White, new Vector2(.5f, 1));
             Panel(card, "IconBackground", new Vector2(-390, 0), new Vector2(120, 120), accent, new Vector2(.5f, .5f));
             Label(card, "Icon", icon, new Vector2(-390, 0), new Vector2(120, 120), 67, White, TextAnchor.MiddleCenter, new Vector2(.5f, .5f), FontStyle.Bold);
             Label(card, "Title", title, new Vector2(65, 32), new Vector2(680, 65), 43, Ink, TextAnchor.MiddleLeft, new Vector2(.5f, .5f), FontStyle.Bold);
             Label(card, "Detail", DetailText(view), new Vector2(65, -37), new Vector2(680, 64), 28, Muted, TextAnchor.MiddleLeft, new Vector2(.5f, .5f));
             _detail = card.Find("Detail").GetComponent<Text>();
+            if (state == IndoorHudState.Scanning) _slow = SlowPill();
             _chrome = chrome;
             RefreshRoute(view, accent);
         }
 
         static string DetailText(IndoorHudView view)
         {
+            if (!string.IsNullOrEmpty(view.DetailOverride)) return view.DetailOverride;
             switch (view.State)
             {
                 case IndoorHudState.Scanning: return "Slowly move your phone across the hallway.";
                 case IndoorHudState.NotFound: return "Step into a hallway and scan the walls and signs.";
                 case IndoorHudState.Localized: return "You're ready to navigate.";
-                case IndoorHudState.Straight: return "Follow the arrows ahead · " + view.Distance.ToString("0") + " m";
+                case IndoorHudState.Straight: return "In " + view.Distance.ToString("0") + " m";
                 case IndoorHudState.Turn: return "In " + view.Distance.ToString("0") + " m";
                 case IndoorHudState.WrongWay: return "Finding a new way to your destination.";
                 default: return view.Destination + " is here.";
@@ -145,6 +148,7 @@ namespace IndoorAr
 
         void RefreshRoute(IndoorHudView view, Color accent)
         {
+            UpdateCue(view);
             if (RouteUnchanged(view.Waypoints)) return;
             _drawn = view.Waypoints == null ? null : (Vector3[])view.Waypoints.Clone();
             var existing = _root.Find("Mini map");
@@ -153,11 +157,71 @@ namespace IndoorAr
                 existing.SetParent(null);
                 RemoveObject(existing.gameObject);
             }
-            ClearTrail();
             var state = view.State;
             bool navigating = state == IndoorHudState.Localized || state == IndoorHudState.Straight || state == IndoorHudState.Turn || state == IndoorHudState.WrongWay || state == IndoorHudState.Arrived;
             if (navigating) DrawMap(view, accent);
-            if (state == IndoorHudState.Straight || state == IndoorHudState.Turn) DrawTrail(view.Waypoints, accent);
+        }
+
+        void UpdateCue(IndoorHudView view)
+        {
+            bool guide = view.State == IndoorHudState.Straight || view.State == IndoorHudState.Turn;
+            if (guide) EnsureGuide();
+            if (_arrow != null)
+            {
+                _arrow.gameObject.SetActive(guide);
+                if (guide)
+                    _arrow.localEulerAngles = new Vector3(0f, 0f, GuidanceCue.ArrowScreenRotation(view.ArrowYaw));
+            }
+            if (_look != null)
+                _look.gameObject.SetActive(guide && !GuidanceCue.FacingWaypoint(view.ArrowYaw));
+            if (_slow != null)
+                _slow.gameObject.SetActive(view.State == IndoorHudState.Scanning && view.ScanTooFast);
+        }
+
+        void EnsureGuide()
+        {
+            if (_arrow != null) return;
+            var obj = new GameObject("Guide arrow", typeof(RectTransform), typeof(Image));
+            obj.transform.SetParent(_root, false);
+            _arrow = obj.GetComponent<RectTransform>();
+            _arrow.anchorMin = _arrow.anchorMax = new Vector2(.5f, .5f);
+            _arrow.anchoredPosition = new Vector2(0f, 160f);
+            _arrow.sizeDelta = new Vector2(280f, 280f);
+            var image = obj.GetComponent<Image>();
+            image.sprite = ArrowSprite();
+            image.color = Blue;
+            image.raycastTarget = false;
+            _look = Panel(_root, "Look this way", new Vector2(0f, -90f), new Vector2(560f, 100f), White, new Vector2(.5f, .5f));
+            Label(_look, "Look label", "Look this way", Vector2.zero, new Vector2(500f, 80f), 40, Ink, TextAnchor.MiddleCenter, new Vector2(.5f, .5f), FontStyle.Bold);
+            _look.gameObject.SetActive(false);
+        }
+
+        RectTransform SlowPill()
+        {
+            var pill = Panel(_root, "Scan slowly", new Vector2(0f, -40f), new Vector2(460f, 96f), Ink, new Vector2(.5f, .5f));
+            Label(pill, "Scan label", "Scan slowly", Vector2.zero, new Vector2(420f, 80f), 40, White, TextAnchor.MiddleCenter, new Vector2(.5f, .5f), FontStyle.Bold);
+            pill.gameObject.SetActive(false);
+            return pill;
+        }
+
+        Sprite ArrowSprite()
+        {
+            if (_arrowSprite != null) return _arrowSprite;
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float cx = (size - 1) * 0.5f;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float ny = y / (float)(size - 1);
+                float dx = Mathf.Abs(x - cx);
+                bool head = ny >= 0.38f && dx <= (1f - (ny - 0.38f) / 0.62f) * (cx * 0.95f);
+                bool shaft = ny < 0.46f && dx <= cx * 0.26f;
+                texture.SetPixel(x, y, head || shaft ? Color.white : Color.clear);
+            }
+            texture.Apply();
+            _arrowSprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100);
+            return _arrowSprite;
         }
 
         void DrawMap(IndoorHudView view, Color accent)
@@ -187,36 +251,6 @@ namespace IndoorAr
             Panel(map, "Position", position, new Vector2(25, 25), accent, new Vector2(.5f, .5f));
         }
 
-        void DrawTrail(Vector3[] waypoints, Color color)
-        {
-            if (waypoints == null || waypoints.Length < 2) return;
-            var shader = ChevronShader();
-            if (shader == null)
-            {
-                Debug.LogError("[IndoorHud] Sprites/Default is missing from the player build");
-                return;
-            }
-            _trail = new GameObject("Route chevrons");
-            _trail.transform.SetParent(transform, false);
-            _trailMaterial = new Material(shader) { color = color };
-            for (int segment = 0; segment < waypoints.Length - 1; segment++)
-            {
-                var a = waypoints[segment]; var b = waypoints[segment + 1];
-                var delta = b - a;
-                float start = segment == 0 ? 2f : .5f;
-                for (float distance = start; distance < delta.magnitude; distance += 1.3f)
-                {
-                    var marker = new GameObject("Chevron", typeof(MeshFilter), typeof(MeshRenderer));
-                    marker.transform.SetParent(_trail.transform, false);
-                    marker.transform.localPosition = a + delta.normalized * distance + Vector3.up * .025f;
-                    marker.transform.localRotation = Quaternion.LookRotation(delta.normalized, Vector3.up);
-                    var mesh = new Mesh { vertices = new[] { new Vector3(-.45f,0,-.25f), new Vector3(0,0,.15f), new Vector3(.45f,0,-.25f), new Vector3(-.45f,0,-.05f), new Vector3(0,0,.35f), new Vector3(.45f,0,-.05f) }, triangles = new[] { 0, 3, 1, 1, 3, 4, 1, 4, 2, 2, 4, 5 } };
-                    mesh.RecalculateNormals(); marker.GetComponent<MeshFilter>().mesh = mesh;
-                    marker.GetComponent<MeshRenderer>().sharedMaterial = _trailMaterial;
-                }
-            }
-        }
-
         RectTransform Panel(Transform parent, string name, Vector2 position, Vector2 size, Color color, Vector2 anchor)
         {
             var obj = new GameObject(name, typeof(RectTransform), typeof(Image));
@@ -243,19 +277,10 @@ namespace IndoorAr
             }
             texture.Apply(); return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100, 0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
         }
-        void ClearTrail()
-        {
-            if (_trail == null) return;
-            if (_trailMaterial != null) RemoveObject(_trailMaterial);
-            _trailMaterial = null;
-            foreach (var filter in _trail.GetComponentsInChildren<MeshFilter>()) RemoveObject(filter.sharedMesh);
-            RemoveObject(_trail);
-            _trail = null;
-        }
         void OnDestroy()
         {
-            ClearTrail();
             if (_round != null) { RemoveObject(_round.texture); RemoveObject(_round); }
+            if (_arrowSprite != null) { RemoveObject(_arrowSprite.texture); RemoveObject(_arrowSprite); }
         }
         static void RemoveObject(UnityEngine.Object obj) { if (Application.isPlaying) Destroy(obj); else DestroyImmediate(obj); }
     }

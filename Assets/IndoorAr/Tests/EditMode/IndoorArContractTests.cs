@@ -27,10 +27,12 @@ public class IndoorArContractTests
     public void ParsesAV2RequestWithArToken()
     {
         var json = Vec119.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")
-            .Replace("\"frame\"", "\"arToken\":\"tok\",\"frame\"");
+            .Replace("\"frame\"", "\"arToken\":{\"token\":\"tok\",\"expiresOn\":\"2030-01-01T00:00:00Z\"},\"frame\"");
         Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
         Assert.AreEqual(2, request.schemaVersion);
-        Assert.AreEqual("tok", request.arToken);
+        var supplied = IndoorArContract.ReadArToken(json);
+        Assert.AreEqual("tok", supplied.token);
+        Assert.AreEqual("2030-01-01T00:00:00Z", supplied.expiresOn);
         Assert.AreEqual("VEC119", request.doorKey);
     }
 
@@ -40,6 +42,7 @@ public class IndoorArContractTests
         var json = Vec119.Replace("\"schemaVersion\":1", "\"schemaVersion\":2");
         Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
         Assert.IsNull(request.arToken);
+        Assert.IsNull(IndoorArContract.ReadArToken(json));
     }
 
     [TestCase(null)]

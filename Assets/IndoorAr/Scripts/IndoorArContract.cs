@@ -15,8 +15,8 @@ namespace IndoorAr
 
     /// <summary>
     /// Bridge contract v1/v2 request from the Flutter app. The pose is in the
-    /// MultiSet MapSet frame and is used as is. arToken is sent by v2 only and
-    /// is not used yet.
+    /// MultiSet MapSet frame and is used as is. v2 sends arToken as an object;
+    /// ReadArToken reads it because JsonUtility cannot store that object in the string field.
     /// </summary>
     [Serializable]
     public class IndoorArRequest
@@ -30,6 +30,14 @@ namespace IndoorAr
         public string mapCode;
         public string frame;
         public string arToken;
+    }
+
+    /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
+    [Serializable]
+    public class IndoorArSuppliedToken
+    {
+        public string token;
+        public string expiresOn;
     }
 
     public static class IndoorArContract
@@ -72,6 +80,20 @@ namespace IndoorAr
             }
             request = parsed;
             return true;
+        }
+
+        public static IndoorArSuppliedToken ReadArToken(string json)
+        {
+            const string key = "\"arToken\":";
+            if (string.IsNullOrEmpty(json)) return null;
+            var at = json.IndexOf(key, StringComparison.Ordinal);
+            if (at < 0) return null;
+            var rest = json.Substring(at + key.Length).TrimStart();
+            if (!rest.StartsWith("{", StringComparison.Ordinal)) return null;
+            var end = rest.IndexOf('}');
+            if (end < 0) return null;
+            // shortcut: first closing brace ends the object; Flutter's token has no nested braces.
+            return JsonUtility.FromJson<IndoorArSuppliedToken>(rest.Substring(0, end + 1));
         }
 
         /// <summary>

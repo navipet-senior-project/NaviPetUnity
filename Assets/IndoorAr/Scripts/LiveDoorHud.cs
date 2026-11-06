@@ -5,7 +5,7 @@ namespace IndoorAr
 {
     /// <summary>
     /// Maps the door-verifier session onto IndoorHudView.
-    /// Arrows are a straight line from the live pose to the launch door pose.
+    /// The guide arrow is the horizontal yaw from the camera to the door.
     /// shortcut: no walkable map, so this never turns or avoids walls.
     /// </summary>
     public static class LiveDoorHud
@@ -17,11 +17,17 @@ namespace IndoorAr
             && session.ResultJson != null
             && session.ResultJson.Contains("\"status\":\"localizationFailed\"");
 
-        public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, float pinnedForS)
+        public static bool AuthFailed(IndoorArSession session) =>
+            session.State == IndoorArState.Done
+            && session.ResultJson != null
+            && session.ResultJson.Contains("\"errorCode\":\"MULTISET_AUTH\"");
+
+        public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap, float pinnedForS)
         {
             var request = session.Request;
             var door = request.position;
             var target = new Vector3(door.x, door.y, door.z);
+            var authFailed = AuthFailed(session);
             return new IndoorHudView
             {
                 State = StateFor(session, pinnedForS),
@@ -29,21 +35,83 @@ namespace IndoorAr
                 Floor = int.TryParse(request.floor, out var floor) ? floor : 0,
                 Distance = session.HorizontalDistance(cameraInMap),
                 Waypoints = new[] { new Vector3(cameraInMap.x, door.y, cameraInMap.z), target },
+                ArrowYaw = GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
+                TitleOverride = authFailed ? "AR sign-in failed" : null,
+                DetailOverride = authFailed ? "The session could not use the AR token." : null,
             };
         }
 
         public static string Destination(IndoorArRequest request)
         {
-            if (string.IsNullOrEmpty(request.room)) return request.doorKey;
-            return request.room.StartsWith("VEC", StringComparison.Ordinal) ? request.room : "VEC " + request.room;
+            var label = string.IsNullOrEmpty(request.room) ? request.doorKey : request.room;
+            return RoomLabel(label);
+        }
+
+        /// <summary>"119", "VEC119", and "VEC 119" all show the searched label "VEC 119".</summary>
+        public static string RoomLabel(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return raw;
+            var trimmed = raw.Trim();
+            if (trimmed.StartsWith("VEC", StringComparison.OrdinalIgnoreCase))
+            {
+                var body = trimmed.Substring(3).TrimStart();
+                if (Digits(body)) return "VEC " + body;
+                return trimmed;
+            }
+            return "VEC " + trimmed;
+        }
+
+        static bool Digits(string value)
+        {
+            if (value.Length == 0) return false;
+            foreach (var c in value)
+                if (c < '0' || c > '9') return false;
+            return true;
         }
 
         static IndoorHudState StateFor(IndoorArSession session, float pinnedForS)
         {
             if (session.State == IndoorArState.Pinned)
                 return pinnedForS < LocationFoundHoldS ? IndoorHudState.Localized : IndoorHudState.Straight;
-            if (LocalizationFailed(session)) return IndoorHudState.NotFound;
+            if (LocalizationFailed(session) || AuthFailed(session)) return IndoorHudState.NotFound;
             return IndoorHudState.Scanning;
+        }
+    }
+
+    public static class GuidanceCue
+    {
+        public const float LookAheadDegrees = 20f;
+        // shortcut: not measured in the VEC hallway; raise only if a slow scan still times out.
+        public const float SlowScanMetersPerSecond = 0.75f;
+        public const float SlowScanDegreesPerSecond = 45f;
+        public const float SlowScanHoldS = 1f;
+
+        /// <summary>Seconds the slow-scan pill stays up: restarts on every too-fast frame, then counts down.</summary>
+        public static float HoldSlowScan(float remaining, bool tooFast, float deltaSeconds) =>
+            tooFast ? SlowScanHoldS : Mathf.Max(0f, remaining - deltaSeconds);
+
+        /// <summary>Signed degrees from horizontal camera forward to the waypoint. 0 is ahead, positive is right.</summary>
+        public static float ArrowYawDegrees(Vector3 cameraForward, Vector3 cameraPosition, Vector3 waypoint)
+        {
+            var forward = cameraForward;
+            forward.y = 0f;
+            var to = waypoint - cameraPosition;
+            to.y = 0f;
+            if (forward.sqrMagnitude < 1e-8f || to.sqrMagnitude < 1e-8f) return 0f;
+            return Vector3.SignedAngle(forward, to, Vector3.up);
+        }
+
+        /// <summary>UI z rotation for an arrow that points up at yaw 0. Positive yaw (right) is clockwise.</summary>
+        public static float ArrowScreenRotation(float yawDegrees) => -yawDegrees;
+
+        public static bool FacingWaypoint(float yawDegrees) =>
+            Mathf.Abs(Mathf.DeltaAngle(0f, yawDegrees)) <= LookAheadDegrees;
+
+        public static bool ScanTooFast(float movedMeters, float turnedDegrees, float deltaSeconds)
+        {
+            if (deltaSeconds <= 0f) return false;
+            return movedMeters / deltaSeconds > SlowScanMetersPerSecond
+                || Mathf.Abs(turnedDegrees) / deltaSeconds > SlowScanDegreesPerSecond;
         }
     }
 }

@@ -53,6 +53,12 @@ public class IndoorArIosSettingsTests
         Assert.GreaterOrEqual(Version.Parse(PlayerSettings.iOS.targetOSVersionString), new Version(11, 0));
         Assert.AreEqual("15.0", PlayerSettings.iOS.targetOSVersionString);
         Assert.IsFalse(string.IsNullOrEmpty(PlayerSettings.iOS.cameraUsageDescription));
+        Assert.AreEqual(
+            "NaviPet uses your location while scanning a room for indoor AR.",
+            PlayerSettings.iOS.locationUsageDescription);
+        StringAssert.Contains(
+            "UNITY_XR_ARKIT_LOADER_ENABLED",
+            PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.iOS));
         Assert.AreEqual(1, PlayerSettings.GetArchitecture(NamedBuildTarget.iOS));
         Assert.AreEqual(ScriptingImplementation.IL2CPP, PlayerSettings.GetScriptingBackend(NamedBuildTarget.iOS));
         // Without the iOS player module, GetUseDefaultGraphicsAPIs stays true.

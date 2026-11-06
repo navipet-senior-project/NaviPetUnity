@@ -2,7 +2,7 @@
 
 On the phone, `IndoorArRunner` parents `IndoorHud` to the MultiSet map and feeds it `LiveDoorHud`. The background is the live AR camera (`ARCameraBackground` on the XR camera in `IndoorArSpike`). That scene has no generated hallway.
 
-While MultiSet is localizing, the card says the phone is scanning. After a fix, it says the location was found, then arrows run in a straight line from the live pose to the door pose Flutter passed at launch. They do not route around walls. If localization fails, the card says it could not find the location. On a device that card stays up for about four seconds, then the activity returns `localizationFailed`. Editor play returns immediately.
+While MultiSet is localizing, the card says the phone is scanning. If the phone moves faster than a slow scan, a centered line says Scan slowly. After a fix, it says the location was found, then one arrow in the center of the camera turns toward the door as the phone turns. It does not route around walls. The destination reads the searched room, so VEC119 shows as VEC 119. If localization fails, the card says it could not find the location. On a device that card stays up for about four seconds, then the activity returns `localizationFailed`. Editor play returns immediately.
 
 **Indoor AR → Open Mock HUD Preview** is still the editor preview. It uses `MockIndoorRoute` and a generated corridor, and it does not change the shipping scene. The seven cards rendered over that corridor are in `docs/hud-states/`. To regenerate them, set `NAVIPET_HUD_SHOTS` to an output directory and run Unity in batch mode with `-executeMethod IndoorAr.Editor.IndoorHudCapture.Capture`.
 
