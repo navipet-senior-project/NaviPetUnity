@@ -32,6 +32,7 @@ namespace IndoorAr
         Vector3 _scanPos;
         Quaternion _scanRot;
         bool _scanPoseReady;
+        float _slowHoldLeft;
         GUIStyle _label;
         GUIStyle _button;
 
@@ -114,7 +115,10 @@ namespace IndoorAr
             if (view.State == IndoorHudState.Scanning)
                 view.ScanTooFast = SampleScanMotion();
             else
+            {
                 _scanPoseReady = false;
+                _slowHoldLeft = 0f;
+            }
             _hud.Show(view);
         }
 
@@ -128,7 +132,8 @@ namespace IndoorAr
             _scanPos = pose.position;
             _scanRot = pose.rotation;
             _scanPoseReady = true;
-            return tooFast;
+            _slowHoldLeft = GuidanceCue.HoldSlowScan(_slowHoldLeft, tooFast, Time.unscaledDeltaTime);
+            return _slowHoldLeft > 0f;
         }
 
         void UpdatePin()

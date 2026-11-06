@@ -84,6 +84,11 @@ namespace IndoorAr
         // shortcut: not measured in the VEC hallway; raise only if a slow scan still times out.
         public const float SlowScanMetersPerSecond = 0.75f;
         public const float SlowScanDegreesPerSecond = 45f;
+        public const float SlowScanHoldS = 1f;
+
+        /// <summary>Seconds the slow-scan pill stays up: restarts on every too-fast frame, then counts down.</summary>
+        public static float HoldSlowScan(float remaining, bool tooFast, float deltaSeconds) =>
+            tooFast ? SlowScanHoldS : Mathf.Max(0f, remaining - deltaSeconds);
 
         /// <summary>Signed degrees from horizontal camera forward to the waypoint. 0 is ahead, positive is right.</summary>
         public static float ArrowYawDegrees(Vector3 cameraForward, Vector3 cameraPosition, Vector3 waypoint)

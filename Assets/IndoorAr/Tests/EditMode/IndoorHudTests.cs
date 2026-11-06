@@ -147,6 +147,21 @@ namespace IndoorAr.Tests
         }
 
         [Test]
+        public void SlowScanPillHoldsAfterTheLastFastFrameThenClears()
+        {
+            var left = GuidanceCue.HoldSlowScan(0f, true, 0.016f);
+            Assert.AreEqual(GuidanceCue.SlowScanHoldS, left);
+            left = GuidanceCue.HoldSlowScan(left, false, 0.5f);
+            Assert.Greater(left, 0f);
+            left = GuidanceCue.HoldSlowScan(left, true, 0.016f);
+            Assert.AreEqual(GuidanceCue.SlowScanHoldS, left);
+            left = GuidanceCue.HoldSlowScan(left, false, 0.6f);
+            Assert.Greater(left, 0f);
+            left = GuidanceCue.HoldSlowScan(left, false, 0.6f);
+            Assert.AreEqual(0f, left);
+        }
+
+        [Test]
         public void AuthFailureUsesTheSignInCopy()
         {
             var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
