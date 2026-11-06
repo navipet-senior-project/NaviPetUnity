@@ -1,8 +1,8 @@
 # iOS export
 
-Produces the Xcode project and `UnityFramework` the Flutter app embeds. The request and result JSON match Android: the request is the `navipet.indoorAr.request` extra (schemaVersion 1 or 2, optional `arToken`), and the result is the string `UnityHostActivity.deliverResult` returns, including `errorCode`. `arToken` is carried and not used for auth.
+Produces the Xcode project and `UnityFramework` the Flutter app embeds. The request and result JSON match Android: the request is the `navipet.indoorAr.request` extra (schemaVersion 1 or 2, optional `arToken`), and the result is the string `UnityHostActivity.deliverResult` returns, including `errorCode`. When `arToken` carries a `token` and `expiresOn`, Unity authenticates with it and needs no client id or secret; otherwise it falls back to the project's MultiSet configuration.
 
-Unity **6000.3.26f1**. AR Foundation and the ARKit XR plugin are **6.3.5**. The iOS player settings committed in this project are minimum iOS **15.0** (ARKit's own floor is 11), **ARM64**, **IL2CPP**, **Metal** only, and a camera usage description. XR Plug-in Management enables the ARKit loader for iOS and leaves the ARCore loader on Android. ARKit's requirement is optional, same as ARCore, so a host app can still install on a phone without AR.
+Unity **6000.3.26f1**. AR Foundation and the ARKit XR plugin are **6.3.5**. The iOS player settings committed in this project are minimum iOS **15.0** (ARKit's own floor is 11), **ARM64**, **IL2CPP**, **Metal** only, a camera usage description, a location usage description, and the `UNITY_XR_ARKIT_LOADER_ENABLED` define. XR Plug-in Management enables the ARKit loader for iOS and leaves the ARCore loader on Android. ARKit's requirement is optional, same as ARCore, so a host app can still install on a phone without AR.
 
 This editor install has no iOS Build Support module (`PlaybackEngines` contains `AndroidPlayer` only). Install the module before the export below. Do not switch the editor version.
 
@@ -20,7 +20,7 @@ This editor install has no iOS Build Support module (`PlaybackEngines` contains 
   -logFile -
 ```
 
-The menu item is **Indoor AR → Export iOS Xcode Project**. Output is `Builds/IndoorArIos/` (gitignored), an Xcode project whose `UnityFramework` target is the library the Flutter app embeds.
+The menu item is **Indoor AR → Export iOS Xcode Project**. Output is `Builds/IndoorArIos/` (gitignored), an Xcode project whose `UnityFramework` target is the library the Flutter app embeds. The export links `ARKit.framework` and `MultipeerConnectivity.framework` into that target.
 
 3. Open `Builds/IndoorArIos/Unity-iPhone.xcodeproj`. Select the **UnityFramework** scheme and a generic iOS device (`arm64`). Product → Build.
 4. Copy the built `UnityFramework.framework` into the Flutter app. The Flutter project gitignores that framework. Build it on a machine that has this Unity editor: the export symlinks editor libraries, so the framework binary is what moves, not the Xcode project alone.
