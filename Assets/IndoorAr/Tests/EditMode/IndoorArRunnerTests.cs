@@ -169,7 +169,7 @@ public class IndoorArRunnerTests
     }
 
     [Test]
-    public void PinnedHudDrawsChevronsFromTheCameraTowardTheDoor()
+    public void PinnedHudPointsOneArrowFromTheCameraTowardTheDoor()
     {
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var camObject = new GameObject("AR Camera", typeof(Camera));
@@ -182,24 +182,31 @@ public class IndoorArRunnerTests
         arState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
         try
         {
-        ((IEnumerator)Call(runner, "Start")).MoveNext();
-        var session = Field<IndoorArSession>(runner, "_session");
-        session.OnArSupport(true);
-        session.OnAuthenticated();
-        session.OnLocalized(0.5f);
-        runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
-            .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
-        Call(runner, "Update");
-        var hud = _host.GetComponentInChildren<IndoorHud>();
-        Assert.AreSame(localizer.MapSpace, hud.transform.parent);
-        var marker = hud.GetComponentInChildren<MeshRenderer>().transform;
-        var door = new Vector3(-5.7651f, -1.8186f, 22.6689f);
-        var from = new Vector3(1f, door.y, 3f);
-        var along = door - from;
-        var offset = marker.localPosition - from;
-        offset.y = 0f;
-        Assert.That(Vector3.Dot(offset.normalized, along.normalized), Is.GreaterThan(0.99f));
-        CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Continue straight");
+            ((IEnumerator)Call(runner, "Start")).MoveNext();
+            var session = Field<IndoorArSession>(runner, "_session");
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            session.OnLocalized(0.5f);
+            runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+            Call(runner, "Update");
+            var hud = _host.GetComponentInChildren<IndoorHud>();
+            Assert.AreSame(localizer.MapSpace, hud.transform.parent);
+            var door = new Vector3(-5.7651f, -1.8186f, 22.6689f);
+            var arrow = hud.transform.Find("HUD Canvas/Guide arrow");
+            Assert.AreEqual(1, hud.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Guide arrow"));
+            Assert.AreEqual(0, hud.GetComponentsInChildren<MeshRenderer>(true).Length);
+            var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, camObject.transform.position, door);
+            Assert.AreEqual(GuidanceCue.ArrowScreenRotation(yaw), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
+            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Continue ahead");
+            Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>(true).Any(t => t.text.Contains("VEC 119")));
+
+            camObject.transform.localRotation = Quaternion.LookRotation(Vector3.right);
+            Call(runner, "Update");
+            Assert.AreSame(arrow, hud.transform.Find("HUD Canvas/Guide arrow"));
+            var turned = GuidanceCue.ArrowYawDegrees(Vector3.right, camObject.transform.position, door);
+            Assert.AreEqual(GuidanceCue.ArrowScreenRotation(turned), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
+            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Look this way");
         }
         finally { arState.Invoke(null, new object[] { previous }); }
     }

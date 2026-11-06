@@ -65,7 +65,8 @@ public class IndoorArSessionTests
         Assert.AreEqual(auth ? IndoorArState.Auth : IndoorArState.Init, session.State);
         session.Tick(1f);
         Assert.AreEqual(IndoorArState.Done, session.State);
-        Assert.AreEqual("{\"status\":\"error\",\"errorCode\":\"NETWORK\",\"localizationQueries\":0,\"durationMs\":20000}", session.ResultJson);
+        var code = auth ? "MULTISET_AUTH" : "NETWORK";
+        Assert.AreEqual($"{{\"status\":\"error\",\"errorCode\":\"{code}\",\"localizationQueries\":0,\"durationMs\":20000}}", session.ResultJson);
         session.OnArSupport(true);
         session.OnAuthenticated();
         Assert.AreEqual(IndoorArState.Done, session.State);
@@ -80,7 +81,7 @@ public class IndoorArSessionTests
         session.Tick(19f);
         Assert.AreEqual(IndoorArState.Auth, session.State);
         session.Tick(1f);
-        StringAssert.Contains("\"errorCode\":\"NETWORK\"", session.ResultJson);
+        StringAssert.Contains("\"errorCode\":\"MULTISET_AUTH\"", session.ResultJson);
     }
 
     [Test]

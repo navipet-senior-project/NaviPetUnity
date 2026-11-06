@@ -91,7 +91,13 @@ namespace IndoorAr
             {
                 _startupS += dt;
                 if (_startupS >= StartupTimeoutS)
-                    Finish(IndoorArContract.Error(IndoorArContract.Network, Queries, ElapsedMs));
+                {
+                    // Auth already got past the offline check. Timing out here is an auth failure.
+                    var code = State == IndoorArState.Auth
+                        ? IndoorArContract.MultisetAuth
+                        : IndoorArContract.Network;
+                    Finish(IndoorArContract.Error(code, Queries, ElapsedMs));
+                }
                 return;
             }
             if (State != IndoorArState.Localizing) return;

@@ -58,7 +58,26 @@ namespace IndoorAr.Editor
             });
             var succeeded = report.summary.result == BuildResult.Succeeded;
             Debug.Log($"[IndoorAr] iOS export {report.summary.result} to {IosExportPath}");
+#if UNITY_IOS
+            if (succeeded) LinkFrameworksIntoUnityFramework();
+#endif
             if (Application.isBatchMode) EditorApplication.Exit(succeeded ? 0 : 1);
         }
+
+#if UNITY_IOS
+        // The ARKit plug-in and the MultiSet plug-in record these on the host
+        // target. Flutter only links UnityFramework.
+        static void LinkFrameworksIntoUnityFramework()
+        {
+            var projectPath = UnityEditor.iOS.Xcode.PBXProject.GetPBXProjectPath(IosExportPath);
+            var project = new UnityEditor.iOS.Xcode.PBXProject();
+            project.ReadFromFile(projectPath);
+            var target = project.GetUnityFrameworkTargetGuid();
+            project.AddFrameworkToProject(target, "ARKit.framework", false);
+            project.AddFrameworkToProject(target, "MultipeerConnectivity.framework", false);
+            project.WriteToFile(projectPath);
+            Debug.Log("[IndoorAr] linked ARKit and MultipeerConnectivity into UnityFramework");
+        }
+#endif
     }
 }

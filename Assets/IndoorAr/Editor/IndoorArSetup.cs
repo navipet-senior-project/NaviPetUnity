@@ -87,6 +87,16 @@ namespace IndoorAr.Editor
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
             PlayerSettings.iOS.targetOSVersionString = "15.0";
             PlayerSettings.iOS.cameraUsageDescription = "NaviPet uses the camera to show indoor AR directions.";
+            PlayerSettings.iOS.locationUsageDescription =
+                "NaviPet uses your location while scanning a room for indoor AR.";
+            // Batch exports skip LoaderEnabledCheck, so the define has to be written here.
+            // Without it the iOS player compiles Api.AtLeast11_0 as `return false`.
+            const string arkitDefine = "UNITY_XR_ARKIT_LOADER_ENABLED";
+            var defines = PlayerSettings.GetScriptingDefineSymbols(UnityEditor.Build.NamedBuildTarget.iOS);
+            if (!defines.Split(';').Contains(arkitDefine))
+                PlayerSettings.SetScriptingDefineSymbols(
+                    UnityEditor.Build.NamedBuildTarget.iOS,
+                    string.IsNullOrEmpty(defines) ? arkitDefine : defines + ";" + arkitDefine);
             PlayerSettings.SetArchitecture(UnityEditor.Build.NamedBuildTarget.iOS, 1);
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.iOS, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.iOS, new[] { UnityEngine.Rendering.GraphicsDeviceType.Metal });

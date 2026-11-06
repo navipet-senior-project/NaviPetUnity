@@ -29,6 +29,9 @@ namespace IndoorAr
         float _failureLeft = -1f;
         bool _failureRelease;
         bool _delivered;
+        Vector3 _scanPos;
+        Quaternion _scanRot;
+        bool _scanPoseReady;
         GUIStyle _label;
         GUIStyle _button;
 
@@ -73,7 +76,7 @@ namespace IndoorAr
             _session.Tick(Time.unscaledDeltaTime);
             UpdatePin();
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
-            if (LiveDoorHud.LocalizationFailed(_session) && _failureLeft < 0f)
+            if ((LiveDoorHud.LocalizationFailed(_session) || LiveDoorHud.AuthFailed(_session)) && _failureLeft < 0f)
                 _failureLeft = Application.isEditor ? 0f : 4f;
             var holdingFailure = _failureLeft > 0f && !_failureRelease;
             if (holdingFailure) _failureLeft -= Time.unscaledDeltaTime;
@@ -104,8 +107,28 @@ namespace IndoorAr
         void UpdateHud()
         {
             if (_hud == null || _delivered) return;
-            if (_session.State == IndoorArState.Done && !LiveDoorHud.LocalizationFailed(_session)) return;
-            _hud.Show(LiveDoorHud.Compose(_session, CameraInMap(), _pinnedFor));
+            if (_session.State == IndoorArState.Done
+                && !LiveDoorHud.LocalizationFailed(_session)
+                && !LiveDoorHud.AuthFailed(_session)) return;
+            var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor);
+            if (view.State == IndoorHudState.Scanning)
+                view.ScanTooFast = SampleScanMotion();
+            else
+                _scanPoseReady = false;
+            _hud.Show(view);
+        }
+
+        bool SampleScanMotion()
+        {
+            var pose = arCamera.transform;
+            var tooFast = _scanPoseReady && GuidanceCue.ScanTooFast(
+                Vector3.Distance(_scanPos, pose.position),
+                Quaternion.Angle(_scanRot, pose.rotation),
+                Time.unscaledDeltaTime);
+            _scanPos = pose.position;
+            _scanRot = pose.rotation;
+            _scanPoseReady = true;
+            return tooFast;
         }
 
         void UpdatePin()
@@ -123,6 +146,8 @@ namespace IndoorAr
 
         Vector3 CameraInMap() => _localizer.MapSpace.InverseTransformPoint(arCamera.transform.position);
 
+        Vector3 CameraForwardInMap() => _localizer.MapSpace.InverseTransformDirection(arCamera.transform.forward);
+
         void OnGUI()
         {
             if (_session == null || _delivered || _session.State != IndoorArState.Pinned) return;
@@ -137,7 +162,7 @@ namespace IndoorAr
             var door = _session.Request;
             if (_session.IsWrongFloor(camera))
                 GUI.Label(new Rect(x, Screen.height * 0.42f, width, height),
-                    $"{door.doorKey} is on floor {door.floor}", _label);
+                    $"{LiveDoorHud.Destination(door)} is on floor {door.floor}", _label);
             if (GUI.Button(new Rect(x, Screen.height * 0.78f, width, height), "I'm here", _button))
             {
                 Debug.Log(string.Format(CultureInfo.InvariantCulture,

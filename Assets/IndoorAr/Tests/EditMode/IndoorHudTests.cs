@@ -66,13 +66,13 @@ namespace IndoorAr.Tests
                 view.Waypoints = new[] { Vector3.zero, Vector3.forward * 4f };
                 hud.Show(view);
                 Assert.AreSame(button, root.GetComponentInChildren<Button>());
-                CollectionAssert.Contains(root.GetComponentsInChildren<Text>().Select(t => t.text).ToArray(), "Follow the arrows ahead · 4 m");
+                CollectionAssert.Contains(root.GetComponentsInChildren<Text>().Select(t => t.text).ToArray(), "In 4 m");
             }
             finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
         }
 
         [Test]
-        public void TinyPoseChangeKeepsTheRouteObjects()
+        public void OneArrowStaysPutAndTurnsWithTheHeading()
         {
             var cameraObject = new GameObject("Camera", typeof(Camera));
             var root = new GameObject("HUD");
@@ -82,23 +82,90 @@ namespace IndoorAr.Tests
                 hud.Initialize(cameraObject.GetComponent<Camera>());
                 var view = MockIndoorRoute.Snapshot(IndoorHudState.Straight, 1);
                 hud.Show(view);
-                var trail = root.transform.Find("Route chevrons");
-                view.Waypoints[0] += Vector3.forward * .05f;
+                var arrow = root.transform.Find("HUD Canvas/Guide arrow");
+                Assert.AreEqual(1, root.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Guide arrow"));
+                Assert.IsNull(root.GetComponentInChildren<MeshRenderer>(true));
+                view.ArrowYaw = 90f;
                 hud.Show(view);
-                Assert.AreSame(trail, root.transform.Find("Route chevrons"));
-                view.Waypoints[0] += Vector3.forward * 1f;
+                Assert.AreSame(arrow, root.transform.Find("HUD Canvas/Guide arrow"));
+                Assert.AreEqual(-90f, Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
+                CollectionAssert.Contains(root.GetComponentsInChildren<Text>().Select(t => t.text).ToArray(), "Look this way");
+                view.ArrowYaw = 0f;
                 hud.Show(view);
-                Assert.AreNotSame(trail, root.transform.Find("Route chevrons"));
+                Assert.AreEqual(0f, Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
+                CollectionAssert.DoesNotContain(root.GetComponentsInChildren<Text>().Select(t => t.text).ToArray(), "Look this way");
             }
             finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
         }
 
         [Test]
-        public void ChevronShaderIsSpritesDefault()
+        public void SlowScanReminderShowsOnlyWhileMovingTooFast()
         {
-            var shader = IndoorHud.ChevronShader();
-            Assert.IsNotNull(shader);
-            Assert.AreEqual("Sprites/Default", shader.name);
+            var cameraObject = new GameObject("Camera", typeof(Camera));
+            var root = new GameObject("HUD");
+            try
+            {
+                var hud = root.AddComponent<IndoorHud>();
+                hud.Initialize(cameraObject.GetComponent<Camera>());
+                var view = MockIndoorRoute.Snapshot(IndoorHudState.Scanning, 1);
+                hud.Show(view);
+                var pill = root.transform.Find("HUD Canvas/Scan slowly");
+                Assert.IsFalse(pill.gameObject.activeSelf);
+                view.ScanTooFast = true;
+                hud.Show(view);
+                Assert.IsTrue(root.transform.Find("HUD Canvas/Scan slowly").gameObject.activeSelf);
+                Assert.AreSame(pill, root.transform.Find("HUD Canvas/Scan slowly"));
+            }
+            finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
+        }
+
+        [Test]
+        public void ArrowYawIsZeroAheadAndPositiveToTheRight()
+        {
+            Assert.AreEqual(0f, GuidanceCue.ArrowYawDegrees(Vector3.forward, Vector3.zero, new Vector3(0f, 3f, 8f)), 0.01f);
+            var right = GuidanceCue.ArrowYawDegrees(Vector3.forward, Vector3.zero, new Vector3(4f, 9f, 0f));
+            Assert.AreEqual(90f, right, 0.01f);
+            Assert.AreEqual(-90f, GuidanceCue.ArrowScreenRotation(right), 0.01f);
+            Assert.AreEqual(-90f, GuidanceCue.ArrowYawDegrees(Vector3.forward, Vector3.zero, new Vector3(-4f, 0f, 0f)), 0.01f);
+            Assert.AreEqual(180f, Mathf.Abs(GuidanceCue.ArrowYawDegrees(Vector3.forward, Vector3.zero, new Vector3(0f, 1f, -5f))), 0.01f);
+            Assert.AreEqual(0f, GuidanceCue.ArrowYawDegrees(Vector3.zero, Vector3.zero, Vector3.forward), 0.01f);
+            Assert.AreEqual(0f, GuidanceCue.ArrowYawDegrees(Vector3.forward, Vector3.one, Vector3.one), 0.01f);
+            Assert.IsTrue(GuidanceCue.FacingWaypoint(GuidanceCue.LookAheadDegrees));
+            Assert.IsFalse(GuidanceCue.FacingWaypoint(GuidanceCue.LookAheadDegrees + 0.1f));
+        }
+
+        [Test]
+        public void SlowScanThresholdTripsOnSpeedOrTurnRate()
+        {
+            Assert.IsFalse(GuidanceCue.ScanTooFast(GuidanceCue.SlowScanMetersPerSecond, 0f, 1f));
+            Assert.IsTrue(GuidanceCue.ScanTooFast(GuidanceCue.SlowScanMetersPerSecond + 0.01f, 0f, 1f));
+            Assert.IsFalse(GuidanceCue.ScanTooFast(0f, GuidanceCue.SlowScanDegreesPerSecond, 1f));
+            Assert.IsTrue(GuidanceCue.ScanTooFast(0f, GuidanceCue.SlowScanDegreesPerSecond + 0.1f, 1f));
+            Assert.IsTrue(GuidanceCue.ScanTooFast(0f, -(GuidanceCue.SlowScanDegreesPerSecond + 0.1f), 1f));
+            Assert.IsFalse(GuidanceCue.ScanTooFast(10f, 90f, 0f));
+            Assert.IsFalse(GuidanceCue.ScanTooFast(10f, 90f, -1f));
+        }
+
+        [Test]
+        public void AuthFailureUsesTheSignInCopy()
+        {
+            var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
+            var session = new IndoorArSession(request, request.mapCode);
+            session.OnArSupport(true);
+            session.Tick(IndoorArSession.StartupTimeoutS);
+            var view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f);
+            Assert.AreEqual(IndoorHudState.NotFound, view.State);
+            Assert.AreEqual("AR sign-in failed", view.TitleOverride);
+            Assert.AreEqual("The session could not use the AR token.", view.DetailOverride);
+        }
+
+        [Test]
+        public void DestinationShowsTheSearchedRoomNotTheGluedDoorKey()
+        {
+            Assert.AreEqual("VEC 119", LiveDoorHud.Destination(new IndoorArRequest { room = "119", doorKey = "VEC119" }));
+            Assert.AreEqual("VEC 119", LiveDoorHud.Destination(new IndoorArRequest { room = "VEC119", doorKey = "VEC118" }));
+            Assert.AreEqual("VEC 119", LiveDoorHud.Destination(new IndoorArRequest { doorKey = "VEC119" }));
+            Assert.AreEqual("VEC 119", LiveDoorHud.Destination(new IndoorArRequest { room = "VEC 119", doorKey = "VEC119" }));
         }
 
         [Test]
@@ -107,27 +174,29 @@ namespace IndoorAr.Tests
             var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
             var session = new IndoorArSession(request, request.mapCode);
             var camera = new Vector3(1f, 4f, 3f);
-            Assert.AreEqual(IndoorHudState.Scanning, LiveDoorHud.Compose(session, camera, 0f).State);
+            Assert.AreEqual(IndoorHudState.Scanning, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
 
             session.OnArSupport(true);
             session.OnAuthenticated();
-            Assert.AreEqual(IndoorHudState.Scanning, LiveDoorHud.Compose(session, camera, 0f).State);
+            Assert.AreEqual(IndoorHudState.Scanning, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
             session.OnLocalized(0.5f);
-            var found = LiveDoorHud.Compose(session, camera, 0f);
+            var found = LiveDoorHud.Compose(session, camera, Vector3.forward, 0f);
             Assert.AreEqual(IndoorHudState.Localized, found.State);
             Assert.AreEqual("VEC 119", found.Destination);
             Assert.AreEqual(1, found.Floor);
 
-            var guiding = LiveDoorHud.Compose(session, camera, LiveDoorHud.LocationFoundHoldS);
+            var guiding = LiveDoorHud.Compose(session, camera, Vector3.forward, LiveDoorHud.LocationFoundHoldS);
             Assert.AreEqual(IndoorHudState.Straight, guiding.State);
             Assert.AreEqual(new Vector3(camera.x, request.position.y, camera.z), guiding.Waypoints[0]);
-            Assert.AreEqual(new Vector3(request.position.x, request.position.y, request.position.z), guiding.Waypoints[1]);
+            var door = new Vector3(request.position.x, request.position.y, request.position.z);
+            Assert.AreEqual(door, guiding.Waypoints[1]);
             Assert.AreEqual(session.HorizontalDistance(camera), guiding.Distance);
+            Assert.AreEqual(GuidanceCue.ArrowYawDegrees(Vector3.forward, camera, door), guiding.ArrowYaw, 1e-3f);
 
             session.OnTrackingLost();
             session.Tick(IndoorArSession.LocalizeTimeoutS);
             session.Tick(IndoorArSession.LocalizeTimeoutS);
-            Assert.AreEqual(IndoorHudState.NotFound, LiveDoorHud.Compose(session, camera, 0f).State);
+            Assert.AreEqual(IndoorHudState.NotFound, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
         }
     }
 }
