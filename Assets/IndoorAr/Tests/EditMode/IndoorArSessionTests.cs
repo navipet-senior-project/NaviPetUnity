@@ -115,6 +115,36 @@ public class IndoorArSessionTests
             session.ResultJson);
     }
 
+    [TestCase(10.5f, true)]
+    [TestCase(13.5f, true)]
+    [TestCase(13.51f, false)]
+    public void CurrentFloorBandUsesCameraHeightAndUncertainty(float cameraY, bool accepted)
+    {
+        var request = Vec119();
+        request.currentFloor = "2";
+        var session = new IndoorArSession(request, MapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        var bands = new[] { new IndoorArFloorBand { floor = "2", minFloorY = 9f, maxFloorY = 10f,
+            minCameraHeight = 1f, maxCameraHeight = 3f, uncertainty = 0.5f } };
+        session.OnLocalizedWithFloorCheck(0.7f, cameraY, bands);
+        Assert.AreEqual(accepted ? IndoorArState.Pinned : IndoorArState.Done, session.State);
+        if (!accepted) StringAssert.Contains("\"errorCode\":\"CURRENT_FLOOR_MISMATCH\"", session.ResultJson);
+    }
+
+    [TestCase(null)]
+    [TestCase("3")]
+    public void MissingCurrentFloorOrBandPreservesLocalization(string floor)
+    {
+        var request = Vec119();
+        request.currentFloor = floor;
+        var session = new IndoorArSession(request, MapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalizedWithFloorCheck(null, 100f, new[] { new IndoorArFloorBand { floor = "2" } });
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+    }
+
     [Test]
     public void TrackingLossGoesBackToLocalizingWithAFreshRetry()
     {

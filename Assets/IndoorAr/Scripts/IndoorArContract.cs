@@ -25,6 +25,7 @@ namespace IndoorAr
         public string room;
         public string doorKey;
         public string floor;
+        public string currentFloor;
         public IndoorArVector3 position;
         public float headingDeg;
         public string mapCode;
@@ -51,6 +52,7 @@ namespace IndoorAr
         public const string ArcoreUnsupported = "ARCORE_UNSUPPORTED";
         public const string MultisetAuth = "MULTISET_AUTH";
         public const string Network = "NETWORK";
+        public const string CurrentFloorMismatch = "CURRENT_FLOOR_MISMATCH";
 
         /// <summary>
         /// JsonUtility fills a missing object field with defaults, so a missing

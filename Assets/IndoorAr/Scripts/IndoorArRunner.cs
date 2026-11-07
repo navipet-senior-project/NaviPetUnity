@@ -21,6 +21,7 @@ namespace IndoorAr
         [SerializeField] MonoBehaviour localizerBehaviour; // must implement IIndoorArLocalizer
         [SerializeField] GameObject doorPinPrefab;
         [SerializeField] Camera arCamera;
+        [SerializeField] IndoorArFloorBand[] floorBands = System.Array.Empty<IndoorArFloorBand>();
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
@@ -85,7 +86,7 @@ namespace IndoorAr
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += _session.OnAttemptStarted;
-            _localizer.Localized += _session.OnLocalized;
+            _localizer.Localized += OnLocalized;
             if (!restart || Application.isEditor) return;
             var ar = UnityEngine.Object.FindAnyObjectByType<ARSession>();
             if (ar != null) ar.Reset();
@@ -181,6 +182,9 @@ namespace IndoorAr
             if (_pin != null) _pin.gameObject.SetActive(pinned);
         }
 
+        void OnLocalized(float? confidence) =>
+            _session.OnLocalizedWithFloorCheck(confidence, CameraInMap().y, floorBands);
+
         Vector3 CameraInMap() => _localizer.MapSpace.InverseTransformPoint(arCamera.transform.position);
 
         Vector3 CameraForwardInMap() => _localizer.MapSpace.InverseTransformDirection(arCamera.transform.forward);
@@ -235,7 +239,7 @@ namespace IndoorAr
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= _session.OnAttemptStarted;
-            _localizer.Localized -= _session.OnLocalized;
+            _localizer.Localized -= OnLocalized;
         }
 
         static void DestroyOwned(UnityEngine.Object obj)

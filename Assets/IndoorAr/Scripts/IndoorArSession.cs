@@ -3,6 +3,18 @@ using UnityEngine;
 
 namespace IndoorAr
 {
+    // Floor and camera-height ranges are metres in the configured MapSet frame.
+    [Serializable]
+    public sealed class IndoorArFloorBand
+    {
+        public string floor;
+        public float minFloorY;
+        public float maxFloorY;
+        public float minCameraHeight;
+        public float maxCameraHeight;
+        public float uncertainty;
+    }
+
     public enum IndoorArState { Init, Auth, Localizing, Pinned, Done }
 
     /// <summary>
@@ -75,6 +87,24 @@ namespace IndoorAr
             State = IndoorArState.Pinned;
             _confidence = confidence;
             WasPinned = true;
+        }
+
+        public void OnLocalizedWithFloorCheck(float? confidence, float cameraY, IndoorArFloorBand[] bands)
+        {
+            if (State != IndoorArState.Localizing) return;
+            if (!string.IsNullOrEmpty(Request.currentFloor) && bands != null)
+                foreach (var band in bands)
+                {
+                    if (band == null || band.floor != Request.currentFloor) continue;
+                    if (cameraY < band.minFloorY + band.minCameraHeight - band.uncertainty ||
+                        cameraY > band.maxFloorY + band.maxCameraHeight + band.uncertainty)
+                    {
+                        Finish(IndoorArContract.Error(IndoorArContract.CurrentFloorMismatch, Queries, ElapsedMs));
+                        return;
+                    }
+                    break;
+                }
+            OnLocalized(confidence);
         }
 
         // Re-localize only after tracking loss, never on a timer.

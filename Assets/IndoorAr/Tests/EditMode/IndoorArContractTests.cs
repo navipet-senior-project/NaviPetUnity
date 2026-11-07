@@ -24,6 +24,17 @@ public class IndoorArContractTests
     }
 
     [Test]
+    public void CurrentFloorIsOptionalAndDistinctFromDestination()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119, out var oldRequest));
+        Assert.IsNull(oldRequest.currentFloor);
+        var json = Vec119.Replace("\"floor\":\"1\"", "\"floor\":\"1\",\"currentFloor\":\"2\"");
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.AreEqual("1", request.floor);
+        Assert.AreEqual("2", request.currentFloor);
+    }
+
+    [Test]
     public void ParsesAV2RequestWithArToken()
     {
         var json = Vec119.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")

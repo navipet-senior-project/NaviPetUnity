@@ -122,6 +122,23 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void OutOfBandLocalizationReturnsFloorMismatchBeforePinning()
+    {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"floor\":\"1\"", "\"floor\":\"1\",\"currentFloor\":\"2\"");
+        var runner = Runner();
+        typeof(IndoorArRunner).GetField("floorBands", BindingFlags.Instance | BindingFlags.NonPublic)
+            .SetValue(runner, new[] { new IndoorArFloorBand { floor = "2", minFloorY = 10f, maxFloorY = 11f,
+                minCameraHeight = 1f, maxCameraHeight = 2f, uncertainty = 0.5f } });
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        Assert.AreEqual(IndoorArState.Done, session.State);
+        Assert.IsFalse(session.WasPinned);
+        StringAssert.Contains("\"errorCode\":\"CURRENT_FLOOR_MISMATCH\"", session.ResultJson);
+    }
+
+    [Test]
     public void PinUsesMapLocalPoseAndHidesOnTrackingLoss()
     {
         var runner = Runner();
