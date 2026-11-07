@@ -40,7 +40,7 @@ Before Unity's first scene runs, from the app that embeds `UnityFramework`:
 }];
 ```
 
-`IndoorArHost.h` is copied into the export at `Libraries/Plugins/iOS/IndoorArHost.h`. A missing request makes Unity return `BAD_REQUEST`. A missing handler drops the result. The same error codes as Android apply, including `ARCORE_UNSUPPORTED` when the device reports no AR support.
+`IndoorArHost.h` is copied into the export at `Libraries/Plugins/iOS/IndoorArHost.h`. Delivering a result clears the request. For a later launch, set the new request and result handler again; if the player was unloaded and left paused, setting both reloads it (see `IndoorArHost.h`). That reload path calls Unity trampoline symbols and is not verified on a device. A missing request makes Unity return `BAD_REQUEST`. A missing handler drops the result. The same error codes as Android apply, including `ARCORE_UNSUPPORTED` when the device reports no AR support.
 
 ## Not verified here
 
