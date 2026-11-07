@@ -25,6 +25,7 @@ namespace IndoorAr
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
         string _requestJson;
+        bool _started;
         Transform _pin;
         IndoorHud _hud;
         float _pinnedFor;
@@ -60,7 +61,8 @@ namespace IndoorAr
         // JSON is the new session; the previous door and the delivered flag are not.
         void BeginSession(string json)
         {
-            var restart = _requestJson != null;
+            var restart = _started;
+            _started = true;
             ReleaseSession();
             _requestJson = json;
             _delivered = false;
@@ -94,7 +96,7 @@ namespace IndoorAr
             if (_localizer != null)
             {
                 var json = IndoorArBridge.ReadRequestJson();
-                if (json != _requestJson) BeginSession(json);
+                if (json != null && json != _requestJson) BeginSession(json);
             }
             if (_session == null || _delivered) return;
             if (BackPressed()) OnHudExit();
@@ -244,6 +246,7 @@ namespace IndoorAr
         {
             if (_delivered) return;
             _delivered = true;
+            _requestJson = null;
             IndoorArBridge.Deliver(resultJson);
         }
 

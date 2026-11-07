@@ -37,9 +37,13 @@ namespace IndoorAr
 #if UNITY_ANDROID && !UNITY_EDITOR
             using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
             using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+            using (var intent = activity.Call<AndroidJavaObject>("getIntent"))
+                intent.Call("removeExtra", IndoorArContract.RequestExtra);
             activity.Call("deliverResult", resultJson);
 #elif UNITY_IOS && !UNITY_EDITOR
             IndoorArDeliverResult(resultJson);
+#else
+            EditorRequestJson = null;
 #endif
         }
 

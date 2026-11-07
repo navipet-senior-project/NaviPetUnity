@@ -244,6 +244,25 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void SameRoomSearchedTwiceStartsAFreshSession()
+    {
+        var runner = Runner();
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var first = Field<IndoorArSession>(runner, "_session");
+        LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*cancelled"));
+        Call(runner, "OnHudExit");
+        Call(runner, "Update");
+        Assert.IsTrue(Field<bool>(runner, "_delivered"));
+
+        IndoorArBridge.EditorRequestJson = _request;
+        Call(runner, "Update");
+        Assert.AreNotSame(first, Field<IndoorArSession>(runner, "_session"));
+        Assert.IsFalse(Field<bool>(runner, "_delivered"));
+        CollectionAssert.Contains(Labels(runner), "TO  VEC 119  ·  FLOOR 1");
+        LogAssert.NoUnexpectedReceived();
+    }
+
+    [Test]
     public void ExitDeliversCancelledWhenTrackingIsLost()
     {
         var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);

@@ -7,7 +7,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// The request JSON is the same string Android stores in the
 /// `navipet.indoorAr.request` intent extra. The result JSON is the same string
 /// `UnityHostActivity.deliverResult` returns. Set both before the scene runs.
-/// On a later launch, setResultHandler reloads a player that unload left
+/// Delivering a result clears the request. On a later launch, setting both reloads a player that unload left
 /// paused so the new request is what the scene reads. The result handler is
 /// called at most once, on the main queue.
 /// Do not log the request: a v2 request may carry an arToken.
