@@ -51,7 +51,9 @@ namespace IndoorAr
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
             BeginSession(IndoorArBridge.ReadRequestJson());
             if (_session == null || _session.State == IndoorArState.Done) yield break;
+            var started = _session;
             yield return ARSession.CheckAvailability();
+            if (_session != started) yield break; // a restart already authenticated the newer session
             // Editor smoke must never authenticate or consume VPS quota.
             _session.OnArSupport(!Application.isEditor && ARSession.state != ARSessionState.Unsupported);
             if (_session.State == IndoorArState.Auth) _localizer.Authenticate();
