@@ -59,9 +59,10 @@ namespace IndoorAr
             var canvasObject = new GameObject("HUD Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             canvasObject.transform.SetParent(transform, false);
             var canvas = canvasObject.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            // Overlay hit-tests in screen space. A camera-space canvas misses the
+            // exit tap once the AR camera stops tracking.
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.worldCamera = camera;
-            canvas.planeDistance = 0.5f;
             var scaler = canvasObject.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1080, 1920);

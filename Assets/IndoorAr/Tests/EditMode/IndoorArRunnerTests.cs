@@ -210,4 +210,69 @@ public class IndoorArRunnerTests
         }
         finally { arState.Invoke(null, new object[] { previous }); }
     }
+
+    [Test]
+    public void SecondSessionShowsTheNewRoomAfterTheFirstWasDelivered()
+    {
+        var runner = Runner();
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var first = Field<IndoorArSession>(runner, "_session");
+        first.OnArSupport(true);
+        first.OnAuthenticated();
+        runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+            .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+        Call(runner, "Update");
+        CollectionAssert.Contains(Labels(runner), "TO  VEC 119  ·  FLOOR 1");
+
+        LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*cancelled"));
+        Call(runner, "OnHudExit");
+        Call(runner, "Update");
+        Assert.IsTrue(Field<bool>(runner, "_delivered"));
+
+        IndoorArBridge.EditorRequestJson = _request
+            .Replace("\"room\":\"119\"", "\"room\":\"127\"")
+            .Replace("\"doorKey\":\"VEC119\"", "\"doorKey\":\"VEC127\"");
+        Call(runner, "Update");
+        var second = Field<IndoorArSession>(runner, "_session");
+        Assert.AreNotSame(first, second);
+        Assert.AreEqual("127", second.Request.room);
+        Assert.AreEqual("VEC127", second.Request.doorKey);
+        Assert.IsFalse(Field<bool>(runner, "_delivered"));
+        CollectionAssert.Contains(Labels(runner), "TO  VEC 127  ·  FLOOR 1");
+        CollectionAssert.DoesNotContain(Labels(runner), "TO  VEC 119  ·  FLOOR 1");
+        LogAssert.NoUnexpectedReceived();
+    }
+
+    [Test]
+    public void ExitDeliversCancelledWhenTrackingIsLost()
+    {
+        var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        try
+        {
+            var runner = Runner();
+            Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+            var session = Field<IndoorArSession>(runner, "_session");
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+            Call(runner, "Update");
+            state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.None });
+            var button = _host.GetComponentInChildren<UnityEngine.UI.Button>();
+            Assert.AreEqual(RenderMode.ScreenSpaceOverlay, button.GetComponentInParent<Canvas>().renderMode);
+            button.onClick.Invoke();
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*cancelled"));
+            Call(runner, "Update");
+            Assert.AreEqual(IndoorArState.Done, session.State);
+            StringAssert.Contains("\"status\":\"cancelled\"", session.ResultJson);
+            Assert.AreEqual(1, session.Queries);
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally { state.Invoke(null, new object[] { previous }); }
+    }
+
+    static string[] Labels(IndoorArRunner runner) =>
+        runner.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray();
 }

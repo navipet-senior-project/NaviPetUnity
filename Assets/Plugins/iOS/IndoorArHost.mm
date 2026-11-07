@@ -1,7 +1,26 @@
 #import "IndoorArHost.h"
 
+// Declared in the trampoline. A paused controller is an unloaded embedded player.
+extern "C" {
+void *GetAppController(void);
+int UnityIsPaused(void);
+void UnityLoadApplicationFromSceneLessState(void);
+void UnitySuppressPauseMessage(void);
+void UnityPause(int pause);
+}
+
 static NSString *sRequest;
 static void (^sHandler)(NSString *json);
+
+static void ResumeUnloadedPlayer(void) {
+    // The host calls runEmbedded only while appController is nil. After
+    // unloadApplication the controller is still alive and paused, so the host
+    // shows the last frame and never loads the scene that would read sRequest.
+    if (GetAppController() == NULL || !UnityIsPaused()) return;
+    UnityLoadApplicationFromSceneLessState();
+    UnitySuppressPauseMessage();
+    UnityPause(0);
+}
 
 @implementation IndoorArHost
 
@@ -11,6 +30,7 @@ static void (^sHandler)(NSString *json);
 
 + (void)setResultHandler:(void (^)(NSString *))handler {
     sHandler = [handler copy];
+    ResumeUnloadedPlayer();
 }
 
 @end

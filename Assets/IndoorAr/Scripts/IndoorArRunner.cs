@@ -15,6 +15,7 @@ namespace IndoorAr
     /// IndoorArSession from AR Foundation and the localizer, shows the pin and
     /// HUD, and hands the result to the Android host.
     /// </summary>
+    [DefaultExecutionOrder(100)] // after EventSystem, so an exit tap cancels before tracking loss rebuilds the HUD
     public class IndoorArRunner : MonoBehaviour
     {
         [SerializeField] MonoBehaviour localizerBehaviour; // must implement IIndoorArLocalizer
@@ -23,6 +24,7 @@ namespace IndoorAr
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
+        string _requestJson;
         Transform _pin;
         IndoorHud _hud;
         float _pinnedFor;
@@ -46,28 +48,54 @@ namespace IndoorAr
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
-            if (!IndoorArContract.TryParseRequest(IndoorArBridge.ReadRequestJson(), out var request))
-            {
-                Deliver(IndoorArContract.Error(IndoorArContract.BadRequest, 0, 0));
-                yield break;
-            }
-            _session = new IndoorArSession(request, _localizer.MapCode);
-            if (_session.State == IndoorArState.Done) yield break; // MAP_MISMATCH, delivered in Update
-            AttachHud();
-            _session.LocalizeRequested += _localizer.Localize;
-            _localizer.Authenticated += _session.OnAuthenticated;
-            _localizer.AuthFailed += _session.OnAuthFailed;
-            _localizer.AttemptStarted += _session.OnAttemptStarted;
-            _localizer.Localized += _session.OnLocalized;
-
+            BeginSession(IndoorArBridge.ReadRequestJson());
+            if (_session == null || _session.State == IndoorArState.Done) yield break;
             yield return ARSession.CheckAvailability();
             // Editor smoke must never authenticate or consume VPS quota.
             _session.OnArSupport(!Application.isEditor && ARSession.state != ARSessionState.Unsupported);
             if (_session.State == IndoorArState.Auth) _localizer.Authenticate();
         }
 
+        // A host that only unpauses the player keeps this object. The launch
+        // JSON is the new session; the previous door and the delivered flag are not.
+        void BeginSession(string json)
+        {
+            var restart = _requestJson != null;
+            ReleaseSession();
+            _requestJson = json;
+            _delivered = false;
+            _pinnedFor = 0f;
+            _failureLeft = -1f;
+            _failureRelease = false;
+            _scanPoseReady = false;
+            _slowHoldLeft = 0f;
+            if (!IndoorArContract.TryParseRequest(json, out var request))
+            {
+                Deliver(IndoorArContract.Error(IndoorArContract.BadRequest, 0, 0));
+                return;
+            }
+            _session = new IndoorArSession(request, _localizer.MapCode);
+            if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
+            AttachHud();
+            _session.LocalizeRequested += _localizer.Localize;
+            _localizer.Authenticated += _session.OnAuthenticated;
+            _localizer.AuthFailed += _session.OnAuthFailed;
+            _localizer.AttemptStarted += _session.OnAttemptStarted;
+            _localizer.Localized += _session.OnLocalized;
+            if (!restart || Application.isEditor) return;
+            var ar = UnityEngine.Object.FindAnyObjectByType<ARSession>();
+            if (ar != null) ar.Reset();
+            _session.OnArSupport(ARSession.state != ARSessionState.Unsupported);
+            if (_session.State == IndoorArState.Auth) _localizer.Authenticate();
+        }
+
         void Update()
         {
+            if (_localizer != null)
+            {
+                var json = IndoorArBridge.ReadRequestJson();
+                if (json != _requestJson) BeginSession(json);
+            }
             if (_session == null || _delivered) return;
             if (BackPressed()) OnHudExit();
             if (_session.State == IndoorArState.Pinned && ARSession.state != ARSessionState.SessionTracking)
@@ -177,7 +205,25 @@ namespace IndoorAr
             }
         }
 
-        void OnDestroy()
+        void OnDestroy() => Unhook();
+
+        void ReleaseSession()
+        {
+            Unhook();
+            if (_hud != null)
+            {
+                DestroyOwned(_hud.gameObject);
+                _hud = null;
+            }
+            if (_pin != null)
+            {
+                DestroyOwned(_pin.gameObject);
+                _pin = null;
+            }
+            _session = null;
+        }
+
+        void Unhook()
         {
             if (_hud != null) _hud.ExitRequested -= OnHudExit;
             if (_session == null || _localizer == null) return;
@@ -186,6 +232,12 @@ namespace IndoorAr
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= _session.OnAttemptStarted;
             _localizer.Localized -= _session.OnLocalized;
+        }
+
+        static void DestroyOwned(UnityEngine.Object obj)
+        {
+            if (Application.isPlaying) Destroy(obj);
+            else DestroyImmediate(obj);
         }
 
         void Deliver(string resultJson)
