@@ -38,6 +38,8 @@ namespace IndoorAr
         IndoorArState _loggedState;
         bool _stateLogged;
         float _sessionStarted;
+        Material _pinAmberMaterial;
+        Material _pinCoreMaterial;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -221,34 +223,34 @@ namespace IndoorAr
         {
             var root = new GameObject("Destination pin").transform;
             root.SetParent(_localizer.MapSpace, false);
-            var amber = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
-            amber.color = new Color32(245, 166, 35, 255);
-            var white = new Material(amber) { color = Color.white };
+            _pinAmberMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+            _pinAmberMaterial.color = new Color32(245, 166, 35, 255);
+            _pinCoreMaterial = new Material(_pinAmberMaterial) { color = Color.white };
             var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             head.name = "Amber pin";
             head.transform.SetParent(root, false);
             head.transform.localPosition = new Vector3(0, .23f, 0);
             head.transform.localScale = Vector3.one * .3f;
-            head.GetComponent<Renderer>().material = amber;
+            head.GetComponent<Renderer>().sharedMaterial = _pinAmberMaterial;
             DestroyOwned(head.GetComponent<Collider>());
             var core = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             core.name = "White core";
             core.transform.SetParent(root, false);
             core.transform.localPosition = new Vector3(0, .23f, -.14f);
             core.transform.localScale = Vector3.one * .12f;
-            core.GetComponent<Renderer>().material = white;
+            core.GetComponent<Renderer>().sharedMaterial = _pinCoreMaterial;
             DestroyOwned(core.GetComponent<Collider>());
             var tip = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             tip.name = "Pin stem";
             tip.transform.SetParent(root, false);
             tip.transform.localPosition = new Vector3(0, .08f, 0);
             tip.transform.localScale = new Vector3(.07f, .08f, .07f);
-            tip.GetComponent<Renderer>().material = amber;
+            tip.GetComponent<Renderer>().sharedMaterial = _pinAmberMaterial;
             DestroyOwned(tip.GetComponent<Collider>());
             return root;
         }
 
-        void OnDestroy() => Unhook();
+        void OnDestroy() => ReleaseSession();
 
         void ReleaseSession()
         {
@@ -263,6 +265,10 @@ namespace IndoorAr
                 DestroyOwned(_pin.gameObject);
                 _pin = null;
             }
+            DestroyOwned(_pinAmberMaterial);
+            DestroyOwned(_pinCoreMaterial);
+            _pinAmberMaterial = null;
+            _pinCoreMaterial = null;
             _session = null;
         }
 
