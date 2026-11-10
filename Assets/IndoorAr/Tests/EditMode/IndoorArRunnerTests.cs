@@ -39,7 +39,10 @@ public class IndoorArRunnerTests
     [SetUp]
     public void SetUp()
     {
-        _request = IndoorArBridge.EditorRequestJson;
+        _request = "{\"schemaVersion\":1,\"room\":\"119\",\"doorKey\":\"VEC119\",\"floor\":\"1\"," +
+            "\"position\":{\"x\":-5.7651,\"y\":-1.8186,\"z\":22.6689},\"headingDeg\":185.36," +
+            "\"mapCode\":\"MSET_XTBY7AM7ZK77\",\"frame\":\"multiset-mapset\"}";
+        IndoorArBridge.EditorRequestJson = _request;
         _host = new GameObject("Runner test");
         _pinPrefab = new GameObject("Pin");
     }
@@ -133,7 +136,8 @@ public class IndoorArRunnerTests
         var pin = Field<Transform>(runner, "_pin");
         Assert.AreSame(_host.transform, pin.parent);
         Assert.AreEqual(new Vector3(-5.7651f, -1.8186f, 22.6689f), pin.localPosition);
-        Assert.That(Quaternion.Angle(Quaternion.Euler(0,185.36f,0),pin.localRotation), Is.LessThan(.001f));
+        Assert.IsNotNull(pin.Find("Amber pin"));
+        Assert.IsNotNull(pin.Find("White core"));
         Assert.IsTrue(pin.gameObject.activeSelf);
         _host.GetComponent<RunnerFakeLocalizer>().Succeed = false;
         session.OnTrackingLost();
@@ -198,7 +202,7 @@ public class IndoorArRunnerTests
             Assert.AreEqual(0, hud.GetComponentsInChildren<MeshRenderer>(true).Length);
             var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, camObject.transform.position, door);
             Assert.AreEqual(GuidanceCue.ArrowScreenRotation(yaw), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
-            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Continue ahead");
+            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Direction to room");
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>(true).Any(t => t.text.Contains("VEC 119")));
 
             camObject.transform.localRotation = Quaternion.LookRotation(Vector3.right);

@@ -22,6 +22,8 @@ namespace IndoorAr
     public class IndoorArRequest
     {
         public int schemaVersion;
+        public string mode;
+        public bool LocalizeOnly => mode == "localize";
         public string room;
         public string doorKey;
         public string floor;
@@ -72,8 +74,8 @@ namespace IndoorAr
             }
             if (parsed == null
                 || (parsed.schemaVersion != SchemaVersion && parsed.schemaVersion != SchemaVersionV2)
-                || string.IsNullOrEmpty(parsed.doorKey)
-                || string.IsNullOrEmpty(parsed.floor)
+                || (!string.IsNullOrEmpty(parsed.mode) && !parsed.LocalizeOnly)
+                || (!parsed.LocalizeOnly && (string.IsNullOrEmpty(parsed.doorKey) || string.IsNullOrEmpty(parsed.floor)))
                 || string.IsNullOrEmpty(parsed.mapCode))
             {
                 return false;

@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Globalization;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -36,8 +35,11 @@ namespace IndoorAr
         Quaternion _scanRot;
         bool _scanPoseReady;
         float _slowHoldLeft;
-        GUIStyle _label;
-        GUIStyle _button;
+        IndoorArState _loggedState;
+        bool _stateLogged;
+        float _sessionStarted;
+        Material _pinAmberMaterial;
+        Material _pinCoreMaterial;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -65,6 +67,8 @@ namespace IndoorAr
         {
             var restart = _started;
             _started = true;
+            _sessionStarted = Time.realtimeSinceStartup;
+            _stateLogged = false;
             ReleaseSession();
             _requestJson = json;
             _delivered = false;
@@ -81,7 +85,7 @@ namespace IndoorAr
             _session = new IndoorArSession(request, _localizer.MapCode);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
             AttachHud();
-            _session.LocalizeRequested += _localizer.Localize;
+            _session.LocalizeRequested += RequestLocalization;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += _session.OnAttemptStarted;
@@ -107,11 +111,18 @@ namespace IndoorAr
             if (_session.State == IndoorArState.Pinned) _pinnedFor += Time.unscaledDeltaTime;
             else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
+            if (!_stateLogged || _loggedState != _session.State)
+            {
+                _loggedState = _session.State;
+                _stateLogged = true;
+                if (!Application.isEditor)
+                    Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)} attempts={_session.Queries}");
+            }
             UpdatePin();
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
-            if ((LiveDoorHud.LocalizationFailed(_session) || LiveDoorHud.AuthFailed(_session)) && _failureLeft < 0f)
+            if (LiveDoorHud.AuthFailed(_session) && _failureLeft < 0f)
                 _failureLeft = Application.isEditor ? 0f : 4f;
-            var holdingFailure = _failureLeft > 0f && !_failureRelease;
+            var holdingFailure = LiveDoorHud.LocalizationFailed(_session) || (_failureLeft > 0f && !_failureRelease);
             if (holdingFailure) _failureLeft -= Time.unscaledDeltaTime;
             UpdateHud();
             if (_session.State == IndoorArState.Done && !holdingFailure) Deliver(_session.ResultJson);
@@ -124,6 +135,9 @@ namespace IndoorAr
             _hud = hudObject.AddComponent<IndoorHud>();
             _hud.Initialize(arCamera);
             _hud.ExitRequested += OnHudExit;
+            _hud.HereRequested += OnHudHere;
+            _hud.DoneRequested += OnHudDone;
+            _hud.RetryRequested += OnHudRetry;
             if (EventSystem.current == null)
             {
                 var events = new GameObject("HUD EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
@@ -136,6 +150,17 @@ namespace IndoorAr
             _failureRelease = true;
             _session?.Cancel();
         }
+
+        void RequestLocalization()
+        {
+            if (!Application.isEditor)
+                Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");
+            _localizer.Localize();
+        }
+
+        void OnHudHere() => _session?.ImHere(CameraInMap());
+        void OnHudDone() => _session?.ConfirmArrival();
+        void OnHudRetry() => _session?.Retry();
 
         void UpdateHud()
         {
@@ -170,46 +195,62 @@ namespace IndoorAr
 
         void UpdatePin()
         {
-            var pinned = _session.State == IndoorArState.Pinned;
+            var pinned = _session.State == IndoorArState.Pinned && !_session.Request.LocalizeOnly;
             if (pinned && _pin == null)
             {
                 var door = _session.Request;
-                _pin = Instantiate(doorPinPrefab, _localizer.MapSpace).transform;
+                _pin = CreatePin();
                 _pin.localPosition = new Vector3(door.position.x, door.position.y, door.position.z);
                 _pin.localRotation = Quaternion.Euler(0f, door.headingDeg, 0f);
             }
-            if (_pin != null) _pin.gameObject.SetActive(pinned);
+            if (_pin != null)
+            {
+                _pin.gameObject.SetActive(pinned);
+                if (pinned)
+                {
+                    var direction = _pin.position - arCamera.transform.position;
+                    direction.y = 0f;
+                    if (direction.sqrMagnitude > 0.0001f) _pin.rotation = Quaternion.LookRotation(direction);
+                }
+            }
         }
 
         Vector3 CameraInMap() => _localizer.MapSpace.InverseTransformPoint(arCamera.transform.position);
 
         Vector3 CameraForwardInMap() => _localizer.MapSpace.InverseTransformDirection(arCamera.transform.forward);
 
-        void OnGUI()
+        Transform CreatePin()
         {
-            if (_session == null || _delivered || _session.State != IndoorArState.Pinned) return;
-            var fontSize = Screen.height / 32;
-            _label ??= new GUIStyle(GUI.skin.label)
-                { fontSize = fontSize, alignment = TextAnchor.MiddleCenter, wordWrap = true };
-            _button ??= new GUIStyle(GUI.skin.button) { fontSize = fontSize };
-            var width = Screen.width * 0.8f;
-            var height = Screen.height * 0.08f;
-            var x = (Screen.width - width) / 2f;
-            var camera = CameraInMap();
-            var door = _session.Request;
-            if (_session.IsWrongFloor(camera))
-                GUI.Label(new Rect(x, Screen.height * 0.42f, width, height),
-                    $"{LiveDoorHud.Destination(door)} is on floor {door.floor}", _label);
-            if (GUI.Button(new Rect(x, Screen.height * 0.78f, width, height), "I'm here", _button))
-            {
-                Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                    "[IndoorAr] arrived door={0} camera=({1:F3}, {2:F3}, {3:F3})",
-                    door.doorKey, camera.x, camera.y, camera.z));
-                _session.ImHere(camera);
-            }
+            var root = new GameObject("Destination pin").transform;
+            root.SetParent(_localizer.MapSpace, false);
+            _pinAmberMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+            _pinAmberMaterial.color = new Color32(245, 166, 35, 255);
+            _pinCoreMaterial = new Material(_pinAmberMaterial) { color = Color.white };
+            var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            head.name = "Amber pin";
+            head.transform.SetParent(root, false);
+            head.transform.localPosition = new Vector3(0, .23f, 0);
+            head.transform.localScale = Vector3.one * .3f;
+            head.GetComponent<Renderer>().sharedMaterial = _pinAmberMaterial;
+            DestroyOwned(head.GetComponent<Collider>());
+            var core = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            core.name = "White core";
+            core.transform.SetParent(root, false);
+            core.transform.localPosition = new Vector3(0, .23f, -.14f);
+            core.transform.localScale = Vector3.one * .12f;
+            core.GetComponent<Renderer>().sharedMaterial = _pinCoreMaterial;
+            DestroyOwned(core.GetComponent<Collider>());
+            var tip = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            tip.name = "Pin stem";
+            tip.transform.SetParent(root, false);
+            tip.transform.localPosition = new Vector3(0, .08f, 0);
+            tip.transform.localScale = new Vector3(.07f, .08f, .07f);
+            tip.GetComponent<Renderer>().sharedMaterial = _pinAmberMaterial;
+            DestroyOwned(tip.GetComponent<Collider>());
+            return root;
         }
 
-        void OnDestroy() => Unhook();
+        void OnDestroy() => ReleaseSession();
 
         void ReleaseSession()
         {
@@ -224,14 +265,24 @@ namespace IndoorAr
                 DestroyOwned(_pin.gameObject);
                 _pin = null;
             }
+            DestroyOwned(_pinAmberMaterial);
+            DestroyOwned(_pinCoreMaterial);
+            _pinAmberMaterial = null;
+            _pinCoreMaterial = null;
             _session = null;
         }
 
         void Unhook()
         {
-            if (_hud != null) _hud.ExitRequested -= OnHudExit;
+            if (_hud != null)
+            {
+                _hud.ExitRequested -= OnHudExit;
+                _hud.HereRequested -= OnHudHere;
+                _hud.DoneRequested -= OnHudDone;
+                _hud.RetryRequested -= OnHudRetry;
+            }
             if (_session == null || _localizer == null) return;
-            _session.LocalizeRequested -= _localizer.Localize;
+            _session.LocalizeRequested -= RequestLocalization;
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= _session.OnAttemptStarted;

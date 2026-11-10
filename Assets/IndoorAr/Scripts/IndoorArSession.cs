@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace IndoorAr
 {
-    public enum IndoorArState { Init, Auth, Localizing, Pinned, Done }
+    public enum IndoorArState { Init, Auth, Localizing, Pinned, Arrived, Done }
 
     /// <summary>
     /// Door verifier state machine. Pure C# so EditMode tests can drive it:
@@ -21,6 +21,7 @@ namespace IndoorAr
         float _startupS;
         bool _retried;
         float? _confidence;
+        float _arrivalDistance;
 
         public IndoorArSession(IndoorArRequest request, string buildMapCode)
         {
@@ -116,13 +117,28 @@ namespace IndoorAr
         /// <param name="cameraInMap">Camera position in the MapSet frame.</param>
         public void ImHere(Vector3 cameraInMap)
         {
-            if (State != IndoorArState.Pinned) return;
-            Finish(IndoorArContract.Arrived(HorizontalDistance(cameraInMap), Queries, ElapsedMs, _confidence));
+            if (State != IndoorArState.Pinned || Request.LocalizeOnly) return;
+            _arrivalDistance = HorizontalDistance(cameraInMap);
+            State = IndoorArState.Arrived;
+        }
+
+        public void ConfirmArrival()
+        {
+            if (State == IndoorArState.Arrived)
+                Finish(IndoorArContract.Arrived(_arrivalDistance, Queries, ElapsedMs, _confidence));
+        }
+
+        public void Retry()
+        {
+            if (State != IndoorArState.Done || ResultJson == null || !ResultJson.Contains("\"status\":\"localizationFailed\"")) return;
+            ResultJson = null;
+            StartLocalizing();
         }
 
         public void Cancel()
         {
-            if (State != IndoorArState.Done) Finish(IndoorArContract.Cancelled(Queries, ElapsedMs));
+            if (State != IndoorArState.Done || LiveDoorHud.LocalizationFailed(this))
+                Finish(IndoorArContract.Cancelled(Queries, ElapsedMs));
         }
 
         public float HorizontalDistance(Vector3 cameraInMap)
