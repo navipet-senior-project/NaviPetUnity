@@ -146,6 +146,9 @@ public class IndoorArSessionTests
         session.OnLocalized();
         session.Tick(1.5f);
         session.ImHere(camera);
+        Assert.AreEqual(IndoorArState.Arrived, session.State);
+        Assert.IsNull(session.ResultJson);
+        session.ConfirmArrival();
         Assert.AreEqual(
             "{\"status\":\"arrived\",\"checkDistanceM\":5,\"localizationQueries\":0,\"durationMs\":1500}",
             session.ResultJson);
@@ -159,7 +162,32 @@ public class IndoorArSessionTests
         session.OnTrackingLost();
         session.OnLocalized(0.73f);
         session.ImHere(new Vector3(-5.7651f, 0f, 22.6689f));
+        session.ConfirmArrival();
         StringAssert.Contains("\"confidence\":0.73,", session.ResultJson);
+    }
+
+    [Test]
+    public void FailedScanCanRetryAndLocalizeOnlyCannotArrive()
+    {
+        var request = new IndoorArRequest { schemaVersion = 1, mode = "localize", mapCode = MapCode, frame = IndoorArContract.Frame };
+        var session = new IndoorArSession(request, MapCode);
+        int attempts = 0;
+        session.LocalizeRequested += () => attempts++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(IndoorArState.Done, session.State);
+        session.Retry();
+        Assert.AreEqual(3, attempts);
+        session.OnLocalized();
+        session.ImHere(Vector3.zero);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        var view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 10f);
+        Assert.AreEqual(IndoorHudState.Localized, view.State);
+        Assert.IsTrue(view.LocalizeOnly);
+        session.Cancel();
+        StringAssert.Contains("cancelled", session.ResultJson);
     }
 
     [Test]

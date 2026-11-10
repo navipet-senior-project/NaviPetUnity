@@ -66,7 +66,7 @@ namespace IndoorAr.Tests
                 view.Waypoints = new[] { Vector3.zero, Vector3.forward * 4f };
                 hud.Show(view);
                 Assert.AreSame(button, root.GetComponentInChildren<Button>());
-                CollectionAssert.Contains(root.GetComponentsInChildren<Text>().Select(t => t.text).ToArray(), "In 4 m");
+                CollectionAssert.Contains(root.GetComponentsInChildren<Text>().Select(t => t.text).ToArray(), "Arrow points to the saved room.");
             }
             finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
         }
@@ -202,10 +202,7 @@ namespace IndoorAr.Tests
 
             var guiding = LiveDoorHud.Compose(session, camera, Vector3.forward, LiveDoorHud.LocationFoundHoldS);
             Assert.AreEqual(IndoorHudState.Straight, guiding.State);
-            Assert.AreEqual(new Vector3(camera.x, request.position.y, camera.z), guiding.Waypoints[0]);
             var door = new Vector3(request.position.x, request.position.y, request.position.z);
-            Assert.AreEqual(door, guiding.Waypoints[1]);
-            Assert.AreEqual(session.HorizontalDistance(camera), guiding.Distance);
             Assert.AreEqual(GuidanceCue.ArrowYawDegrees(Vector3.forward, camera, door), guiding.ArrowYaw, 1e-3f);
 
             session.OnTrackingLost();

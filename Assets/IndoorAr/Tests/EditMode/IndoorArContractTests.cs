@@ -10,6 +10,13 @@ public class IndoorArContractTests
         "\"mapCode\":\"MSET_XTBY7AM7ZK77\",\"frame\":\"multiset-mapset\"}";
 
     [Test]
+    public void LocalizeOnlyRequestNeedsNoDoorPose()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest("{\"schemaVersion\":1,\"mode\":\"localize\",\"mapCode\":\"MSET_XTBY7AM7ZK77\",\"frame\":\"multiset-mapset\"}", out var request));
+        Assert.IsTrue(request.LocalizeOnly);
+    }
+
+    [Test]
     public void ParsesAValidRequest()
     {
         Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119, out var request));

@@ -16,6 +16,8 @@ namespace IndoorAr
         public Vector3[] Waypoints;
         public float ArrowYaw;
         public bool ScanTooFast;
+        public bool LocalizeOnly;
+        public bool WrongFloor;
         public string TitleOverride;
         public string DetailOverride;
     }
@@ -51,6 +53,9 @@ namespace IndoorAr
         RectTransform _slow;
         const float RedrawMeters = .25f;
         public event Action ExitRequested;
+        public event Action HereRequested;
+        public event Action RetryRequested;
+        public event Action DoneRequested;
 
         public void Initialize(Camera camera)
         {
@@ -74,7 +79,7 @@ namespace IndoorAr
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             var accent = view.State == IndoorHudState.WrongWay ? Orange : Blue;
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.LocalizeOnly + "|" + view.WrongFloor;
             if (_chrome == chrome)
             {
                 if (_detail != null && (view.State == IndoorHudState.Straight || view.State == IndoorHudState.Turn))
@@ -95,7 +100,7 @@ namespace IndoorAr
             var state = view.State;
 
             Panel(_root, "Destination", new Vector2(0, -110), new Vector2(980, 112), White, new Vector2(.5f, 1));
-            Label(_root, "DestinationLabel", "TO  " + view.Destination + "  ·  FLOOR " + view.Floor, new Vector2(-80, -110), new Vector2(690, 90), 32, Ink, TextAnchor.MiddleLeft, new Vector2(.5f, 1), FontStyle.Bold);
+            Label(_root, "DestinationLabel", view.LocalizeOnly ? "LOCALIZATION ONLY" : "TO  " + view.Destination + "  ·  FLOOR " + view.Floor, new Vector2(-80, -110), new Vector2(690, 90), 32, Ink, TextAnchor.MiddleLeft, new Vector2(.5f, 1), FontStyle.Bold);
             var exit = Panel(_root, "Exit", new Vector2(405, -110), new Vector2(82, 82), new Color32(237, 242, 249, 255), new Vector2(.5f, 1));
             Label(exit, "ExitLabel", "×", Vector2.zero, new Vector2(80, 80), 46, Ink, TextAnchor.MiddleCenter, new Vector2(.5f, .5f));
             var button = exit.gameObject.AddComponent<Button>();
@@ -107,7 +112,7 @@ namespace IndoorAr
                 case IndoorHudState.Scanning: title = "Scanning area..."; icon = "◌"; break;
                 case IndoorHudState.NotFound: title = "Could not find your location"; icon = "!"; break;
                 case IndoorHudState.Localized: title = "Location found"; icon = "✓"; break;
-                case IndoorHudState.Straight: title = "Continue ahead"; icon = "●"; break;
+                case IndoorHudState.Straight: title = "Direction to room"; icon = "●"; break;
                 case IndoorHudState.Turn: title = "Turn right"; icon = "↱"; break;
                 case IndoorHudState.WrongWay: title = "Recalculating route"; icon = "↻"; break;
                 default: title = "You have arrived"; icon = "✓"; break;
@@ -120,6 +125,17 @@ namespace IndoorAr
             Label(card, "Detail", DetailText(view), new Vector2(65, -37), new Vector2(680, 64), 28, Muted, TextAnchor.MiddleLeft, new Vector2(.5f, .5f));
             _detail = card.Find("Detail").GetComponent<Text>();
             if (state == IndoorHudState.Scanning) _slow = SlowPill();
+            if (view.WrongFloor && state == IndoorHudState.Straight)
+                Label(_root, "Wrong floor", view.Destination + " is on floor " + view.Floor, new Vector2(0, -520), new Vector2(900, 80), 32, White, TextAnchor.MiddleCenter, new Vector2(.5f, 1), FontStyle.Bold);
+            if (state == IndoorHudState.Straight && !view.LocalizeOnly)
+                ActionButton("I'm here", "Here", new Vector2(0, 180), () => HereRequested?.Invoke());
+            if (state == IndoorHudState.Arrived)
+                ActionButton("Done", "Done", new Vector2(0, 180), () => DoneRequested?.Invoke());
+            if (state == IndoorHudState.NotFound && string.IsNullOrEmpty(view.TitleOverride))
+            {
+                ActionButton("Try again", "Retry", new Vector2(0, 300), () => RetryRequested?.Invoke());
+                ActionButton("Back to map", "Back", new Vector2(0, 170), () => ExitRequested?.Invoke());
+            }
             _chrome = chrome;
             RefreshRoute(view, accent);
         }
@@ -131,12 +147,19 @@ namespace IndoorAr
             {
                 case IndoorHudState.Scanning: return "Slowly move your phone across the hallway.";
                 case IndoorHudState.NotFound: return "Step into a hallway and scan the walls and signs.";
-                case IndoorHudState.Localized: return "You're ready to navigate.";
-                case IndoorHudState.Straight: return "In " + view.Distance.ToString("0") + " m";
-                case IndoorHudState.Turn: return "In " + view.Distance.ToString("0") + " m";
+                case IndoorHudState.Localized: return view.LocalizeOnly ? "Your location was found." : "Direction to room is ready.";
+                case IndoorHudState.Straight: return "Arrow points to the saved room.";
+                case IndoorHudState.Turn: return "Arrow points to the saved room.";
                 case IndoorHudState.WrongWay: return "Finding a new way to your destination.";
                 default: return view.Destination + " is here.";
             }
+        }
+
+        void ActionButton(string text, string name, Vector2 position, Action action)
+        {
+            var panel = Panel(_root, name, position, new Vector2(650, 105), White, new Vector2(.5f, 0));
+            Label(panel, name + " label", text, Vector2.zero, new Vector2(620, 90), 38, Ink, TextAnchor.MiddleCenter, new Vector2(.5f, .5f), FontStyle.Bold);
+            panel.gameObject.AddComponent<Button>().onClick.AddListener(() => action());
         }
 
         bool RouteUnchanged(Vector3[] points)
@@ -160,7 +183,7 @@ namespace IndoorAr
             }
             var state = view.State;
             bool navigating = state == IndoorHudState.Localized || state == IndoorHudState.Straight || state == IndoorHudState.Turn || state == IndoorHudState.WrongWay || state == IndoorHudState.Arrived;
-            if (navigating) DrawMap(view, accent);
+            // A bearing is not a walkable route; do not draw a map.
         }
 
         void UpdateCue(IndoorHudView view)

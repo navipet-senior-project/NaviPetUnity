@@ -13,6 +13,7 @@ public class IndoorArEditorSmokeTests
     [UnityTest]
     public IEnumerator SceneStartsAndReturnsOneResult()
     {
+        var previousRequest = IndoorArBridge.EditorRequestJson;
         yield return new EnterPlayMode();
         LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result "));
         EditorSceneManager.LoadSceneInPlayMode("Assets/IndoorAr/Scenes/IndoorArSpike.unity",
@@ -28,5 +29,6 @@ public class IndoorArEditorSmokeTests
         Assert.IsTrue((bool)typeof(IndoorArRunner).GetField("_delivered", flags).GetValue(runner));
         Assert.IsTrue(session.ResultJson.Contains("cancelled") || session.ResultJson.Contains("ARCORE_UNSUPPORTED"));
         yield return new ExitPlayMode();
+        IndoorArBridge.EditorRequestJson = previousRequest;
     }
 }

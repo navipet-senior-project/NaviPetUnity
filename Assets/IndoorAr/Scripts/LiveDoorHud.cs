@@ -26,16 +26,16 @@ namespace IndoorAr
         {
             var request = session.Request;
             var door = request.position;
-            var target = new Vector3(door.x, door.y, door.z);
+            var target = door == null ? Vector3.zero : new Vector3(door.x, door.y, door.z);
             var authFailed = AuthFailed(session);
             return new IndoorHudView
             {
                 State = StateFor(session, pinnedForS),
                 Destination = Destination(request),
                 Floor = int.TryParse(request.floor, out var floor) ? floor : 0,
-                Distance = session.HorizontalDistance(cameraInMap),
-                Waypoints = new[] { new Vector3(cameraInMap.x, door.y, cameraInMap.z), target },
-                ArrowYaw = GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
+                ArrowYaw = door == null ? 0f : GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
+                LocalizeOnly = request.LocalizeOnly,
+                WrongFloor = !request.LocalizeOnly && door != null && session.IsWrongFloor(cameraInMap),
                 TitleOverride = authFailed ? "AR sign-in failed" : null,
                 DetailOverride = authFailed ? "The session could not use the AR token." : null,
             };
@@ -71,8 +71,9 @@ namespace IndoorAr
 
         static IndoorHudState StateFor(IndoorArSession session, float pinnedForS)
         {
+            if (session.State == IndoorArState.Arrived) return IndoorHudState.Arrived;
             if (session.State == IndoorArState.Pinned)
-                return pinnedForS < LocationFoundHoldS ? IndoorHudState.Localized : IndoorHudState.Straight;
+                return session.Request.LocalizeOnly || pinnedForS < LocationFoundHoldS ? IndoorHudState.Localized : IndoorHudState.Straight;
             if (LocalizationFailed(session) || AuthFailed(session)) return IndoorHudState.NotFound;
             return IndoorHudState.Scanning;
         }
