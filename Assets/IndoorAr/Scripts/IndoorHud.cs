@@ -26,7 +26,9 @@ namespace IndoorAr
     {
         public static IndoorHudView Snapshot(IndoorHudState state, int floor) => new IndoorHudView
         {
-            State = state, Floor = floor, Destination = floor == 2 ? "VEC 220" : "VEC 119",
+            State = state,
+            Floor = floor,
+            Destination = floor == 2 ? "VEC 220" : "VEC 119",
             Distance = state == IndoorHudState.Turn ? 30 : 12,
             // Illustrative only; these coordinates are not surveyed VEC geometry.
             Waypoints = new[] { new Vector3(0, 0, 1), new Vector3(0, 0, 5), new Vector3(3, 0, 5) }
@@ -235,14 +237,14 @@ namespace IndoorAr
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
             float cx = (size - 1) * 0.5f;
             for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-            {
-                float ny = y / (float)(size - 1);
-                float dx = Mathf.Abs(x - cx);
-                bool head = ny >= 0.38f && dx <= (1f - (ny - 0.38f) / 0.62f) * (cx * 0.95f);
-                bool shaft = ny < 0.46f && dx <= cx * 0.26f;
-                texture.SetPixel(x, y, head || shaft ? Color.white : Color.clear);
-            }
+                for (int x = 0; x < size; x++)
+                {
+                    float ny = y / (float)(size - 1);
+                    float dx = Mathf.Abs(x - cx);
+                    bool head = ny >= 0.38f && dx <= (1f - (ny - 0.38f) / 0.62f) * (cx * 0.95f);
+                    bool shaft = ny < 0.46f && dx <= cx * 0.26f;
+                    texture.SetPixel(x, y, head || shaft ? Color.white : Color.clear);
+                }
             texture.Apply();
             _arrowSprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100);
             return _arrowSprite;
@@ -294,11 +296,11 @@ namespace IndoorAr
         {
             const int size = 64, radius = 20; var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
             for (int y = 0; y < size; y++) for (int x = 0; x < size; x++)
-            {
-                float dx = Mathf.Max(radius - x, 0, x - (size - 1 - radius));
-                float dy = Mathf.Max(radius - y, 0, y - (size - 1 - radius));
-                texture.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01(radius + .5f - Mathf.Sqrt(dx * dx + dy * dy))));
-            }
+                {
+                    float dx = Mathf.Max(radius - x, 0, x - (size - 1 - radius));
+                    float dy = Mathf.Max(radius - y, 0, y - (size - 1 - radius));
+                    texture.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01(radius + .5f - Mathf.Sqrt(dx * dx + dy * dy))));
+                }
             texture.Apply(); return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(.5f, .5f), 100, 0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius));
         }
         void OnDestroy()
