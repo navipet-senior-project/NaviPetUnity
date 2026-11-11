@@ -28,9 +28,9 @@ public class IndoorRoomVisionOcrTests
             IndoorRoomMatch match = null;
             ocr.Result += (recognizedText, roomMatch) => { text = recognizedText; match = roomMatch; };
 
-            ocr.OnVisionText("VEC 119");
+            ocr.OnVisionText("VEC\n119");
 
-            Assert.AreEqual("VEC 119", text);
+            Assert.AreEqual("VEC\n119", text);
             Assert.AreEqual(IndoorRoomMatchStatus.Matched, match.Status);
             Assert.AreEqual("VEC119", match.Landmark.Id);
         }
