@@ -1,0 +1,21 @@
+apply plugin: 'com.android.library'
+
+dependencies {
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+}
+
+android {
+    namespace 'com.navipet.indoorar.ocr'
+    compileSdk getProperty('unity.compileSdkVersion') as int
+    buildToolsVersion = getProperty('unity.buildToolsVersion')
+
+    compileOptions {
+        sourceCompatibility JavaVersion.valueOf(getProperty('unity.javaCompatabilityVersion'))
+        targetCompatibility JavaVersion.valueOf(getProperty('unity.javaCompatabilityVersion'))
+    }
+
+    defaultConfig {
+        minSdk getProperty('unity.minSdkVersion') as int
+        targetSdk getProperty('unity.targetSdkVersion') as int
+    }
+}
