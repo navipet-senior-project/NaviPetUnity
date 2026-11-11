@@ -146,6 +146,45 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void PinAndItsRoomLabelStayBehindTheArrivalCard()
+    {
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        var camObject = new GameObject("AR Camera", typeof(Camera));
+        camObject.transform.SetParent(_host.transform, false);
+        // One meter short of the door, facing it.
+        camObject.transform.localPosition = new Vector3(-5.7651f, -1.8186f, 21.6689f);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
+        var arState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        arState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        try
+        {
+            ((IEnumerator)Call(runner, "Start")).MoveNext();
+            var session = Field<IndoorArSession>(runner, "_session");
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            session.OnLocalized(0.5f);
+            runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+            Call(runner, "Update");
+            var hud = _host.GetComponentInChildren<IndoorHud>();
+            var label = hud.transform.Find("HUD Canvas/Safe area/Pin label");
+            Assert.IsTrue(label.gameObject.activeSelf);
+            Assert.AreEqual("VEC 119", label.GetComponentInChildren<UnityEngine.UI.Text>().text);
+            Assert.IsNull(hud.transform.Find("HUD Canvas/Safe area/Arrival card"));
+
+            hud.transform.Find("HUD Canvas/Safe area/Here").GetComponent<UnityEngine.UI.Button>().onClick.Invoke();
+            Call(runner, "Update");
+            Assert.AreEqual(IndoorArState.Arrived, session.State);
+            Assert.IsNotNull(hud.transform.Find("HUD Canvas/Safe area/Arrival card"));
+            Assert.IsTrue(Field<Transform>(runner, "_pin").gameObject.activeSelf);
+            Assert.IsTrue(hud.transform.Find("HUD Canvas/Safe area/Pin label").gameObject.activeSelf);
+        }
+        finally { arState.Invoke(null, new object[] { previous }); }
+    }
+
+    [Test]
     public void BuiltSceneWiresTheSameMapSpaceAndArCamera()
     {
         var scene = EditorSceneManager.OpenScene("Assets/IndoorAr/Scenes/IndoorArSpike.unity", OpenSceneMode.Additive);
@@ -197,20 +236,21 @@ public class IndoorArRunnerTests
             var hud = _host.GetComponentInChildren<IndoorHud>();
             Assert.AreSame(localizer.MapSpace, hud.transform.parent);
             var door = new Vector3(-5.7651f, -1.8186f, 22.6689f);
-            var arrow = hud.transform.Find("HUD Canvas/Guide arrow");
+            var arrow = hud.transform.Find("HUD Canvas/Safe area/Guide arrow");
             Assert.AreEqual(1, hud.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Guide arrow"));
             Assert.AreEqual(0, hud.GetComponentsInChildren<MeshRenderer>(true).Length);
             var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, camObject.transform.position, door);
             Assert.AreEqual(GuidanceCue.ArrowScreenRotation(yaw), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
-            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Direction to room");
+            // The test camera stands 3.4 m above the saved door height.
+            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "VEC 119 is on Floor 1");
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>(true).Any(t => t.text.Contains("VEC 119")));
 
             camObject.transform.localRotation = Quaternion.LookRotation(Vector3.right);
             Call(runner, "Update");
-            Assert.AreSame(arrow, hud.transform.Find("HUD Canvas/Guide arrow"));
+            Assert.AreSame(arrow, hud.transform.Find("HUD Canvas/Safe area/Guide arrow"));
             var turned = GuidanceCue.ArrowYawDegrees(Vector3.right, camObject.transform.position, door);
             Assert.AreEqual(GuidanceCue.ArrowScreenRotation(turned), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
-            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "Look this way");
+            Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Any(t => t.text.Contains("Look this way")));
         }
         finally { arState.Invoke(null, new object[] { previous }); }
     }
@@ -226,7 +266,7 @@ public class IndoorArRunnerTests
         runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
             .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
         Call(runner, "Update");
-        CollectionAssert.Contains(Labels(runner), "TO  VEC 119  ·  FLOOR 1");
+        CollectionAssert.Contains(Labels(runner), "VEC 119 · Floor 1");
 
         LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*cancelled"));
         Call(runner, "OnHudExit");
@@ -242,8 +282,8 @@ public class IndoorArRunnerTests
         Assert.AreEqual("127", second.Request.room);
         Assert.AreEqual("VEC127", second.Request.doorKey);
         Assert.IsFalse(Field<bool>(runner, "_delivered"));
-        CollectionAssert.Contains(Labels(runner), "TO  VEC 127  ·  FLOOR 1");
-        CollectionAssert.DoesNotContain(Labels(runner), "TO  VEC 119  ·  FLOOR 1");
+        CollectionAssert.Contains(Labels(runner), "VEC 127 · Floor 1");
+        CollectionAssert.DoesNotContain(Labels(runner), "VEC 119 · Floor 1");
         LogAssert.NoUnexpectedReceived();
     }
 
@@ -262,7 +302,7 @@ public class IndoorArRunnerTests
         Call(runner, "Update");
         Assert.AreNotSame(first, Field<IndoorArSession>(runner, "_session"));
         Assert.IsFalse(Field<bool>(runner, "_delivered"));
-        CollectionAssert.Contains(Labels(runner), "TO  VEC 119  ·  FLOOR 1");
+        CollectionAssert.Contains(Labels(runner), "VEC 119 · Floor 1");
         LogAssert.NoUnexpectedReceived();
     }
 

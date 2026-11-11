@@ -4,14 +4,15 @@ using UnityEngine.InputSystem.UI;
 
 namespace IndoorAr
 {
-    // Preview only: no position, route or destination here represents a live user.
+    // Preview only: no position or destination here represents a live user.
     public sealed class IndoorHudMockPreview : MonoBehaviour
     {
         public Camera previewCamera;
-        public IndoorHudState state = IndoorHudState.Scanning;
+        public Transform pin;
+        public IndoorHudPreview state = IndoorHudPreview.Scanning;
         [Range(1, 2)] public int floor = 1;
         IndoorHud _hud;
-        IndoorHudState _previousState;
+        IndoorHudPreview _previousState;
         int _previousFloor;
 
         void Start()
@@ -29,7 +30,9 @@ namespace IndoorAr
         }
         void Refresh()
         {
-            _hud.Show(MockIndoorRoute.Snapshot(state, floor));
+            var view = MockIndoorRoute.Snapshot(state, floor, pin == null ? (Vector3?)null : IndoorArRunner.PinLabelAnchor(pin));
+            if (pin != null) pin.gameObject.SetActive(view.LabelAnchor.HasValue);
+            _hud.Show(view);
             _previousState = state; _previousFloor = floor;
         }
     }

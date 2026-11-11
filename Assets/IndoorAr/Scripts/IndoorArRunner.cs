@@ -169,6 +169,7 @@ namespace IndoorAr
                 && !LiveDoorHud.LocalizationFailed(_session)
                 && !LiveDoorHud.AuthFailed(_session)) return;
             var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor);
+            if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
             if (view.State == IndoorHudState.Scanning)
                 view.ScanTooFast = SampleScanMotion();
             else
@@ -195,11 +196,12 @@ namespace IndoorAr
 
         void UpdatePin()
         {
-            var pinned = _session.State == IndoorArState.Pinned && !_session.Request.LocalizeOnly;
+            // The pin stays behind the arrival card.
+            var pinned = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived) && !_session.Request.LocalizeOnly;
             if (pinned && _pin == null)
             {
                 var door = _session.Request;
-                _pin = CreatePin();
+                _pin = CreatePin(_localizer.MapSpace, out _pinAmberMaterial, out _pinCoreMaterial);
                 _pin.localPosition = new Vector3(door.position.x, door.position.y, door.position.z);
                 _pin.localRotation = Quaternion.Euler(0f, door.headingDeg, 0f);
             }
@@ -219,33 +221,37 @@ namespace IndoorAr
 
         Vector3 CameraForwardInMap() => _localizer.MapSpace.InverseTransformDirection(arCamera.transform.forward);
 
-        Transform CreatePin()
+        /// <summary>World point just above the pin head, where the HUD floats the room label.</summary>
+        public static Vector3 PinLabelAnchor(Transform pin) => pin.TransformPoint(0f, .45f, 0f);
+
+        // Static so the editor HUD preview shows the same pin. The caller owns both materials.
+        public static Transform CreatePin(Transform parent, out Material amber, out Material coreMaterial)
         {
             var root = new GameObject("Destination pin").transform;
-            root.SetParent(_localizer.MapSpace, false);
-            _pinAmberMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
-            _pinAmberMaterial.color = new Color32(245, 166, 35, 255);
-            _pinCoreMaterial = new Material(_pinAmberMaterial) { color = Color.white };
+            root.SetParent(parent, false);
+            amber = new Material(Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard"));
+            amber.color = new Color32(245, 166, 35, 255);
+            coreMaterial = new Material(amber) { color = Color.white };
             var head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             head.name = "Amber pin";
             head.transform.SetParent(root, false);
             head.transform.localPosition = new Vector3(0, .23f, 0);
             head.transform.localScale = Vector3.one * .3f;
-            head.GetComponent<Renderer>().sharedMaterial = _pinAmberMaterial;
+            head.GetComponent<Renderer>().sharedMaterial = amber;
             DestroyOwned(head.GetComponent<Collider>());
             var core = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             core.name = "White core";
             core.transform.SetParent(root, false);
             core.transform.localPosition = new Vector3(0, .23f, -.14f);
             core.transform.localScale = Vector3.one * .12f;
-            core.GetComponent<Renderer>().sharedMaterial = _pinCoreMaterial;
+            core.GetComponent<Renderer>().sharedMaterial = coreMaterial;
             DestroyOwned(core.GetComponent<Collider>());
             var tip = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             tip.name = "Pin stem";
             tip.transform.SetParent(root, false);
             tip.transform.localPosition = new Vector3(0, .08f, 0);
             tip.transform.localScale = new Vector3(.07f, .08f, .07f);
-            tip.GetComponent<Renderer>().sharedMaterial = _pinAmberMaterial;
+            tip.GetComponent<Renderer>().sharedMaterial = amber;
             DestroyOwned(tip.GetComponent<Collider>());
             return root;
         }

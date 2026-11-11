@@ -87,7 +87,7 @@ namespace IndoorAr
         public const float SlowScanDegreesPerSecond = 45f;
         public const float SlowScanHoldS = 1f;
 
-        /// <summary>Seconds the slow-scan pill stays up: restarts on every too-fast frame, then counts down.</summary>
+        /// <summary>Seconds the slow-scan reminder stays up: restarts on every too-fast frame, then counts down.</summary>
         public static float HoldSlowScan(float remaining, bool tooFast, float deltaSeconds) =>
             tooFast ? SlowScanHoldS : Mathf.Max(0f, remaining - deltaSeconds);
 

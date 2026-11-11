@@ -21,10 +21,11 @@ namespace IndoorAr.Editor
             Box("Left wall", new Vector3(-2.5f, 1.5f, 6), new Vector3(.2f, 3, 16), new Color(.70f, .74f, .76f));
             Box("Right wall", new Vector3(2.5f, 1.5f, 6), new Vector3(.2f, 3, 16), new Color(.65f, .70f, .73f));
             var preview = new GameObject("Mock HUD preview").AddComponent<IndoorHudMockPreview>(); preview.previewCamera = camera;
+            preview.pin = Pin(camera);
             Selection.activeGameObject = preview.gameObject;
         }
 
-        // Batch-render a deliberately illustrative corridor and each real HUD state.
+        // Batch-render a deliberately illustrative corridor and each agreed HUD state.
         public static void Capture()
         {
             var folder = Environment.GetEnvironmentVariable("NAVIPET_HUD_SHOTS");
@@ -45,7 +46,8 @@ namespace IndoorAr.Editor
                 Box("Door", new Vector3(2.38f, 1, 1 + i * 3), new Vector3(.06f, 2, 1.2f), new Color(.29f, .36f, .41f));
                 Box("Ceiling light", new Vector3(0, 2.9f, 1 + i * 3), new Vector3(1.2f, .04f, .35f), Color.white);
             }
-            var states = (IndoorHudState[])Enum.GetValues(typeof(IndoorHudState));
+            var pin = Pin(camera);
+            var states = (IndoorHudPreview[])Enum.GetValues(typeof(IndoorHudPreview));
             int index = 0, frames = 0;
             IndoorHud hud = null;
             EditorApplication.CallbackFunction update = null;
@@ -57,7 +59,14 @@ namespace IndoorAr.Editor
                     {
                         hud = new GameObject("HUD").AddComponent<IndoorHud>();
                         hud.Initialize(camera);
-                        hud.Show(MockIndoorRoute.Snapshot(states[index], 1));
+                        // An overlay canvas is not drawn into the render texture.
+                        var canvas = hud.GetComponentInChildren<Canvas>();
+                        canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                        canvas.planeDistance = .5f;
+                        Canvas.ForceUpdateCanvases();
+                        var view = MockIndoorRoute.Snapshot(states[index], 1, IndoorArRunner.PinLabelAnchor(pin));
+                        pin.gameObject.SetActive(view.LabelAnchor.HasValue);
+                        hud.Show(view);
                     }
                     Canvas.ForceUpdateCanvases();
                     camera.Render();
@@ -84,6 +93,15 @@ namespace IndoorAr.Editor
             };
             EditorApplication.update += update;
             EditorApplication.QueuePlayerLoopUpdate();
+        }
+        // The runner's own pin, core turned to the camera as on the phone.
+        static Transform Pin(Camera camera)
+        {
+            var pin = IndoorArRunner.CreatePin(null, out _, out _);
+            pin.position = new Vector3(1.3f, 1f, 4.5f);
+            var away = pin.position - camera.transform.position; away.y = 0f;
+            pin.rotation = Quaternion.LookRotation(away);
+            return pin;
         }
         static void Box(string name, Vector3 position, Vector3 scale, Color color)
         {
