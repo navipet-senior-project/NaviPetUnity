@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <Vision/Vision.h>
 #import <CoreGraphics/CoreGraphics.h>
+#import <ImageIO/ImageIO.h>
 #include <atomic>
 #include <cstdint>
 #include <cstddef>
@@ -16,7 +17,7 @@ static void SendVisionMessage(NSString *object, NSString *method, NSString *mess
 }
 
 extern "C" int IndoorArRecognizeText(const uint8_t *rgba, int width, int height,
-                                       const char *callbackObject) {
+                                       int orientation, const char *callbackObject) {
     if (rgba == nullptr || callbackObject == nullptr || width < 1 || height < 1
         || width > 640 || height > 480 || (uint64_t)width * height * 4 > SIZE_MAX) return false;
     bool expected = false;
@@ -45,7 +46,8 @@ extern "C" int IndoorArRecognizeText(const uint8_t *rgba, int width, int height,
             VNRecognizeTextRequest *request = [[VNRecognizeTextRequest alloc] init];
             request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
             request.usesLanguageCorrection = NO;
-            VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:image options:@{}];
+            VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:image
+                orientation:(CGImagePropertyOrientation)orientation options:@{}];
             BOOL succeeded = [handler performRequests:@[request] error:&error];
             CGImageRelease(image);
 

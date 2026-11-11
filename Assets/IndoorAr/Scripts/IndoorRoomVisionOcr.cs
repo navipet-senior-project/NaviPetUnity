@@ -21,12 +21,22 @@ namespace IndoorAr
 
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")]
-        static extern int IndoorArRecognizeText(byte[] rgba, int width, int height, string callbackObject);
+        static extern int IndoorArRecognizeText(byte[] rgba, int width, int height,
+            int orientation, string callbackObject);
 #endif
 
         public static bool IsValidRgbaFrame(int width, int height, int byteCount) =>
             width > 0 && height > 0 && width <= 640 && height <= 480
             && (long)width * height * 4 == byteCount;
+
+        public static int VisionOrientation(ScreenOrientation orientation) => orientation switch
+        {
+            ScreenOrientation.Portrait => 6,
+            ScreenOrientation.PortraitUpsideDown => 8,
+            ScreenOrientation.LandscapeLeft => 1,
+            ScreenOrientation.LandscapeRight => 3,
+            _ => 1
+        };
 
         public void Configure(ARCameraManager cameraManager, TextAsset directory)
         {
@@ -80,7 +90,7 @@ namespace IndoorAr
                     parameters.outputDimensions.y, pixels.Length)) return;
 #if UNITY_IOS && !UNITY_EDITOR
             _recognizing = IndoorArRecognizeText(pixels, parameters.outputDimensions.x,
-                parameters.outputDimensions.y, gameObject.name) != 0;
+                parameters.outputDimensions.y, VisionOrientation(Screen.orientation), gameObject.name) != 0;
 #endif
         }
 

@@ -14,6 +14,15 @@ public class IndoorRoomVisionOcrTests
         Assert.IsFalse(IndoorRoomVisionOcr.IsValidRgbaFrame(640, 360, 640 * 360 * 3));
     }
 
+    [TestCase(ScreenOrientation.Portrait, 6)]
+    [TestCase(ScreenOrientation.PortraitUpsideDown, 8)]
+    [TestCase(ScreenOrientation.LandscapeLeft, 1)]
+    [TestCase(ScreenOrientation.LandscapeRight, 3)]
+    public void DisplayOrientationMapsToVisionExifOrientation(ScreenOrientation screen, int vision)
+    {
+        Assert.AreEqual(vision, IndoorRoomVisionOcr.VisionOrientation(screen));
+    }
+
     [Test]
     public void VisionTextUsesRoomMatcherAndReturnsIdentityOnly()
     {
