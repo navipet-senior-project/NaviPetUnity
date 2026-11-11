@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace IndoorAr
 {
@@ -42,14 +43,26 @@ namespace IndoorAr
     /// <summary>Matches recognizer text to a room identity. It does not estimate or return a pose.</summary>
     public static class IndoorRoomIdentityMatcher
     {
+        [Serializable]
+        sealed class VecDirectory
+        {
+            public string buildingId;
+            public List<VecObject> objects;
+        }
+
+        [Serializable]
+        sealed class VecObject
+        {
+            public string id;
+            public string type;
+            public string floorId;
+        }
+
         public static IndoorRoomMatch Match(
             string recognizedText,
-            string buildingId,
             string floorId,
-            IEnumerable<IndoorRoomLandmark> landmarks)
+            string vecDirectoryJson)
         {
-            if (string.IsNullOrWhiteSpace(buildingId))
-                return new IndoorRoomMatch(IndoorRoomMatchStatus.MissingBuilding);
             if (string.IsNullOrWhiteSpace(floorId))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.MissingFloor);
 
@@ -57,18 +70,23 @@ namespace IndoorAr
             if (roomNumber == null)
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
 
+            var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson);
+            if (directory == null || string.IsNullOrWhiteSpace(directory.buildingId))
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.MissingBuilding);
+
             IndoorRoomLandmark match = null;
-            foreach (var landmark in landmarks)
+            if (directory.objects == null)
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.NoMatch);
+            foreach (var item in directory.objects)
             {
-                if (landmark == null
-                    || !string.Equals(landmark.BuildingId, buildingId, StringComparison.OrdinalIgnoreCase)
-                    || !string.Equals(landmark.FloorId, floorId, StringComparison.OrdinalIgnoreCase)
-                    || !string.Equals(NormalizeRoomNumber(landmark.Id), roomNumber, StringComparison.Ordinal))
+                if (item == null || !string.Equals(item.type, "door", StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(item.floorId, floorId, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(NormalizeRoomNumber(item.id), roomNumber, StringComparison.Ordinal))
                     continue;
 
                 if (match != null)
                     return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
-                match = landmark;
+                match = new IndoorRoomLandmark(item.id, directory.buildingId, item.floorId);
             }
 
             return match == null

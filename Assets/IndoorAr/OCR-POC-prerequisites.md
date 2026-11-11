@@ -6,4 +6,4 @@ Before adding on-device OCR, collect one VEC sign image and record the recognize
 
 Before any geometry or pose work, measure the sign width and height in metres and one sign corner's offset from a door represented in the backend's MapSet frame. Measure camera intrinsics (`fx`, `fy`, `cx`, `cy`) and distortion at the same device camera mode and resolution. A future PnP experiment must report both planar IPPE solutions and reprojection error in the OpenCV camera frame. Compare against `CameraInMap` captured at the same moment through a written, measured frame conversion. Until that paired comparison exists, OCR text and image corners cannot be treated as localization.
 
-The VEC floor-plan JSON is not interchangeable with the MapSet door frame. Use its room identifiers for identity fixtures only; do not use its positions or rotations to create sign geometry, poses, or transforms.
+The VEC floor-plan JSON supplies the room IDs, building ID, and floor IDs for identity matching. Its positions and rotations are not interchangeable with the MapSet door frame; do not use them to create sign geometry, poses, or transforms.
