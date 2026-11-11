@@ -192,9 +192,11 @@ public class IndoorArRunnerTests
         {
             var objects = scene.GetRootGameObjects().SelectMany(g => g.GetComponentsInChildren<Transform>(true)).ToArray();
             var runner = objects.Select(t=>t.GetComponent<IndoorArRunner>()).FirstOrDefault(c=>c!=null);
+            var visionOcr = objects.Select(t=>t.GetComponent<IndoorRoomVisionOcr>()).FirstOrDefault(c=>c!=null);
             var localizer = objects.Select(t=>t.GetComponent<MultiSetLocalizer>()).FirstOrDefault(c=>c!=null);
             var manager = objects.Select(t=>t.GetComponent<SingleFrameLocalizationManager>()).FirstOrDefault(c=>c!=null);
             Assert.IsNotNull(runner);
+            Assert.IsNotNull(visionOcr);
             Assert.IsNotNull(localizer);
             Assert.IsNotNull(manager);
             var serialized = new SerializedObject(manager);
@@ -202,6 +204,10 @@ public class IndoorArRunnerTests
             var camera = (Camera)serialized.FindProperty("arCamera").objectReferenceValue;
             Assert.IsNotNull(camera);
             Assert.IsNotNull(camera.GetComponent<UnityEngine.XR.ARFoundation.ARCameraManager>());
+            var visionSerialized = new SerializedObject(visionOcr);
+            Assert.AreSame(camera.GetComponent<UnityEngine.XR.ARFoundation.ARCameraManager>(),
+                visionSerialized.FindProperty("cameraManager").objectReferenceValue);
+            Assert.IsNotNull(visionSerialized.FindProperty("directory").objectReferenceValue);
             Assert.IsNotNull(Field<GameObject>(runner,"doorPinPrefab"));
             Assert.IsFalse(manager.enabled);
             Assert.IsNotNull(camera.GetComponent<UnityEngine.XR.ARFoundation.ARCameraBackground>());

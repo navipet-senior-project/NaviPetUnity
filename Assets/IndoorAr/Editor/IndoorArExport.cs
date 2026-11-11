@@ -84,8 +84,9 @@ namespace IndoorAr.Editor
             var target = project.GetUnityFrameworkTargetGuid();
             project.AddFrameworkToProject(target, "ARKit.framework", false);
             project.AddFrameworkToProject(target, "MultipeerConnectivity.framework", false);
+            project.AddFrameworkToProject(target, "Vision.framework", false);
             project.WriteToFile(projectPath);
-            Debug.Log("[IndoorAr] linked ARKit and MultipeerConnectivity into UnityFramework");
+            Debug.Log("[IndoorAr] linked ARKit, MultipeerConnectivity and Vision into UnityFramework");
         }
 #endif
     }
