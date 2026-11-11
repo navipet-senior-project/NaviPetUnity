@@ -54,10 +54,9 @@ namespace IndoorAr
             var scale = Mathf.Min(1f, 640f / image.width, 480f / image.height);
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
             var height = Mathf.Max(1, Mathf.RoundToInt(image.height * scale));
-            var parameters = new XRCpuImage.ConversionParams(image,
-                new RectInt(0, 0, image.width, image.height),
-                new Vector2Int(width, height), TextureFormat.RGBA32,
+            var parameters = new XRCpuImage.ConversionParams(image, TextureFormat.RGBA32,
                 XRCpuImage.Transformation.None);
+            parameters.outputDimensions = new Vector2Int(width, height);
             _converting = true;
             image.ConvertAsync(parameters, OnFrameConverted);
             image.Dispose();
