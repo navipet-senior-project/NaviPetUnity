@@ -40,9 +40,9 @@ namespace IndoorAr
 
         void Update()
         {
+            if (cameraManager == null || _converting || _recognizing) return;
 #if UNITY_ANDROID && !UNITY_EDITOR
-            if (cameraManager == null || _converting || _recognizing
-                || Time.unscaledTime < _nextFrameAt) return;
+            if (Time.unscaledTime < _nextFrameAt) return;
             _nextFrameAt = Time.unscaledTime + FrameIntervalSeconds;
             CaptureLatestFrame();
 #endif
@@ -55,6 +55,7 @@ namespace IndoorAr
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
             var height = Mathf.Max(1, Mathf.RoundToInt(image.height * scale));
             var parameters = new XRCpuImage.ConversionParams(image,
+                new RectInt(0, 0, image.width, image.height),
                 new Vector2Int(width, height), TextureFormat.RGBA32,
                 XRCpuImage.Transformation.None);
             _converting = true;
