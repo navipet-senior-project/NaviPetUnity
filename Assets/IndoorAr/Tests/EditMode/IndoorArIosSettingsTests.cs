@@ -65,6 +65,9 @@ public class IndoorArIosSettingsTests
         // The saved player setting is still Metal only.
         CollectionAssert.AreEqual(new[] { GraphicsDeviceType.Metal }, PlayerSettings.GetGraphicsAPIs(BuildTarget.iOS));
 
+        Assert.IsFalse(PlayerSettings.SplashScreen.show);
+        Assert.IsFalse(PlayerSettings.SplashScreen.showUnityLogo);
+
         Assert.AreEqual(AndroidSdkVersions.AndroidApiLevel26, PlayerSettings.Android.minSdkVersion);
         Assert.AreEqual(AndroidArchitecture.ARM64, PlayerSettings.Android.targetArchitectures);
         Assert.IsFalse(PlayerSettings.GetUseDefaultGraphicsAPIs(BuildTarget.Android));

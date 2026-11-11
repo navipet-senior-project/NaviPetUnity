@@ -49,6 +49,15 @@ namespace IndoorAr.Editor
             }
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
             PlayerSettings.SetArchitecture(NamedBuildTarget.iOS, 1);
+            // Apply immediately before the non-development build so this export cannot keep the splash.
+            PlayerSettings.SplashScreen.show = false;
+            PlayerSettings.SplashScreen.showUnityLogo = false;
+            if (PlayerSettings.SplashScreen.show || PlayerSettings.SplashScreen.showUnityLogo)
+            {
+                Debug.LogError("[IndoorAr] Unity license still forces the splash screen and logo");
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                return;
+            }
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {
                 scenes = Scenes,
