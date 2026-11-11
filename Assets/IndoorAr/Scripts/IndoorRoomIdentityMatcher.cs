@@ -8,6 +8,7 @@ namespace IndoorAr
     {
         Matched,
         MissingBuilding,
+        BuildingMismatch,
         MissingFloor,
         InvalidRoomNumber,
         NoMatch,
@@ -60,9 +61,12 @@ namespace IndoorAr
 
         public static IndoorRoomMatch Match(
             string recognizedText,
+            string buildingId,
             string floorId,
             string vecDirectoryJson)
         {
+            if (string.IsNullOrWhiteSpace(buildingId))
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.MissingBuilding);
             if (string.IsNullOrWhiteSpace(floorId))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.MissingFloor);
 
@@ -73,6 +77,8 @@ namespace IndoorAr
             var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson);
             if (directory == null || string.IsNullOrWhiteSpace(directory.buildingId))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.MissingBuilding);
+            if (!string.Equals(directory.buildingId, buildingId, StringComparison.OrdinalIgnoreCase))
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.BuildingMismatch);
 
             IndoorRoomLandmark match = null;
             if (directory.objects == null)
