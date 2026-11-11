@@ -5,7 +5,7 @@ namespace IndoorAr
     /// <summary>
     /// Durations and counts for the MultiSet localization baseline.
     /// No camera frames, poses, tokens, or user location.
-    /// ArrowShownMs is when the HUD first draws the guide arrow, not a check that it matches the real doorway.
+    /// ArrowShownMs is when the HUD first enters the guide-arrow state, not a rendered-frame or real-world alignment check.
     /// </summary>
     public sealed class IndoorArBaseline
     {

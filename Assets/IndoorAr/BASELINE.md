@@ -7,7 +7,7 @@
 | `arStartupMs` | session opened | `BeginSession` until `OnArSupport`. Includes `ARSession.CheckAvailability`. Excludes the Unity splash and the Flutter tap. |
 | `requestLatencyMs` | attempt started | `LocalizeFrame` start until the first accepted pose. A dropped or missing pose leaves this `na`. It is not the 30 s timeout. |
 | `timeToFirstLocalizationMs` | session opened | First accepted pose (`poseFound`). Later poses do not replace it. |
-| `arrowShownMs` | session opened | HUD first draws the guide arrow, after the 1.5 s “Location found” hold. |
+| `arrowShownMs` | session opened | HUD first enters the guide-arrow state, after the 1.5 s “Location found” hold. It records display timing, not a rendered-frame timestamp. |
 | `arrowAlignment` | — | Always `unmeasured`. Arrow display is not evidence the arrow matches the real doorway. |
 | `attempts` | — | `LocalizeFrame` starts. |
 | `retries` | — | Starts after the first, including the timeout retry, tracking-loss restart, and Try again. |
