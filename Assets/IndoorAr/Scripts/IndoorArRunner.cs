@@ -38,6 +38,8 @@ namespace IndoorAr
         IndoorArState _loggedState;
         bool _stateLogged;
         float _sessionStarted;
+        IndoorArBaseline _baseline;
+        string _baselineLog;
         Material _pinAmberMaterial;
         Material _pinCoreMaterial;
 
@@ -58,6 +60,7 @@ namespace IndoorAr
             if (_session != started) yield break; // a restart already authenticated the newer session
             // Editor smoke must never authenticate or consume VPS quota.
             _session.OnArSupport(!Application.isEditor && ARSession.state != ARSessionState.Unsupported);
+            NoteArReady();
             if (_session.State == IndoorArState.Auth) _localizer.Authenticate();
         }
 
@@ -84,16 +87,20 @@ namespace IndoorAr
             }
             _session = new IndoorArSession(request, _localizer.MapCode);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
+            _baseline = new IndoorArBaseline();
+            _baselineLog = null;
+            _baseline.NoteSessionOpened(NowMs());
             AttachHud();
             _session.LocalizeRequested += RequestLocalization;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += _session.OnAttemptStarted;
-            _localizer.Localized += _session.OnLocalized;
+            _localizer.Localized += OnLocalizedObserved;
             if (!restart || Application.isEditor) return;
             var ar = UnityEngine.Object.FindAnyObjectByType<ARSession>();
             if (ar != null) ar.Reset();
             _session.OnArSupport(ARSession.state != ARSessionState.Unsupported);
+            NoteArReady();
             if (_session.State == IndoorArState.Auth) _localizer.Authenticate();
         }
 
@@ -106,8 +113,13 @@ namespace IndoorAr
             }
             if (_session == null || _delivered) return;
             if (BackPressed()) OnHudExit();
+            if (_session.State != IndoorArState.Init) NoteArReady();
             if (_session.State == IndoorArState.Pinned && ARSession.state != ARSessionState.SessionTracking)
+            {
                 _session.OnTrackingLost();
+                _baseline?.NoteTrackingLost();
+                LogBaseline();
+            }
             if (_session.State == IndoorArState.Pinned) _pinnedFor += Time.unscaledDeltaTime;
             else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
@@ -153,10 +165,37 @@ namespace IndoorAr
 
         void RequestLocalization()
         {
+            _baseline?.NoteAttemptStarted(NowMs());
             if (!Application.isEditor)
                 Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");
             _localizer.Localize();
+            LogBaseline();
         }
+
+        void OnLocalizedObserved(float? confidence)
+        {
+            var wasPinned = _session.WasPinned;
+            _session.OnLocalized(confidence);
+            if (!wasPinned && _session.WasPinned) _baseline?.NotePoseAccepted(NowMs());
+            LogBaseline();
+        }
+
+        void NoteArReady()
+        {
+            _baseline?.NoteArReady(NowMs());
+            LogBaseline();
+        }
+
+        void LogBaseline()
+        {
+            if (Application.isEditor || _baseline == null) return;
+            var line = _baseline.LogLine();
+            if (line == _baselineLog) return;
+            _baselineLog = line;
+            Debug.Log(line);
+        }
+
+        long NowMs() => (long)(Time.realtimeSinceStartup * 1000f);
 
         void OnHudHere() => _session?.ImHere(CameraInMap());
         void OnHudDone() => _session?.ConfirmArrival();
@@ -176,6 +215,11 @@ namespace IndoorAr
             {
                 _scanPoseReady = false;
                 _slowHoldLeft = 0f;
+            }
+            if (view.State == IndoorHudState.Straight)
+            {
+                _baseline?.NoteArrowShown(NowMs());
+                LogBaseline();
             }
             _hud.Show(view);
         }
@@ -276,6 +320,8 @@ namespace IndoorAr
             _pinAmberMaterial = null;
             _pinCoreMaterial = null;
             _session = null;
+            _baseline = null;
+            _baselineLog = null;
         }
 
         void Unhook()
@@ -292,7 +338,7 @@ namespace IndoorAr
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= _session.OnAttemptStarted;
-            _localizer.Localized -= _session.OnLocalized;
+            _localizer.Localized -= OnLocalizedObserved;
         }
 
         static void DestroyOwned(UnityEngine.Object obj)

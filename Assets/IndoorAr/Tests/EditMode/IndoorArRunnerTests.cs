@@ -336,6 +336,53 @@ public class IndoorArRunnerTests
         finally { state.Invoke(null, new object[] { previous }); }
     }
 
+    [Test]
+    public void BaselineHooksRecordStartupPoseArrowRetryAndTrackingLoss()
+    {
+        var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        try
+        {
+            var runner = Runner();
+            Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+            var baseline = Field<IndoorArBaseline>(runner, "_baseline");
+            Assert.IsNull(baseline.ArStartupMs);
+            Assert.AreEqual(0, baseline.Attempts);
+
+            var session = Field<IndoorArSession>(runner, "_session");
+            session.OnArSupport(true);
+            Call(runner, "Update");
+            Assert.IsNotNull(baseline.ArStartupMs);
+
+            session.OnAuthenticated();
+            Assert.AreEqual(1, baseline.Attempts);
+            Assert.AreEqual(0, baseline.Retries);
+            Assert.IsNotNull(baseline.RequestLatencyMs);
+            Assert.IsNotNull(baseline.TimeToFirstLocalizationMs);
+            Assert.IsNull(baseline.ArrowShownMs);
+            Assert.IsFalse(baseline.ArrowAlignmentMeasured);
+            StringAssert.Contains("arrowAlignment=unmeasured", baseline.LogLine());
+
+            runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+            Call(runner, "Update");
+            Assert.IsNotNull(baseline.ArrowShownMs);
+            Assert.AreEqual(0, baseline.TrackingLosses);
+            Assert.IsFalse(baseline.ArrowAlignmentMeasured);
+
+            _host.GetComponent<RunnerFakeLocalizer>().Succeed = false;
+            state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.None });
+            Call(runner, "Update");
+            Assert.AreEqual(1, baseline.TrackingLosses);
+            Assert.AreEqual(2, baseline.Attempts);
+            Assert.AreEqual(1, baseline.Retries);
+            Assert.AreEqual(1, baseline.UnansweredAttempts);
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+        }
+        finally { state.Invoke(null, new object[] { previous }); }
+    }
+
     static string[] Labels(IndoorArRunner runner) =>
         runner.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray();
 }
