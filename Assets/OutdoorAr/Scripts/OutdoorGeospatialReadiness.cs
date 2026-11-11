@@ -24,6 +24,7 @@ namespace OutdoorAr
 
         public OutdoorArState State { get; private set; } = OutdoorArState.Disabled;
         public bool CanPlaceGuidanceAnchor => OutdoorGeospatialGate.CanPlaceGuidanceAnchor(State);
+        public GeospatialPose CurrentPose => earthManager.CameraGeospatialPose;
 
         public void SetOptIn(bool enabled, bool consented)
         {
