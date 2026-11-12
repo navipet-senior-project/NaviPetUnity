@@ -164,6 +164,9 @@ namespace IndoorAr.Editor
             AddMultiSet(localizer, camera);
             runner.AddComponent<IndoorArRunner>().Configure(localizer,
                 AssetDatabase.LoadAssetAtPath<GameObject>("Assets/IndoorNavigation/Prefabs/DoorMarker.prefab"), camera);
+            runner.AddComponent<IndoorRoomOcrDemo>().Configure(
+                camera.GetComponent<ARCameraManager>(),
+                AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/IndoorNavigation/Data/vec_floors1and2.json"));
             Debug.Log("[IndoorAr] scene roots: " + string.Join(", ", scene.GetRootGameObjects().Select(g => g.name)));
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };

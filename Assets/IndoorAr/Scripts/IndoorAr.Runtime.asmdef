@@ -3,7 +3,9 @@
     "rootNamespace": "IndoorAr",
     "references": [
         "Unity.InputSystem",
+        "Unity.Collections",
         "Unity.XR.ARFoundation",
+        "Unity.XR.ARSubsystems",
         "MultiSet-SDK.Core",
         "Unity.ugui"
     ],
