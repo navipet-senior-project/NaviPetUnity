@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using Google.XR.ARCoreExtensions;
 using UnityEngine;
@@ -19,8 +18,6 @@ namespace OutdoorAr
         bool _vpsPositionKnown;
         double _vpsLatitude;
         double _vpsLongitude;
-
-        public event Action<OutdoorArState> StateChanged;
 
         public OutdoorArState State { get; private set; } = OutdoorArState.Disabled;
         public bool CanPlaceGuidanceAnchor => OutdoorGeospatialGate.CanPlaceGuidanceAnchor(State);
@@ -76,7 +73,6 @@ namespace OutdoorAr
                 service, _vps, tracking, pose.HorizontalAccuracy, pose.OrientationYawAccuracy);
             if (state == State) return;
             State = state;
-            StateChanged?.Invoke(state);
         }
 
         IEnumerator CheckVps(VpsAvailabilityPromise promise, double latitude, double longitude)
