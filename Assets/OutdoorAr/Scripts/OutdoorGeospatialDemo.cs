@@ -84,9 +84,13 @@ namespace OutdoorAr
         {
             if (!_consented)
             {
-                GUI.Label(new Rect(20, 20, Screen.width - 40, 90),
-                    "Outdoor AR uses camera and precise location data with Google ARCore.");
-                if (GUI.Button(new Rect(20, 115, 260, 60), "Agree and enable outdoor AR"))
+                GUI.Label(new Rect(20, 20, Screen.width - 40, 170),
+                    "This app runs on Google Play Services for AR (ARCore), provided by Google LLC and governed by the Google Privacy Policy. To power this Geospatial session, Google will process sensor data (e.g., camera and location).");
+                if (GUI.Button(new Rect(20, 200, Screen.width - 40, 50), "Learn how ARCore handles data"))
+                    Application.OpenURL("https://support.google.com/ar?p=how-google-play-services-for-ar-handles-your-data");
+                if (GUI.Button(new Rect(20, 255, Screen.width - 40, 50), "Google Privacy Policy"))
+                    Application.OpenURL("https://policies.google.com/privacy");
+                if (GUI.Button(new Rect(20, 310, Screen.width - 40, 60), "Agree and enable outdoor AR"))
                 {
                     _consented = true;
                     readiness.SetOptIn(true, true);
