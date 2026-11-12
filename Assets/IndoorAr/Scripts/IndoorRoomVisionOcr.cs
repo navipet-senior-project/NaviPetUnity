@@ -57,6 +57,7 @@ namespace IndoorAr
         void CaptureLatestFrame()
         {
             if (!cameraManager.TryAcquireLatestCpuImage(out var image)) return;
+            var orientation = VisionOrientation(Screen.orientation);
             var scale = Mathf.Min(1f, 640f / image.width, 480f / image.height);
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
             var height = Mathf.Max(1, Mathf.RoundToInt(image.height * scale));
@@ -68,7 +69,9 @@ namespace IndoorAr
             _converting = true;
             try
             {
-                image.ConvertAsync(parameters, OnFrameConverted);
+                image.ConvertAsync(parameters,
+                    (status, convertedParameters, data) =>
+                        OnFrameConverted(status, convertedParameters, data, orientation));
             }
             catch
             {
@@ -81,7 +84,7 @@ namespace IndoorAr
         }
 
         void OnFrameConverted(XRCpuImage.AsyncConversionStatus status,
-            XRCpuImage.ConversionParams parameters, NativeArray<byte> data)
+            XRCpuImage.ConversionParams parameters, NativeArray<byte> data, int orientation)
         {
             _converting = false;
             if (status != XRCpuImage.AsyncConversionStatus.Ready) return;
@@ -90,7 +93,7 @@ namespace IndoorAr
                     parameters.outputDimensions.y, pixels.Length)) return;
 #if UNITY_IOS && !UNITY_EDITOR
             _recognizing = IndoorArRecognizeText(pixels, parameters.outputDimensions.x,
-                parameters.outputDimensions.y, VisionOrientation(Screen.orientation), gameObject.name) != 0;
+                parameters.outputDimensions.y, orientation, gameObject.name) != 0;
 #endif
         }
 
