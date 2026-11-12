@@ -109,7 +109,7 @@ namespace IndoorAr
             if (text.StartsWith("VEC", StringComparison.OrdinalIgnoreCase))
                 text = text.Substring(3).TrimStart();
 
-            var digits = text.Replace(" ", "").Replace("-", "");
+            var digits = text.Replace(" ", "").Replace("\r", "").Replace("\n", "").Replace("-", "");
             if (digits.Length == 0) return null;
             for (var i = 0; i < digits.Length; i++)
                 if (digits[i] < '0' || digits[i] > '9') return null;
