@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARFoundation;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -83,6 +84,15 @@ namespace IndoorAr
             if (!IndoorArContract.TryParseRequest(json, out var request))
             {
                 Deliver(IndoorArContract.Error(IndoorArContract.BadRequest, 0, 0));
+                return;
+            }
+            if (request.OutdoorOnly)
+            {
+                // The outdoor scene reads the same request and answers it. Exports without that scene say so.
+                if (Application.CanStreamedLevelBeLoaded(IndoorArContract.OutdoorScene))
+                    SceneManager.LoadScene(IndoorArContract.OutdoorScene);
+                else
+                    Deliver(IndoorArContract.Unavailable(0, 0));
                 return;
             }
             _session = new IndoorArSession(request, _localizer.MapCode);
@@ -356,7 +366,7 @@ namespace IndoorAr
         }
 
         // Android's back button arrives as Escape.
-        static bool BackPressed()
+        public static bool BackPressed()
         {
 #if ENABLE_INPUT_SYSTEM
             return Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;

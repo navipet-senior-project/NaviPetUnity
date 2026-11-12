@@ -13,6 +13,15 @@ namespace IndoorAr
         public float z;
     }
 
+    /// <summary>WGS84 point an outdoor request guides to.</summary>
+    [Serializable]
+    public class IndoorArDestination
+    {
+        public string name;
+        public double latitude;
+        public double longitude;
+    }
+
     /// <summary>
     /// Bridge contract v1/v2 request from the Flutter app. The pose is in the
     /// MultiSet MapSet frame and is used as is. v2 sends arToken as an object;
@@ -24,6 +33,9 @@ namespace IndoorAr
         public int schemaVersion;
         public string mode;
         public bool LocalizeOnly => mode == "localize";
+        public bool OutdoorOnly => mode == "outdoor";
+        public IndoorArDestination destination;
+        public bool dataUseAccepted;
         public string room;
         public string doorKey;
         public string floor;
@@ -53,6 +65,7 @@ namespace IndoorAr
         public const string ArcoreUnsupported = "ARCORE_UNSUPPORTED";
         public const string MultisetAuth = "MULTISET_AUTH";
         public const string Network = "NETWORK";
+        public const string OutdoorScene = "OutdoorGeospatialDemo";
 
         /// <summary>
         /// JsonUtility fills a missing object field with defaults, so a missing
@@ -73,8 +86,23 @@ namespace IndoorAr
                 return false;
             }
             if (parsed == null
-                || (parsed.schemaVersion != SchemaVersion && parsed.schemaVersion != SchemaVersionV2)
-                || (!string.IsNullOrEmpty(parsed.mode) && !parsed.LocalizeOnly)
+                || (parsed.schemaVersion != SchemaVersion && parsed.schemaVersion != SchemaVersionV2))
+            {
+                return false;
+            }
+            if (parsed.OutdoorOnly)
+            {
+                // A missing destination reads as (0, 0), which no route ends at.
+                var to = parsed.destination;
+                if (to == null || (to.latitude == 0 && to.longitude == 0)
+                    || !(Math.Abs(to.latitude) <= 90) || !(Math.Abs(to.longitude) <= 180))
+                {
+                    return false;
+                }
+                request = parsed;
+                return true;
+            }
+            if ((!string.IsNullOrEmpty(parsed.mode) && !parsed.LocalizeOnly)
                 || (!parsed.LocalizeOnly && (string.IsNullOrEmpty(parsed.doorKey) || string.IsNullOrEmpty(parsed.floor)))
                 || string.IsNullOrEmpty(parsed.mapCode))
             {
@@ -121,6 +149,10 @@ namespace IndoorAr
 
         public static string LocalizationFailed(int localizationQueries, long durationMs) =>
             Build("localizationFailed", null, null, localizationQueries, durationMs);
+
+        /// <summary>The session cannot run here: device, permission, authorization or a build without the scene.</summary>
+        public static string Unavailable(int localizationQueries, long durationMs) =>
+            Build("unavailable", null, null, localizationQueries, durationMs);
 
         public static string Error(string errorCode, int localizationQueries, long durationMs) =>
             Build("error", null, errorCode, localizationQueries, durationMs);

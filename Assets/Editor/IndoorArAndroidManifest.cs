@@ -22,8 +22,8 @@ namespace IndoorAr.Editor
         {
             var document = XDocument.Parse(xml);
             XNamespace android = "http://schemas.android.com/apk/res/android";
-            // ARCore leaves stale required depth tags in reused exports.
-            foreach (var name in new[] { "android.hardware.camera.ar", "android.hardware.camera", "android.hardware.camera.autofocus", "com.google.ar.core.depth" })
+            // ARCore leaves stale required depth tags in reused exports. ARCore Extensions requires location for Geospatial.
+            foreach (var name in new[] { "android.hardware.camera.ar", "android.hardware.camera", "android.hardware.camera.autofocus", "com.google.ar.core.depth", "android.hardware.location", "android.hardware.location.gps" })
             {
                 var feature = document.Root.Elements("uses-feature")
                     .FirstOrDefault(f => (string)f.Attribute(android + "name") == name);

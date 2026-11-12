@@ -1,3 +1,4 @@
+using System.Linq;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -12,7 +13,27 @@ namespace IndoorAr.Editor
     public static class IndoorArExport
     {
         public const string ExportPath = "Builds/IndoorArAndroid";
-        static readonly string[] Scenes = { "Assets/IndoorAr/Scenes/IndoorArSpike.unity" };
+        // The indoor scene is first: it reads every request and loads the outdoor scene for mode "outdoor".
+        // iOS has no ARCore authorization yet, so its export leaves the outdoor scene out
+        // and the indoor scene answers outdoor requests with "unavailable".
+        static readonly string[] IosScenes = { "Assets/IndoorAr/Scenes/IndoorArSpike.unity" };
+        static readonly string[] AndroidScenes = { IosScenes[0], "Assets/OutdoorAr/Scenes/OutdoorGeospatialDemo.unity" };
+
+        // ARCore Extensions checks and configures a build from the Build Settings scene list,
+        // not from the exported one, and fails an iOS build that lists a Geospatial scene.
+        static BuildReport Build(BuildPlayerOptions options)
+        {
+            var listed = EditorBuildSettings.scenes;
+            EditorBuildSettings.scenes = options.scenes.Select(path => new EditorBuildSettingsScene(path, true)).ToArray();
+            try
+            {
+                return BuildPipeline.BuildPlayer(options);
+            }
+            finally
+            {
+                EditorBuildSettings.scenes = listed;
+            }
+        }
 
         [MenuItem("Indoor AR/Export Android Library")]
         public static void ExportAndroid()
@@ -24,9 +45,9 @@ namespace IndoorAr.Editor
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
 
-            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            var report = Build(new BuildPlayerOptions
             {
-                scenes = Scenes,
+                scenes = AndroidScenes,
                 locationPathName = ExportPath,
                 target = BuildTarget.Android,
                 options = BuildOptions.None,
@@ -58,9 +79,9 @@ namespace IndoorAr.Editor
                 if (Application.isBatchMode) EditorApplication.Exit(1);
                 return;
             }
-            var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+            var report = Build(new BuildPlayerOptions
             {
-                scenes = Scenes,
+                scenes = IosScenes,
                 locationPathName = IosExportPath,
                 target = BuildTarget.iOS,
                 options = BuildOptions.None,

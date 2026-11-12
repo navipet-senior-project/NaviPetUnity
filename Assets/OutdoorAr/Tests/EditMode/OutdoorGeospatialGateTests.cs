@@ -112,6 +112,50 @@ namespace OutdoorAr.Tests
             Assert.IsFalse(OutdoorGeospatialGate.VpsCheckIsCurrent(33.78, -118.11, 33.7801, -118.11));
         }
 
+        [Test]
+        public void MeasuresDistanceAndBearingToADestination()
+        {
+            // 0.001 degrees of latitude is 111.2 m on the 6371 km sphere.
+            Assert.AreEqual(111.2, OutdoorGeospatialGate.DistanceM(33.78, -118.11, 33.781, -118.11), 0.1);
+            Assert.AreEqual(0, OutdoorGeospatialGate.DistanceM(33.78, -118.11, 33.78, -118.11), 1e-6);
+            Assert.AreEqual(0, OutdoorGeospatialGate.BearingDeg(33.78, -118.11, 33.781, -118.11), 0.01);
+            Assert.AreEqual(90, OutdoorGeospatialGate.BearingDeg(33.78, -118.11, 33.78, -118.109), 0.01);
+            Assert.AreEqual(180, OutdoorGeospatialGate.BearingDeg(33.78, -118.11, 33.779, -118.11), 0.01);
+            Assert.AreEqual(270, OutdoorGeospatialGate.BearingDeg(33.78, -118.11, 33.78, -118.111), 0.01);
+        }
+
+        [TestCase(90, 0, 90, "to your right")]
+        [TestCase(0, 90, -90, "to your left")]
+        [TestCase(350, 10, -20, "ahead")]
+        [TestCase(10, 350, 20, "ahead")]
+        [TestCase(10, -170, 180, "behind you")]
+        [TestCase(180, 20, 160, "behind you")]
+        [TestCase(45, 0, 45, "to your right")]
+        public void TurnsTheShortWayFromTheHeadingToTheBearing(
+            double bearing, double heading, double expectedTurn, string expectedHint)
+        {
+            var turn = OutdoorGeospatialGate.TurnDeg(bearing, heading);
+            Assert.AreEqual(expectedTurn, System.Math.Abs(expectedTurn) == 180 ? System.Math.Abs(turn) : turn, 1e-9);
+            Assert.AreEqual(expectedHint, OutdoorGeospatialGate.TurnHint(turn));
+        }
+
+        [TestCase(OutdoorArState.UnsupportedDevice, true)]
+        [TestCase(OutdoorArState.CameraPermissionDenied, true)]
+        [TestCase(OutdoorArState.LocationPermissionDenied, true)]
+        [TestCase(OutdoorArState.AuthorizationRequired, true)]
+        [TestCase(OutdoorArState.ServiceUnavailable, true)]
+        [TestCase(OutdoorArState.DeviceSupportUnknown, false)]
+        [TestCase(OutdoorArState.CameraPermissionRequired, false)]
+        [TestCase(OutdoorArState.ServiceInitializing, false)]
+        [TestCase(OutdoorArState.VpsCheckFailed, false)]
+        [TestCase(OutdoorArState.VpsUnavailable, false)]
+        [TestCase(OutdoorArState.TrackingUncertain, false)]
+        [TestCase(OutdoorArState.Ready, false)]
+        public void OnlyStatesWaitingCannotFixEndAHostedSession(OutdoorArState state, bool expected)
+        {
+            Assert.AreEqual(expected, OutdoorGeospatialGate.IsUnavailable(state));
+        }
+
         [TestCase(VpsAvailability.Unknown)]
         [TestCase(VpsAvailability.ErrorInternal)]
         [TestCase(VpsAvailability.ErrorNetworkConnection)]

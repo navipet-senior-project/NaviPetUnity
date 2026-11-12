@@ -3,6 +3,7 @@
     "rootNamespace": "OutdoorAr",
     "references": [
         "Google.XR.ARCoreExtensions",
+        "IndoorAr.Runtime",
         "Unity.XR.ARFoundation",
         "Unity.XR.ARSubsystems"
     ],
