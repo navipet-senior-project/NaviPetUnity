@@ -149,7 +149,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3859a92a05d4f5d418cb6ca605290e74, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.XR.ARFoundation::UnityEngine.XR.ARFoundation.ARSession
   m_AttemptUpdate: 1
   m_MatchFrameRate: 1
@@ -164,7 +164,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 04013b89158ee479c9d622e942e3b60b, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Google.XR.ARCoreExtensions::Google.XR.ARCoreExtensions.AREarthManager
 --- !u!114 &89581839
 MonoBehaviour:
@@ -176,7 +176,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1b50ad3f5d9024549b0a549c5a03a084, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Google.XR.ARCoreExtensions::Google.XR.ARCoreExtensions.ARCoreExtensions
   Session: {fileID: 89581837}
   Origin: {fileID: 1853273465}
@@ -193,7 +193,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fa850fbd5b8aded44846f96e35f1a9f5, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.XR.ARFoundation::UnityEngine.XR.ARFoundation.ARInputManager
 --- !u!4 &89581841
 Transform:
@@ -292,7 +292,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c2fadf230d1919748a9aa21d40f74619, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.InputSystem::UnityEngine.InputSystem.XR.TrackedPoseDriver
   m_TrackingType: 0
   m_UpdateType: 0
@@ -304,8 +304,8 @@ MonoBehaviour:
       m_Type: 0
       m_ExpectedControlType: Vector3
       m_Id: eef51422-4b85-40a7-89fd-6b0ae504ffaf
-      m_Processors: 
-      m_Interactions: 
+      m_Processors:
+      m_Interactions:
       m_SingletonActionBindings: []
       m_Flags: 0
       m_Priority: 0
@@ -317,8 +317,8 @@ MonoBehaviour:
       m_Type: 0
       m_ExpectedControlType: Quaternion
       m_Id: 5f92cdb1-8002-4410-a779-d664b72a8864
-      m_Processors: 
-      m_Interactions: 
+      m_Processors:
+      m_Interactions:
       m_SingletonActionBindings: []
       m_Flags: 0
       m_Priority: 0
@@ -330,29 +330,29 @@ MonoBehaviour:
       m_Type: 0
       m_ExpectedControlType: Integer
       m_Id: feedfe37-deeb-4593-9efa-5cf737596450
-      m_Processors: 
-      m_Interactions: 
+      m_Processors:
+      m_Interactions:
       m_SingletonActionBindings: []
       m_Flags: 0
       m_Priority: 0
     m_Reference: {fileID: 0}
   m_PositionAction:
-    m_Name: 
+    m_Name:
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: f19e9343-13e2-41ae-8c07-3dc4a5ad10e9
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings: []
     m_Flags: 0
     m_Priority: 0
   m_RotationAction:
-    m_Name: 
+    m_Name:
     m_Type: 0
-    m_ExpectedControlType: 
+    m_ExpectedControlType:
     m_Id: a618cdd5-f1fa-45d8-8c49-47aa1e8aae8c
-    m_Processors: 
-    m_Interactions: 
+    m_Processors:
+    m_Interactions:
     m_SingletonActionBindings: []
     m_Flags: 0
     m_Priority: 0
@@ -374,7 +374,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 816b289ef451e094f9ae174fb4cf8db0, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.XR.ARFoundation::UnityEngine.XR.ARFoundation.ARCameraBackground
   m_UseCustomMaterial: 0
   m_CustomMaterial: {fileID: 0}
@@ -388,7 +388,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4966719baa26e4b0e8231a24d9bd491a, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.XR.ARFoundation::UnityEngine.XR.ARFoundation.ARCameraManager
   m_FocusMode: 1
   m_LightEstimationMode: 0
@@ -440,7 +440,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 506b27d220c0741339653f8e052c5049, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: OutdoorAr.Runtime::OutdoorAr.OutdoorGeospatialDemo
   readiness: {fileID: 1262334993}
   session: {fileID: 89581837}
@@ -455,7 +455,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c36797bf70d814072ade9ed3905a48b7, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: OutdoorAr.Runtime::OutdoorAr.OutdoorGeospatialReadiness
   earthManager: {fileID: 89581838}
   optInEnabled: 0
@@ -502,7 +502,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 728ad7fae8e460a4ba41265c7308d757, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.XR.ARFoundation::UnityEngine.XR.ARFoundation.ARAnchorManager
   <trackablesChanged>k__BackingField:
     m_PersistentCalls:
@@ -518,7 +518,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e0cb9aa70a22847b5925ee5f067c10a9, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.XR.CoreUtils::Unity.XR.CoreUtils.XROrigin
   m_Camera: {fileID: 1199028671}
   m_OriginBaseGameObject: {fileID: 1853273463}
