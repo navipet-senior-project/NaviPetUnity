@@ -31,6 +31,9 @@ namespace OutdoorAr
         public const double MaxHorizontalAccuracyM = 5.0;
         public const double MaxHeadingAccuracyDeg = 10.0;
 
+        public static bool LocationPermissionsGranted(bool fineGranted, bool coarseGranted,
+            bool requiresCoarse) => fineGranted && (!requiresCoarse || coarseGranted);
+
         public static bool VpsCheckIsCurrent(double checkedLatitude, double checkedLongitude,
             double currentLatitude, double currentLongitude)
         {

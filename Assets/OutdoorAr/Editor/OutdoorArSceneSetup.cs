@@ -62,7 +62,10 @@ namespace OutdoorAr.Editor
             if (session.enabled || extensions.ARCoreExtensionsConfig.GeospatialMode != GeospatialMode.Enabled
                 || extensions.Session != session || extensions.CameraManager != cameraManager
                 || readinessObject.GetComponent<OutdoorGeospatialReadiness>() != readiness
-                || readinessObject.GetComponent<OutdoorGeospatialDemo>() != demo)
+                || readinessObject.GetComponent<OutdoorGeospatialDemo>() != demo
+                || !OutdoorGeospatialGate.LocationPermissionsGranted(true, true, true)
+                || OutdoorGeospatialGate.LocationPermissionsGranted(true, false, true)
+                || !OutdoorGeospatialGate.LocationPermissionsGranted(true, false, false))
                 throw new System.InvalidOperationException("Outdoor Geospatial scene setup is incomplete.");
 
             EditorSceneManager.SaveScene(scene, ScenePath);

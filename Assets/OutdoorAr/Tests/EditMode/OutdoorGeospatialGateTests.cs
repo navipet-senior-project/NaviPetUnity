@@ -53,6 +53,17 @@ namespace OutdoorAr.Tests
             Assert.AreEqual(expected, EvaluateReady(location: permission));
         }
 
+        [TestCase(true, false, false, true)]
+        [TestCase(true, false, true, false)]
+        [TestCase(true, true, true, true)]
+        [TestCase(false, true, false, false)]
+        public void AndroidLocationPermissionRequiresBothWhenCoarseIsRequired(
+            bool fine, bool coarse, bool requireCoarse, bool expected)
+        {
+            Assert.AreEqual(expected,
+                OutdoorGeospatialGate.LocationPermissionsGranted(fine, coarse, requireCoarse));
+        }
+
         [TestCase(EarthState.ErrorNotAuthorized, OutdoorArState.AuthorizationRequired)]
         [TestCase(EarthState.ErrorEarthNotReady, OutdoorArState.ServiceInitializing)]
         [TestCase(EarthState.ErrorResourcesExhausted, OutdoorArState.ServiceUnavailable)]

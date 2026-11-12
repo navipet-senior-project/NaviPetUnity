@@ -17,10 +17,19 @@ namespace OutdoorAr
 #if UNITY_ANDROID
         bool _cameraDenied;
         bool _locationDenied;
+        bool _requiresCoarseLocation;
         PermissionCallbacks _permissionCallbacks;
 #endif
         ARGeospatialAnchor _anchor;
         GameObject _cue;
+
+#if UNITY_ANDROID
+        void Start()
+        {
+            using (var version = new AndroidJavaClass("android.os.Build$VERSION"))
+                _requiresCoarseLocation = version.GetStatic<int>("SDK_INT") >= 31;
+        }
+#endif
 
         void Update()
         {
@@ -31,10 +40,16 @@ namespace OutdoorAr
                 ? OutdoorArPermission.Granted
                 : _cameraDenied ? OutdoorArPermission.Denied : OutdoorArPermission.Unknown;
             const string fineLocation = "android.permission.ACCESS_FINE_LOCATION";
-            var location = Permission.HasUserAuthorizedPermission(fineLocation)
+            const string coarseLocation = "android.permission.ACCESS_COARSE_LOCATION";
+            var fineGranted = Permission.HasUserAuthorizedPermission(fineLocation);
+            var coarseGranted = Permission.HasUserAuthorizedPermission(coarseLocation);
+            var location = OutdoorGeospatialGate.LocationPermissionsGranted(
+                    fineGranted, coarseGranted, _requiresCoarseLocation)
                 ? OutdoorArPermission.Granted
                 : _locationDenied ? OutdoorArPermission.Denied : OutdoorArPermission.Unknown;
             readiness.SetPermissions(camera, location);
+            if (camera == OutdoorArPermission.Granted && location == OutdoorArPermission.Granted)
+                session.enabled = true;
 #else
             readiness.SetPermissions(OutdoorArPermission.Unknown, OutdoorArPermission.Unknown);
 #endif
@@ -75,15 +90,25 @@ namespace OutdoorAr
                 {
                     _consented = true;
                     readiness.SetOptIn(true, true);
-                    session.enabled = true;
 #if UNITY_ANDROID
                     _permissionCallbacks = new PermissionCallbacks();
                     _permissionCallbacks.PermissionDenied += OnPermissionDenied;
                     _permissionCallbacks.PermissionDeniedAndDontAskAgain += OnPermissionDenied;
                     if (!Permission.HasUserAuthorizedPermission(Permission.Camera))
                         Permission.RequestUserPermission(Permission.Camera, _permissionCallbacks);
-                    if (!Permission.HasUserAuthorizedPermission("android.permission.ACCESS_FINE_LOCATION"))
-                        Permission.RequestUserPermission("android.permission.ACCESS_FINE_LOCATION", _permissionCallbacks);
+                    const string fineLocation = "android.permission.ACCESS_FINE_LOCATION";
+                    const string coarseLocation = "android.permission.ACCESS_COARSE_LOCATION";
+                    if (_requiresCoarseLocation)
+                    {
+                        if (!Permission.HasUserAuthorizedPermission(fineLocation)
+                            || !Permission.HasUserAuthorizedPermission(coarseLocation))
+                            Permission.RequestUserPermissions(
+                                new[] { coarseLocation, fineLocation }, _permissionCallbacks);
+                    }
+                    else if (!Permission.HasUserAuthorizedPermission(fineLocation))
+                    {
+                        Permission.RequestUserPermission(fineLocation, _permissionCallbacks);
+                    }
 #endif
                 }
                 return;
@@ -96,7 +121,8 @@ namespace OutdoorAr
         void OnPermissionDenied(string permission)
         {
             if (permission == Permission.Camera) _cameraDenied = true;
-            if (permission == "android.permission.ACCESS_FINE_LOCATION") _locationDenied = true;
+            if (permission == "android.permission.ACCESS_FINE_LOCATION"
+                || permission == "android.permission.ACCESS_COARSE_LOCATION") _locationDenied = true;
         }
 #endif
     }
