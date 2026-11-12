@@ -165,6 +165,8 @@ namespace IndoorAr.Editor
             runner.AddComponent<IndoorArRunner>().Configure(localizer,
                 AssetDatabase.LoadAssetAtPath<GameObject>("Assets/IndoorNavigation/Prefabs/DoorMarker.prefab"), camera);
             runner.AddComponent<IndoorRoomOcrDemo>().Configure(
+                camera.GetComponent<ARCameraManager>(),
+                AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/IndoorNavigation/Data/vec_floors1and2.json"));
             runner.AddComponent<IndoorRoomVisionOcr>().Configure(
                 camera.GetComponent<ARCameraManager>(),
                 AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/IndoorNavigation/Data/vec_floors1and2.json"));

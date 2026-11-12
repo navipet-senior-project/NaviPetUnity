@@ -770,6 +770,7 @@ GameObject:
   - component: {fileID: 2101039369}
   - component: {fileID: 2101039368}
   - component: {fileID: 2101039371}
+  - component: {fileID: 2101039372}
   m_Layer: 0
   m_Name: IndoorArRunner
   m_TagString: Untagged
@@ -820,6 +821,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a48f9047d5d647238d32b1b747e49db3, type: 3}
   m_Name:
   m_EditorClassIdentifier: IndoorAr.Runtime::IndoorAr.IndoorRoomVisionOcr
+  cameraManager: {fileID: 498806820}
+  directory: {fileID: 4900000, guid: 0e93af73fa3bdae4283a7f16cc0373c3, type: 3}
+--- !u!114 &2101039372
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2101039367}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a66c050e22e54f10a24f6f815bf71355, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: IndoorAr.Runtime::IndoorAr.IndoorRoomOcrDemo
   cameraManager: {fileID: 498806820}
   directory: {fileID: 4900000, guid: 0e93af73fa3bdae4283a7f16cc0373c3, type: 3}
 --- !u!4 &2101039370
