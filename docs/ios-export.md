@@ -20,7 +20,7 @@ This editor install has no iOS Build Support module (`PlaybackEngines` contains 
   -logFile -
 ```
 
-The menu item is **Indoor AR → Export iOS Xcode Project**. Output is `Builds/IndoorArIos/` (gitignored), an Xcode project whose `UnityFramework` target is the library the Flutter app embeds. The export links `ARKit.framework` and `MultipeerConnectivity.framework` into that target.
+The menu item is **Indoor AR → Export iOS Xcode Project**. Output is `Builds/IndoorArIos/` (gitignored), an Xcode project whose `UnityFramework` target is the library the Flutter app embeds. The export links `ARKit.framework`, `MultipeerConnectivity.framework`, and `Vision.framework` into that target.
 
 3. Open `Builds/IndoorArIos/Unity-iPhone.xcodeproj`. Select the **UnityFramework** scheme and a generic iOS device (`arm64`). Product → Build.
 4. Copy the built `UnityFramework.framework` into the Flutter app. The Flutter project gitignores that framework. Build it on a machine that has this Unity editor: the export symlinks editor libraries, so the framework binary is what moves, not the Xcode project alone.
