@@ -1,0 +1,11 @@
+{
+    "name": "OutdoorAr.Runtime",
+    "rootNamespace": "OutdoorAr",
+    "references": [
+        "Google.XR.ARCoreExtensions",
+        "Unity.XR.ARFoundation",
+        "Unity.XR.ARSubsystems"
+    ],
+    "includePlatforms": ["Editor", "Android", "iOS"],
+    "autoReferenced": true
+}

@@ -51,6 +51,7 @@
     "com.unity.xr.arcore": "6.3.5",
     "com.unity.xr.arfoundation": "6.3.5",
     "com.unity.xr.arkit": "6.3.5",
+    "com.google.ar.core.arfoundation.extensions": "https://github.com/google-ar/arcore-unity-extensions.git#v1.57.0-arf6",
     "com.multiset.sdk": "https://github.com/MultiSet-AI/multiset-unity-sdk.git#64e760fd6e56eabdcf502bb5ab81b41b8afa6214"
   }
 }
