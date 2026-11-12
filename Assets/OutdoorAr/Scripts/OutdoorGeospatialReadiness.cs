@@ -51,6 +51,14 @@ namespace OutdoorAr
                 pose.Latitude, pose.Longitude));
         }
 
+        public void RetryVpsCheck()
+        {
+            if (State != OutdoorArState.VpsCheckFailed) return;
+            _vps = OutdoorArVps.Unknown;
+            Refresh();
+            CheckVpsAtCurrentPosition();
+        }
+
         void Refresh()
         {
             var support = earthManager == null
@@ -79,12 +87,13 @@ namespace OutdoorAr
         {
             _checkingVps = true;
             yield return promise;
-            _vpsLatitude = latitude;
-            _vpsLongitude = longitude;
-            _vpsPositionKnown = true;
-            _vps = promise.Result == VpsAvailability.Available
-                ? OutdoorArVps.Available
-                : OutdoorArVps.Unavailable;
+            _vps = OutdoorGeospatialGate.MapVpsAvailability(promise.Result);
+            if (_vps == OutdoorArVps.Available || _vps == OutdoorArVps.Unavailable)
+            {
+                _vpsLatitude = latitude;
+                _vpsLongitude = longitude;
+                _vpsPositionKnown = true;
+            }
             _checkingVps = false;
             Refresh();
         }

@@ -111,5 +111,31 @@ namespace OutdoorAr.Tests
             Assert.IsTrue(OutdoorGeospatialGate.VpsCheckIsCurrent(33.78, -118.11, 33.78001, -118.11));
             Assert.IsFalse(OutdoorGeospatialGate.VpsCheckIsCurrent(33.78, -118.11, 33.7801, -118.11));
         }
+
+        [TestCase(VpsAvailability.Unknown)]
+        [TestCase(VpsAvailability.ErrorInternal)]
+        [TestCase(VpsAvailability.ErrorNetworkConnection)]
+        [TestCase(VpsAvailability.ErrorNotAuthorized)]
+        [TestCase(VpsAvailability.ErrorResourceExhausted)]
+        public void VPSRequestErrorsRemainRetryableAndBlockGuidance(VpsAvailability availability)
+        {
+            var vps = OutdoorGeospatialGate.MapVpsAvailability(availability);
+            var state = EvaluateReady(vps: vps);
+
+            Assert.AreEqual(OutdoorArVps.RequestFailed, vps);
+            Assert.AreEqual(OutdoorArState.VpsCheckFailed, state);
+            Assert.IsFalse(OutdoorGeospatialGate.CanPlaceGuidanceAnchor(state));
+        }
+
+        [Test]
+        public void ConfirmedVpsUnavailabilityIsNotTreatedAsRequestFailure()
+        {
+            var vps = OutdoorGeospatialGate.MapVpsAvailability(VpsAvailability.Unavailable);
+            var state = EvaluateReady(vps: vps);
+
+            Assert.AreEqual(OutdoorArVps.Unavailable, vps);
+            Assert.AreEqual(OutdoorArState.VpsUnavailable, state);
+            Assert.IsFalse(OutdoorGeospatialGate.CanPlaceGuidanceAnchor(state));
+        }
     }
 }

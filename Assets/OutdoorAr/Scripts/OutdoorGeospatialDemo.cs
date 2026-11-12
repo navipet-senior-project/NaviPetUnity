@@ -119,6 +119,9 @@ namespace OutdoorAr
             }
 
             GUI.Label(new Rect(20, 20, Screen.width - 40, 70), "Outdoor Geospatial: " + readiness.State);
+            if (readiness.State == OutdoorArState.VpsCheckFailed
+                && GUI.Button(new Rect(20, 95, Screen.width - 40, 60), "Retry VPS check"))
+                readiness.RetryVpsCheck();
         }
 
 #if UNITY_ANDROID

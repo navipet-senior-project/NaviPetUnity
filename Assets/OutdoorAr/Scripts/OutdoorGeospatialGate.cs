@@ -18,13 +18,14 @@ namespace OutdoorAr
         AuthorizationRequired,
         ServiceUnavailable,
         VpsCheckRequired,
+        VpsCheckFailed,
         VpsUnavailable,
         TrackingUncertain,
         Ready
     }
 
     public enum OutdoorArPermission { Unknown, Granted, Denied }
-    public enum OutdoorArVps { Unknown, Available, Unavailable }
+    public enum OutdoorArVps { Unknown, Available, Unavailable, RequestFailed }
 
     public static class OutdoorGeospatialGate
     {
@@ -33,6 +34,16 @@ namespace OutdoorAr
 
         public static bool LocationPermissionsGranted(bool fineGranted, bool coarseGranted,
             bool requiresCoarse) => fineGranted && (!requiresCoarse || coarseGranted);
+
+        public static OutdoorArVps MapVpsAvailability(VpsAvailability availability)
+        {
+            switch (availability)
+            {
+                case VpsAvailability.Available: return OutdoorArVps.Available;
+                case VpsAvailability.Unavailable: return OutdoorArVps.Unavailable;
+                default: return OutdoorArVps.RequestFailed;
+            }
+        }
 
         public static bool VpsCheckIsCurrent(double checkedLatitude, double checkedLongitude,
             double currentLatitude, double currentLongitude)
@@ -74,6 +85,7 @@ namespace OutdoorAr
             if (service == EarthState.ErrorNotAuthorized) return OutdoorArState.AuthorizationRequired;
             if (service != EarthState.Enabled) return OutdoorArState.ServiceUnavailable;
             if (vps == OutdoorArVps.Unknown) return OutdoorArState.VpsCheckRequired;
+            if (vps == OutdoorArVps.RequestFailed) return OutdoorArState.VpsCheckFailed;
             if (vps == OutdoorArVps.Unavailable) return OutdoorArState.VpsUnavailable;
             if (tracking != TrackingState.Tracking
                 || double.IsNaN(horizontalAccuracyM) || double.IsInfinity(horizontalAccuracyM)
