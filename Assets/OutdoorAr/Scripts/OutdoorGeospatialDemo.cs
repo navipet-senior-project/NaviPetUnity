@@ -48,7 +48,6 @@ namespace OutdoorAr
             if (!IndoorArContract.TryParseRequest(_requestJson, out var request) || !request.OutdoorOnly) return;
             _request = request;
             _startedAt = Time.realtimeSinceStartup;
-            if (request.dataUseAccepted) Consent(); // the host already showed Google's notice
         }
 
         void Update()

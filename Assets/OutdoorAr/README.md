@@ -12,9 +12,9 @@ The Flutter app starts outdoor AR through the same bridge as indoor AR, with thi
 {"schemaVersion":2,"mode":"outdoor","destination":{"name":"VEC","latitude":33.7829,"longitude":-118.1108},"dataUseAccepted":true}
 ```
 
-The indoor scene is the first scene of the export and reads every request. For `mode: "outdoor"` it loads the outdoor scene, which reads the same request. A request without a destination, with a destination of (0, 0), or with a latitude or longitude out of range gets `BAD_REQUEST`.
+The indoor scene is the first scene of the export and reads every request. For `mode: "outdoor"` it loads the outdoor scene, which reads the same request. A request without a destination, without either coordinate, or with a latitude or longitude out of range gets `BAD_REQUEST`; explicitly supplied `(0, 0)` is valid.
 
-`dataUseAccepted: true` means the host already showed Google's ARCore notice, so Unity skips its own copy of it. Without the flag Unity shows the notice and waits for the user to agree. Unity then asks for camera and precise location on Android, and for location on iOS (the host asks for the camera there), starts the session, and checks VPS availability at the phone's position. Once `OutdoorGeospatialGate` reports ready, a green marker is anchored at the destination's latitude and longitude, at the phone's altitude, and the screen shows the distance and the direction to turn.
+Unity always shows Google's ARCore notice and waits for the user to agree; `dataUseAccepted` from the host does not replace Unity's confirmation. Unity then asks for camera and precise location on Android, and for location on iOS (the host asks for the camera there), starts the session, and checks VPS availability at the phone's position. Once `OutdoorGeospatialGate` reports ready, a green terrain-resolved marker is placed at the destination and the screen shows the distance and the direction to turn.
 
 The result uses the indoor envelope, always with `localizationQueries: 0`:
 
