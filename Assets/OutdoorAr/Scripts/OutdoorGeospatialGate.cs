@@ -22,6 +22,8 @@ namespace OutdoorAr
         VpsCheckFailed,
         VpsUnavailable,
         TrackingUncertain,
+        // Tracking and VPS are fine but accuracy is only GPS-class: guide, say so, and place no anchor.
+        Approximate,
         Ready
     }
 
@@ -32,6 +34,11 @@ namespace OutdoorAr
     {
         public const double MaxHorizontalAccuracyM = 5.0;
         public const double MaxHeadingAccuracyDeg = 10.0;
+        // Guidance that is allowed to say "approximate". On the iPhone 14 Plus, outdoors facing buildings, accuracy
+        // stayed at le10 m / le20 deg for 55 s without ever reaching the precise limits above, with tracking and VPS fine.
+        // Google's Geospatial sample localizes at 20 m / 25 deg; these are stricter and sit on the measured plateau.
+        public const double MaxApproximateHorizontalAccuracyM = 10.0;
+        public const double MaxApproximateHeadingAccuracyDeg = 20.0;
         // Both need real-device validation on campus.
         public const double ArrivalRadiusM = 10.0;
         public const float ReadyTimeoutS = 60f;
@@ -136,11 +143,25 @@ namespace OutdoorAr
                 || double.IsNaN(horizontalAccuracyM) || double.IsInfinity(horizontalAccuracyM)
                 || double.IsNaN(headingAccuracyDeg) || double.IsInfinity(headingAccuracyDeg)
                 || horizontalAccuracyM < 0 || headingAccuracyDeg < 0
-                || horizontalAccuracyM > MaxHorizontalAccuracyM
-                || headingAccuracyDeg > MaxHeadingAccuracyDeg)
+                || horizontalAccuracyM > MaxApproximateHorizontalAccuracyM
+                || headingAccuracyDeg > MaxApproximateHeadingAccuracyDeg)
                 return OutdoorArState.TrackingUncertain;
+            if (horizontalAccuracyM > MaxHorizontalAccuracyM || headingAccuracyDeg > MaxHeadingAccuracyDeg)
+                return OutdoorArState.Approximate;
 
             return OutdoorArState.Ready;
+        }
+
+        /// <summary>The arrow may show: precise, or approximate and labelled so.</summary>
+        public static bool CanGuide(OutdoorArState state) =>
+            state == OutdoorArState.Ready || state == OutdoorArState.Approximate;
+
+        /// <summary>Accuracy as a bucket for logs, so no raw value leaves the phone. "none" when not tracking.</summary>
+        public static string AccuracyBucket(double value, bool tracking, double a, double b, double c)
+        {
+            if (!tracking) return "none";
+            if (double.IsNaN(value) || double.IsInfinity(value) || value < 0) return "bad";
+            return value <= a ? "le" + a : value <= b ? "le" + b : value <= c ? "le" + c : "gt" + c;
         }
 
         public static bool CanPlaceGuidanceAnchor(OutdoorArState state) => state == OutdoorArState.Ready;

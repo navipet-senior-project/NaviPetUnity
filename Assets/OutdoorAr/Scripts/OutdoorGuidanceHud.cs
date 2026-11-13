@@ -11,6 +11,7 @@ namespace OutdoorAr
     public static class OutdoorGuidanceHud
     {
         public const int MaxNameLength = 28;
+        public const string ApproximateNote = "Approximate · scan the buildings";
 
         public static IndoorHudView Compose(IndoorArRequest request, OutdoorArState state, bool hasPose,
             bool arrived, double distanceM, double routeRemainingM, double turnDeg, bool offRoute,
@@ -27,7 +28,13 @@ namespace OutdoorAr
                 DistanceM = request.HasRoute ? routeRemainingM : distanceM
             };
             if (arrived) view.State = IndoorHudState.Arrived;
-            else if (hasPose) view.State = readyForS < LiveDoorHud.LocationFoundHoldS ? IndoorHudState.Localized : IndoorHudState.Straight;
+            else if (hasPose)
+            {
+                view.State = readyForS < LiveDoorHud.LocationFoundHoldS ? IndoorHudState.Localized : IndoorHudState.Straight;
+                // GPS-class accuracy: say so beside the distance. Off the route (30 m) outweighs the 10 m error, so that text stays.
+                if (state == OutdoorArState.Approximate && view.State == IndoorHudState.Straight && !offRoute)
+                    view.DetailOverride = (double.IsNaN(view.DistanceM) ? "" : IndoorHud.DistanceLabel(view.DistanceM) + " · ") + ApproximateNote;
+            }
             else
             {
                 view.State = state == OutdoorArState.VpsCheckFailed ? IndoorHudState.NotFound : IndoorHudState.Scanning;

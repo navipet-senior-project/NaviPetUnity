@@ -7,7 +7,8 @@
         "Unity.InputSystem",
         "Unity.ugui",
         "Unity.XR.ARFoundation",
-        "Unity.XR.ARSubsystems"
+        "Unity.XR.ARSubsystems",
+        "Unity.XR.Management"
     ],
     "includePlatforms": ["Editor", "Android", "iOS"],
     "autoReferenced": true

@@ -1,9 +1,11 @@
+using System.Collections;
 using Google.XR.ARCoreExtensions;
 using IndoorAr;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
+using UnityEngine.XR.Management;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 #if UNITY_ANDROID
@@ -48,6 +50,13 @@ namespace OutdoorAr
         double _routeRemainingM = double.NaN;
         float _readyFor;
         string _loggedLine;
+        // A dead camera feed on iOS re-entry: no frame with textures after the session starts.
+        // Survives the scene reload that follows a restart, so the second try fails instead of looping.
+        static string _restartedFor;
+        ARCameraManager _camera;
+        bool _cameraFrame;
+        bool _restarting;
+        float _cameraWaitS;
 
         void Start()
         {
@@ -60,6 +69,8 @@ namespace OutdoorAr
             _request = request;
             _startedAt = Time.realtimeSinceStartup;
             ArCameraDiagnostics.Attach();
+            // The user already agreed to this request before the restart reloaded the scene.
+            if (_restartedFor == _requestJson) Consent();
         }
 
         void Update()
@@ -105,6 +116,8 @@ namespace OutdoorAr
             readiness.SetPermissions(OutdoorArPermission.Unknown, OutdoorArPermission.Unknown);
 #endif
 
+            if (_request != null && session.enabled && WatchCamera()) return;
+
             if (readiness.State == OutdoorArState.VpsCheckRequired)
                 readiness.CheckVpsAtCurrentPosition();
 
@@ -115,8 +128,8 @@ namespace OutdoorAr
                     Finish(IndoorArContract.Unavailable(0, DurationMs()));
                     return;
                 }
-                // Counted only while the session runs, so a permission dialog does not use it up.
-                _waitingFor = session.enabled && !readiness.CanPlaceGuidanceAnchor ? _waitingFor + Time.deltaTime : 0f;
+                // Counted only while the session runs, so a permission dialog does not use it up. Approximate guidance is not waiting.
+                _waitingFor = session.enabled && !readiness.CanGuide ? _waitingFor + Time.deltaTime : 0f;
                 if (_waitingFor > OutdoorGeospatialGate.ReadyTimeoutS)
                 {
                     Finish(IndoorArContract.LocalizationFailed(0, DurationMs()));
@@ -137,7 +150,8 @@ namespace OutdoorAr
                 }
             }
 
-            if (!readiness.CanPlaceGuidanceAnchor)
+            // A hosted session guides on approximate accuracy too, labelled so; the pin and the standalone marker need precise.
+            if (!(_request != null ? readiness.CanGuide : readiness.CanPlaceGuidanceAnchor))
             {
                 ClearAnchor();
                 _distanceM = double.NaN;
@@ -152,7 +166,8 @@ namespace OutdoorAr
             {
                 var to = _request.destination;
                 _distanceM = OutdoorGeospatialGate.DistanceM(pose.Latitude, pose.Longitude, to.latitude, to.longitude);
-                _arrived |= _distanceM <= OutdoorGeospatialGate.ArrivalRadiusM;
+                // Arrival needs precise accuracy: a 10 m error could otherwise put the walker at the door from 20 m away.
+                _arrived |= readiness.CanPlaceGuidanceAnchor && _distanceM <= OutdoorGeospatialGate.ArrivalRadiusM;
                 var bearing = OutdoorGeospatialGate.BearingDeg(pose.Latitude, pose.Longitude, to.latitude, to.longitude);
                 if (_request.HasRoute)
                 {
@@ -168,7 +183,7 @@ namespace OutdoorAr
                 UpdateHud(true);
             }
 
-            if (_anchor == null)
+            if (_anchor == null && readiness.CanPlaceGuidanceAnchor)
             {
                 if (_request == null)
                 {
@@ -220,10 +235,86 @@ namespace OutdoorAr
 #endif
         }
 
+        // iPhone re-entry after an earlier AR session in the same process delivered no camera textures
+        // ("Unsupported texture type: None" every frame, ArDiag cameraTextures=-1) and Earth never left
+        // ServiceInitializing. Once the session has run without a textured frame for CameraFirstFrameTimeoutS,
+        // restart the XR loader once, then end the request as unavailable. A healthy first entry never reaches this.
+        bool WatchCamera()
+        {
+            if (Application.platform != RuntimePlatform.IPhonePlayer) return false;
+            if (_restarting) return true;
+            if (_camera == null)
+            {
+                _camera = FindAnyObjectByType<ARCameraManager>();
+                if (_camera != null) _camera.frameReceived += OnCameraFrame;
+            }
+            _cameraWaitS += Time.unscaledDeltaTime;
+            switch (OutdoorCameraWatch.Decide(_cameraWaitS, _cameraFrame, _restartedFor == _requestJson))
+            {
+                case OutdoorCameraAction.Restart:
+                    _restarting = true;
+                    StartCoroutine(RestartXr());
+                    return true;
+                case OutdoorCameraAction.Fail:
+                    Debug.Log("[OutdoorAr] camera restart=failed");
+                    Finish(IndoorArContract.Unavailable(0, DurationMs()));
+                    return true;
+            }
+            return false;
+        }
+
+        void OnCameraFrame(ARCameraFrameEventArgs args) => _cameraFrame |= args.textures.Count > 0;
+
+        void OnDestroy()
+        {
+            if (_camera != null) _camera.frameReceived -= OnCameraFrame;
+        }
+
+        IEnumerator RestartXr()
+        {
+            Debug.Log("[OutdoorAr] camera restart=started");
+            _restartedFor = _requestJson;
+            session.enabled = false;
+            if (_camera != null) _camera.enabled = false;
+            var manager = XRGeneralSettings.Instance == null ? null : XRGeneralSettings.Instance.Manager;
+            if (manager == null || !TryStopXr(manager))
+            {
+                Finish(IndoorArContract.Unavailable(0, DurationMs()));
+                yield break;
+            }
+            yield return null;
+            yield return manager.InitializeLoader();
+            if (manager.activeLoader == null)
+            {
+                Debug.Log("[OutdoorAr] camera restart=no-loader");
+                Finish(IndoorArContract.Unavailable(0, DurationMs()));
+                yield break;
+            }
+            manager.StartSubsystems();
+            // The router reads the same request and loads this scene again, so the AR components bind to the new subsystems.
+            SceneManager.LoadScene(0);
+        }
+
+        static bool TryStopXr(XRManagerSettings manager)
+        {
+            try
+            {
+                manager.StopSubsystems();
+                manager.DeinitializeLoader();
+                return true;
+            }
+            catch (System.Exception e)
+            {
+                Debug.Log("[OutdoorAr] camera restart=stop-failed " + e.GetType().Name);
+                return false;
+            }
+        }
+
         // The host may only pause the player, so the camera and the Geospatial session stop here.
         void Finish(string resultJson)
         {
             _finished = true;
+            _restartedFor = null;
             _requestJson = null;
             if (_hud != null) Destroy(_hud.gameObject);
             ClearAnchor();
