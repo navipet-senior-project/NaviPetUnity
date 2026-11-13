@@ -1,5 +1,6 @@
 using System;
 using Google.XR.ARCoreExtensions;
+using UnityEngine;
 using UnityEngine.XR.ARSubsystems;
 
 namespace OutdoorAr
@@ -37,6 +38,12 @@ namespace OutdoorAr
 
         public static bool LocationPermissionsGranted(bool fineGranted, bool coarseGranted,
             bool requiresCoarse) => fineGranted && (!requiresCoarse || coarseGranted);
+
+        /// <summary>Unity's location service fails when the user or the device refuses location.</summary>
+        public static OutdoorArPermission IosLocationPermission(LocationServiceStatus status) =>
+            status == LocationServiceStatus.Running ? OutdoorArPermission.Granted
+            : status == LocationServiceStatus.Failed ? OutdoorArPermission.Denied
+            : OutdoorArPermission.Unknown;
 
         public static OutdoorArVps MapVpsAvailability(VpsAvailability availability)
         {

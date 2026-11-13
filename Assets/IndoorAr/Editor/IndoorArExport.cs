@@ -1,4 +1,7 @@
+using System;
+using System.IO;
 using System.Linq;
+using Google.XR.ARCoreExtensions.Internal;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -14,13 +17,20 @@ namespace IndoorAr.Editor
     {
         public const string ExportPath = "Builds/IndoorArAndroid";
         // The indoor scene is first: it reads every request and loads the outdoor scene for mode "outdoor".
-        // iOS has no ARCore authorization yet, so its export leaves the outdoor scene out
-        // and the indoor scene answers outdoor requests with "unavailable".
-        static readonly string[] IosScenes = { "Assets/IndoorAr/Scenes/IndoorArSpike.unity" };
-        static readonly string[] AndroidScenes = { IosScenes[0], "Assets/OutdoorAr/Scenes/OutdoorGeospatialDemo.unity" };
+        // An export without the outdoor scene answers outdoor requests with "unavailable".
+        static readonly string[] IndoorScenes = { "Assets/IndoorAr/Scenes/IndoorArSpike.unity" };
+        static readonly string[] AllScenes = { IndoorScenes[0], "Assets/OutdoorAr/Scenes/OutdoorGeospatialDemo.unity" };
+
+        // The iOS ARCore API key stays outside the repository. The export reads it into memory,
+        // never logs it and never saves it to project settings.
+        public static readonly string IosKeyPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config/navipet/arcore-ios-key");
+
+        public static string ReadIosKey(string path) => File.Exists(path) ? File.ReadAllText(path).Trim() : "";
 
         // ARCore Extensions checks and configures a build from the Build Settings scene list,
-        // not from the exported one, and fails an iOS build that lists a Geospatial scene.
+        // not from the exported one, and fails an iOS build that lists a Geospatial scene
+        // while iOS authorization is off.
         static BuildReport Build(BuildPlayerOptions options)
         {
             var listed = EditorBuildSettings.scenes;
@@ -47,7 +57,7 @@ namespace IndoorAr.Editor
 
             var report = Build(new BuildPlayerOptions
             {
-                scenes = AndroidScenes,
+                scenes = AllScenes,
                 locationPathName = ExportPath,
                 target = BuildTarget.Android,
                 options = BuildOptions.None,
@@ -79,15 +89,39 @@ namespace IndoorAr.Editor
                 if (Application.isBatchMode) EditorApplication.Exit(1);
                 return;
             }
-            var report = Build(new BuildPlayerOptions
+            var key = ReadIosKey(IosKeyPath);
+            var settings = ARCoreExtensionsProjectSettings.Instance;
+            var defines = PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.iOS);
+            if (key == "")
             {
-                scenes = IosScenes,
-                locationPathName = IosExportPath,
-                target = BuildTarget.iOS,
-                options = BuildOptions.None,
-            });
-            var succeeded = report.summary.result == BuildResult.Succeeded;
-            Debug.Log($"[IndoorAr] iOS export {report.summary.result} to {IosExportPath}");
+                Debug.LogWarning($"[IndoorAr] no ARCore API key at {IosKeyPath}: this iOS export leaves outdoor AR out");
+            }
+            else
+            {
+                settings.IsIOSSupportEnabled = true;
+                settings.IOSAuthenticationStrategySetting = IOSAuthenticationStrategy.ApiKey;
+                settings.IOSCloudServicesApiKey = key;
+            }
+            bool succeeded;
+            try
+            {
+                succeeded = Build(new BuildPlayerOptions
+                {
+                    scenes = key == "" ? IndoorScenes : AllScenes,
+                    locationPathName = IosExportPath,
+                    target = BuildTarget.iOS,
+                    options = BuildOptions.None,
+                }).summary.result == BuildResult.Succeeded;
+            }
+            finally
+            {
+                // Back to the committed state: iOS support off, no key, no ARCore defines.
+                settings.Load();
+                PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.iOS, defines);
+                // ARCore Extensions copies the key into this asset for the build.
+                AssetDatabase.DeleteAsset("Assets/ExtensionsAssets/Runtime/RuntimeConfig.asset");
+            }
+            Debug.Log($"[IndoorAr] iOS export {(succeeded ? "succeeded" : "failed")} to {IosExportPath}");
 #if UNITY_IOS
             if (succeeded) LinkFrameworksIntoUnityFramework();
 #endif
@@ -106,7 +140,10 @@ namespace IndoorAr.Editor
             project.AddFrameworkToProject(target, "ARKit.framework", false);
             project.AddFrameworkToProject(target, "MultipeerConnectivity.framework", false);
             project.AddFrameworkToProject(target, "Vision.framework", false);
-            project.WriteToFile(projectPath);
+            // shortcut: ARCore Extensions pins arcore-ios-sdk 1.57.0, which Xcode cannot resolve because
+            // its CloudAnchors checksum is wrong (google-ar/arcore-ios-sdk#126). 1.57.1 is the same SDK with
+            // that checksum fixed. Remove when ARCore Extensions pins a version that resolves.
+            File.WriteAllText(projectPath, project.WriteToString().Replace("version = 1.57.0;", "version = 1.57.1;"));
             Debug.Log("[IndoorAr] linked ARKit, MultipeerConnectivity and Vision into UnityFramework");
         }
 #endif

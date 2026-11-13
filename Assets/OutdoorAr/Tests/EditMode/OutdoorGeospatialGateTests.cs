@@ -1,5 +1,6 @@
 using Google.XR.ARCoreExtensions;
 using NUnit.Framework;
+using UnityEngine;
 using UnityEngine.XR.ARSubsystems;
 
 namespace OutdoorAr.Tests
@@ -62,6 +63,15 @@ namespace OutdoorAr.Tests
         {
             Assert.AreEqual(expected,
                 OutdoorGeospatialGate.LocationPermissionsGranted(fine, coarse, requireCoarse));
+        }
+
+        [TestCase(LocationServiceStatus.Running, OutdoorArPermission.Granted)]
+        [TestCase(LocationServiceStatus.Failed, OutdoorArPermission.Denied)]
+        [TestCase(LocationServiceStatus.Initializing, OutdoorArPermission.Unknown)]
+        [TestCase(LocationServiceStatus.Stopped, OutdoorArPermission.Unknown)]
+        public void IosLocationFollowsTheLocationService(LocationServiceStatus status, OutdoorArPermission expected)
+        {
+            Assert.AreEqual(expected, OutdoorGeospatialGate.IosLocationPermission(status));
         }
 
         [TestCase(EarthState.ErrorNotAuthorized, OutdoorArState.AuthorizationRequired)]

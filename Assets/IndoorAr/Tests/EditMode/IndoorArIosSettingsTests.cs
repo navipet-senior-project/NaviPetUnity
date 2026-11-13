@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using IndoorAr;
+using IndoorAr.Editor;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.Build;
@@ -29,6 +31,33 @@ public class IndoorArIosSettingsTests
         {
             IndoorArBridge.EditorRequestJson = previous;
         }
+    }
+
+    [Test]
+    public void ArCoreKeyComesFromOutsideTheProjectAndIsNotCommitted()
+    {
+        Assert.AreEqual("", IndoorArExport.ReadIosKey(Path.Combine(Path.GetTempPath(), "navipet-no-such-key")));
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, " not-a-real-key\n");
+            Assert.AreEqual("not-a-real-key", IndoorArExport.ReadIosKey(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+        var settings = File.ReadAllText("ProjectSettings/ARCoreExtensionsProjectSettings.json");
+        StringAssert.IsMatch("\"IOSCloudServicesApiKey\"\\s*:\\s*\"\"", settings);
+        StringAssert.IsMatch("\"AndroidCloudServicesApiKey\"\\s*:\\s*\"\"", settings);
+    }
+
+    [Test]
+    public void VisionPluginNamesItsFrameworkTheWayUnityLinksIt()
+    {
+        // Unity appends ".framework" itself: "Vision.framework" made the linker look for Vision.framework.framework.
+        var plugin = (PluginImporter)AssetImporter.GetAtPath("Assets/Plugins/iOS/IndoorRoomVisionOcr.mm");
+        Assert.That(plugin.GetPlatformData(BuildTarget.iOS, "FrameworkDependencies"), Is.EqualTo("Vision;"));
     }
 
     [Test]

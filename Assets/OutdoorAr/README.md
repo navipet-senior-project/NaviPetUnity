@@ -14,7 +14,7 @@ The Flutter app starts outdoor AR through the same bridge as indoor AR, with thi
 
 The indoor scene is the first scene of the export and reads every request. For `mode: "outdoor"` it loads the outdoor scene, which reads the same request. A request without a destination, with a destination of (0, 0), or with a latitude or longitude out of range gets `BAD_REQUEST`.
 
-`dataUseAccepted: true` means the host already showed Google's ARCore notice, so Unity skips its own copy of it. Without the flag Unity shows the notice and waits for the user to agree. Unity then asks for camera and precise location on Android, starts the session, and checks VPS availability at the phone's position. Once `OutdoorGeospatialGate` reports ready, a green marker is anchored at the destination's latitude and longitude, at the phone's altitude, and the screen shows the distance and the direction to turn.
+`dataUseAccepted: true` means the host already showed Google's ARCore notice, so Unity skips its own copy of it. Without the flag Unity shows the notice and waits for the user to agree. Unity then asks for camera and precise location on Android, and for location on iOS (the host asks for the camera there), starts the session, and checks VPS availability at the phone's position. Once `OutdoorGeospatialGate` reports ready, a green marker is anchored at the destination's latitude and longitude, at the phone's altitude, and the screen shows the distance and the direction to turn.
 
 The result uses the indoor envelope, always with `localizationQueries: 0`:
 
@@ -35,9 +35,9 @@ The gate requires device support, the Earth service, active Earth tracking, hori
 
 The Android export (`Indoor AR → Export Android Library`) includes the outdoor scene. With Geospatial on, ARCore Extensions adds the fine and coarse location permissions to the library manifest and depends on `com.google.android.gms:play-services-location` and `com.google.android.gms:play-services-auth-base`. The export marks the location hardware features as not required, so the host app still installs on a phone without GPS.
 
-The iOS export leaves the outdoor scene out, so an outdoor request on iOS returns `unavailable`. iOS has no ARCore authorization yet: iOS support in ARCore Extensions is off and its authentication strategy is unset. Once that is decided, add the scene to `IosScenes` in `IndoorArExport`.
+iOS uses an API key. The committed settings leave ARCore Extensions iOS support off and hold no key. The iOS export (`Indoor AR → Export iOS Xcode Project`) reads the key from `~/.config/navipet/arcore-ios-key`, turns iOS support and API key authorization on for that build only, and includes the outdoor scene. Without that file it builds the indoor scene alone and an outdoor request on iOS returns `unavailable`. `docs/ios-export.md` has the details and the limits of a key shipped inside an app.
 
-Both exports replace the Build Settings scene list with their own for the length of the build, then restore it. ARCore Extensions reads its session configs from that list and fails an iOS build that lists a Geospatial scene.
+Both exports replace the Build Settings scene list with their own for the length of the build, then restore it. ARCore Extensions reads its session configs from that list and fails an iOS build that lists a Geospatial scene while iOS authorization is off.
 
 ## Standalone prototype
 

@@ -84,6 +84,11 @@ namespace OutdoorAr
             readiness.SetPermissions(camera, location);
             if (camera == OutdoorArPermission.Granted && location == OutdoorArPermission.Granted)
                 session.enabled = true;
+#elif UNITY_IOS
+            // The host asks for the camera before it starts Unity, and ARKit asks again if it has to.
+            var location = OutdoorGeospatialGate.IosLocationPermission(Input.location.status);
+            readiness.SetPermissions(OutdoorArPermission.Granted, location);
+            if (location == OutdoorArPermission.Granted) session.enabled = true;
 #else
             readiness.SetPermissions(OutdoorArPermission.Unknown, OutdoorArPermission.Unknown);
 #endif
@@ -166,6 +171,8 @@ namespace OutdoorAr
             {
                 Permission.RequestUserPermission(fineLocation, _permissionCallbacks);
             }
+#elif UNITY_IOS
+            Input.location.Start(); // shows the location prompt
 #endif
         }
 
@@ -176,6 +183,9 @@ namespace OutdoorAr
             _requestJson = null;
             ClearAnchor();
             session.enabled = false;
+#if UNITY_IOS
+            Input.location.Stop();
+#endif
             IndoorArBridge.Deliver(resultJson);
         }
 
