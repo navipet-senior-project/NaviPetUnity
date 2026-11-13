@@ -1,6 +1,8 @@
 using Google.XR.ARCoreExtensions;
 using IndoorAr;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
@@ -12,8 +14,9 @@ namespace OutdoorAr
 {
     /// <summary>
     /// Runs the outdoor scene. With a mode "outdoor" request from the host it guides to the
-    /// request's destination and answers through IndoorArBridge. Without one it is the
-    /// standalone prototype: consent, then a marker at the phone's own pose.
+    /// request's destination and answers through IndoorArBridge, drawn by the indoor HUD. With
+    /// a route in the request the arrow follows the route, without one it points at the destination.
+    /// Without a request it is the standalone prototype: consent, then a marker at the phone's own pose.
     /// </summary>
     public sealed class OutdoorGeospatialDemo : MonoBehaviour
     {
@@ -37,6 +40,14 @@ namespace OutdoorAr
         float _waitingFor;
         double _distanceM = double.NaN;
         double _turnDeg;
+        IndoorHud _hud;
+        bool _arrived;
+        bool _noPin;
+        bool _offRoute;
+        int _segment;
+        double _routeRemainingM = double.NaN;
+        float _readyFor;
+        string _loggedLine;
 
         void Start()
         {
@@ -48,6 +59,7 @@ namespace OutdoorAr
             if (!IndoorArContract.TryParseRequest(_requestJson, out var request) || !request.OutdoorOnly) return;
             _request = request;
             _startedAt = Time.realtimeSinceStartup;
+            ArCameraDiagnostics.Attach();
         }
 
         void Update()
@@ -104,9 +116,7 @@ namespace OutdoorAr
                     return;
                 }
                 // Counted only while the session runs, so a permission dialog does not use it up.
-                _waitingFor = session.enabled && (!readiness.CanPlaceGuidanceAnchor
-                    || (_terrainPromise != null && _terrainPromise.State == PromiseState.Pending))
-                    ? _waitingFor + Time.deltaTime : 0f;
+                _waitingFor = session.enabled && !readiness.CanPlaceGuidanceAnchor ? _waitingFor + Time.deltaTime : 0f;
                 if (_waitingFor > OutdoorGeospatialGate.ReadyTimeoutS)
                 {
                     Finish(IndoorArContract.LocalizationFailed(0, DurationMs()));
@@ -114,16 +124,16 @@ namespace OutdoorAr
                 }
                 if (_terrainPromise != null && _terrainPromise.State != PromiseState.Pending)
                 {
-                    if (_terrainPromise.State != PromiseState.Done
-                        || _terrainPromise.Result.TerrainAnchorState != TerrainAnchorState.Success
-                        || _terrainPromise.Result.Anchor == null)
+                    // The HUD arrow needs no anchor, so a failed terrain anchor only drops the pin label.
+                    if (_terrainPromise.State == PromiseState.Done
+                        && _terrainPromise.Result.TerrainAnchorState == TerrainAnchorState.Success
+                        && _terrainPromise.Result.Anchor != null)
                     {
-                        Finish(IndoorArContract.LocalizationFailed(0, DurationMs()));
-                        return;
+                        _anchor = _terrainPromise.Result.Anchor;
+                        CreateCue();
                     }
-                    _anchor = _terrainPromise.Result.Anchor;
+                    else _noPin = true;
                     _terrainPromise = null;
-                    CreateCue();
                 }
             }
 
@@ -131,19 +141,31 @@ namespace OutdoorAr
             {
                 ClearAnchor();
                 _distanceM = double.NaN;
+                _readyFor = 0f;
+                UpdateHud(false);
                 return;
             }
+            _readyFor += Time.unscaledDeltaTime;
 
             var pose = readiness.CurrentPose;
             if (_request != null)
             {
                 var to = _request.destination;
                 _distanceM = OutdoorGeospatialGate.DistanceM(pose.Latitude, pose.Longitude, to.latitude, to.longitude);
+                _arrived |= _distanceM <= OutdoorGeospatialGate.ArrivalRadiusM;
+                var bearing = OutdoorGeospatialGate.BearingDeg(pose.Latitude, pose.Longitude, to.latitude, to.longitude);
+                if (_request.HasRoute)
+                {
+                    var route = OutdoorRouteGuide.Follow(_request.route.waypoints, pose.Latitude, pose.Longitude, _segment);
+                    _segment = route.Segment;
+                    _routeRemainingM = route.RemainingM;
+                    _offRoute = route.IsOffRoute;
+                    bearing = route.TargetBearingDeg;
+                }
                 // EUN: x is east and z is north.
                 var forward = pose.EunRotation * Vector3.forward;
-                _turnDeg = OutdoorGeospatialGate.TurnDeg(
-                    OutdoorGeospatialGate.BearingDeg(pose.Latitude, pose.Longitude, to.latitude, to.longitude),
-                    Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg);
+                _turnDeg = OutdoorGeospatialGate.TurnDeg(bearing, Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg);
+                UpdateHud(true);
             }
 
             if (_anchor == null)
@@ -153,7 +175,7 @@ namespace OutdoorAr
                     _anchor = anchors.AddAnchor(pose.Latitude, pose.Longitude, pose.Altitude, pose.EunRotation);
                     if (_anchor != null) CreateCue();
                 }
-                else if (_terrainPromise == null)
+                else if (_terrainPromise == null && !_noPin)
                     _terrainPromise = anchors.ResolveAnchorOnTerrainAsync(_request.destination.latitude,
                         _request.destination.longitude, 1.5, Quaternion.identity);
             }
@@ -173,6 +195,7 @@ namespace OutdoorAr
         {
             _consented = true;
             readiness.SetOptIn(true, true);
+            if (_request != null) AttachHud();
 #if UNITY_ANDROID
             _permissionCallbacks = new PermissionCallbacks();
             _permissionCallbacks.PermissionDenied += OnPermissionDenied;
@@ -202,6 +225,7 @@ namespace OutdoorAr
         {
             _finished = true;
             _requestJson = null;
+            if (_hud != null) Destroy(_hud.gameObject);
             ClearAnchor();
             session.enabled = false;
 #if UNITY_IOS
@@ -218,11 +242,51 @@ namespace OutdoorAr
             _cue = null;
         }
 
+        void AttachHud()
+        {
+            _hud = new GameObject("Outdoor HUD").AddComponent<IndoorHud>();
+            _hud.transform.SetParent(transform, false);
+            _hud.Initialize(Camera.main);
+            _hud.ExitRequested += () => Finish(IndoorArContract.Cancelled(0, DurationMs()));
+            _hud.HereRequested += OnArrivedTapped;
+            _hud.DoneRequested += OnArrivedTapped;
+            _hud.RetryRequested += readiness.RetryVpsCheck;
+            if (EventSystem.current == null)
+                new GameObject("HUD EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule))
+                    .transform.SetParent(transform, false);
+        }
+
+        void OnArrivedTapped()
+        {
+            if (!double.IsNaN(_distanceM))
+                Finish(IndoorArContract.Arrived((float)_distanceM, 0, DurationMs()));
+        }
+
+        void UpdateHud(bool hasPose)
+        {
+            if (_hud == null || _finished) return;
+            var anchor = _cue == null ? (Vector3?)null : _cue.transform.position + Vector3.up;
+            _hud.Show(OutdoorGuidanceHud.Compose(_request, readiness.State, hasPose, _arrived, _distanceM,
+                _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor));
+            LogState();
+        }
+
+        // One fixed-label line per change, for the re-entry diagnosis. No location, no key.
+        void LogState()
+        {
+            if (Application.isEditor) return;
+            var line = $"[OutdoorAr] state={readiness.State} sessionEnabled={session.enabled} route={_request.HasRoute} offRoute={_offRoute} arrived={_arrived}";
+            if (line == _loggedLine) return;
+            _loggedLine = line;
+            Debug.Log(line);
+        }
+
         long DurationMs() => (long)((Time.realtimeSinceStartup - _startedAt) * 1000f);
 
         void OnGUI()
         {
-            if (_finished) return;
+            // A hosted session shows the indoor HUD once the user has agreed.
+            if (_finished || (_request != null && _consented)) return;
             // shortcut: IMGUI scaled to a 400-unit-wide canvas, replace with a designed HUD before release.
             var scale = Screen.width / 400f;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
@@ -242,42 +306,19 @@ namespace OutdoorAr
             }
             else
             {
-                GUILayout.Box(_request == null ? "Outdoor Geospatial: " + readiness.State : GuidanceText());
+                GUILayout.Box("Outdoor Geospatial: " + readiness.State);
                 if (readiness.State == OutdoorArState.VpsCheckFailed
                     && GUILayout.Button("Retry VPS check", GUILayout.Height(52)))
                     readiness.RetryVpsCheck();
             }
+            // Before consent the HUD is not up yet, so hosted sessions keep a way out here.
             if (_request != null)
             {
                 GUILayout.FlexibleSpace();
-                var arrived = _distanceM <= OutdoorGeospatialGate.ArrivalRadiusM;
-                if (GUILayout.Button(arrived ? "Done" : "Exit outdoor AR", GUILayout.Height(52)))
-                    Finish(arrived
-                        ? IndoorArContract.Arrived((float)_distanceM, 0, DurationMs())
-                        : IndoorArContract.Cancelled(0, DurationMs()));
+                if (GUILayout.Button("Exit outdoor AR", GUILayout.Height(52)))
+                    Finish(IndoorArContract.Cancelled(0, DurationMs()));
             }
             GUILayout.EndArea();
-        }
-
-        string GuidanceText()
-        {
-            var name = string.IsNullOrEmpty(_request.destination.name) ? "Your destination" : _request.destination.name;
-            if (!double.IsNaN(_distanceM))
-                return _distanceM <= OutdoorGeospatialGate.ArrivalRadiusM
-                    ? name + " is here."
-                    : $"{name} is {_distanceM:0} m {OutdoorGeospatialGate.TurnHint(_turnDeg)}.";
-            switch (readiness.State)
-            {
-                case OutdoorArState.CameraPermissionRequired:
-                case OutdoorArState.LocationPermissionRequired:
-                    return "Allow camera and precise location to use outdoor AR.";
-                case OutdoorArState.VpsCheckFailed:
-                    return "Could not check outdoor AR coverage here.";
-                case OutdoorArState.VpsUnavailable:
-                    return "Outdoor AR has no coverage at this spot. Keep following your route.";
-                default:
-                    return "Finding your position. Point the camera at the buildings around you.";
-            }
         }
 
 #if UNITY_ANDROID

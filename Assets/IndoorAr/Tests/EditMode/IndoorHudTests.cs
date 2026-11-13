@@ -85,6 +85,66 @@ namespace IndoorAr.Tests
             finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
         }
 
+        static string[] OutdoorTexts(IndoorHudView view)
+        {
+            var cameraObject = new GameObject("Camera", typeof(Camera));
+            var root = new GameObject("HUD");
+            try
+            {
+                var hud = root.AddComponent<IndoorHud>();
+                hud.Initialize(cameraObject.GetComponent<Camera>());
+                hud.Show(view);
+                return Texts(root);
+            }
+            finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
+        }
+
+        [Test]
+        public void OutdoorRouteGuidanceUsesTheSameHudWithADistance()
+        {
+            var texts = OutdoorTexts(new IndoorHudView
+            {
+                State = IndoorHudState.Straight, Outdoor = true, FollowingRoute = true,
+                Destination = "Veterans Memorial", DistanceM = 150, ArrowYaw = 80f
+            });
+            CollectionAssert.Contains(texts, "Turn right");
+            CollectionAssert.Contains(texts, "492 ft · Veterans Memorial");
+            Assert.IsFalse(texts.Any(t => t.Contains("Floor")));
+        }
+
+        [Test]
+        public void OutdoorWithoutARouteSaysItIsOnlyADirection()
+        {
+            var texts = OutdoorTexts(new IndoorHudView
+            {
+                State = IndoorHudState.Straight, Outdoor = true, Destination = "Veterans Memorial", DistanceM = 150
+            });
+            CollectionAssert.Contains(texts, "Veterans Memorial is ahead");
+            Assert.IsTrue(texts.Any(t => t.Contains("Direction only, not a route")));
+        }
+
+        [Test]
+        public void OutdoorOffRouteSaysSo()
+        {
+            var texts = OutdoorTexts(new IndoorHudView
+            {
+                State = IndoorHudState.Straight, Outdoor = true, FollowingRoute = true, OffRoute = true,
+                Destination = "Veterans Memorial", DistanceM = 400
+            });
+            CollectionAssert.Contains(texts, "You're off the route");
+            Assert.IsTrue(texts.Any(t => t.EndsWith("Walk back to the route")));
+        }
+
+        [TestCase(0, "0 ft")]
+        [TestCase(10, "33 ft")]
+        [TestCase(300, "984 ft")]
+        [TestCase(1609.344, "1.0 mi")]
+        [TestCase(8046.72, "5.0 mi")]
+        public void DistanceIsShownInFeetThenMiles(double meters, string expected)
+        {
+            Assert.AreEqual(expected, IndoorHud.DistanceLabel(meters));
+        }
+
         [Test]
         public void GuideArrowIsWhiteWithANavyOutline()
         {

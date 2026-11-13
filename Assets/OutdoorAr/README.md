@@ -12,9 +12,17 @@ The Flutter app starts outdoor AR through the same bridge as indoor AR, with thi
 {"schemaVersion":2,"mode":"outdoor","destination":{"name":"VEC","latitude":33.7829,"longitude":-118.1108},"dataUseAccepted":true}
 ```
 
+The request may also carry the walking route the host already shows, as ordered waypoints from the start to the destination:
+
+```json
+"route":{"waypoints":[{"latitude":33.7801,"longitude":-118.1120},{"latitude":33.7829,"longitude":-118.1108}]}
+```
+
+`route` is optional and additive (the schema stays 2). With 2 to `MaxRouteWaypoints` (1000) valid points the arrow follows the route, 12 m ahead of the nearest point. Beyond 30 m off the route the HUD says "You're off the route" and points back to the nearest point. Unity does not reroute and detects no obstacles: avoiding obstacles is whatever the host's route avoids. Without a route, or with an empty `waypoints`, the arrow points at the destination and the HUD says "Direction only, not a route". A route with one point, a missing or out-of-range coordinate, or more than 1000 points gets `BAD_REQUEST`.
+
 The indoor scene is the first scene of the export and reads every request. For `mode: "outdoor"` it loads the outdoor scene, which reads the same request. A request without a destination, without either coordinate, or with a latitude or longitude out of range gets `BAD_REQUEST`; explicitly supplied `(0, 0)` is valid.
 
-Unity always shows Google's ARCore notice and waits for the user to agree; `dataUseAccepted` from the host does not replace Unity's confirmation. Unity then asks for camera and precise location on Android, and for location on iOS (the host asks for the camera there), starts the session, and checks VPS availability at the phone's position. Once `OutdoorGeospatialGate` reports ready, a green terrain-resolved marker is placed at the destination and the screen shows the distance and the direction to turn.
+Unity always shows Google's ARCore notice and waits for the user to agree; `dataUseAccepted` from the host does not replace Unity's confirmation. Unity then asks for camera and precise location on Android, and for location on iOS (the host asks for the camera there), starts the session, and checks VPS availability at the phone's position. Once `OutdoorGeospatialGate` reports ready, the screen shows the indoor HUD (`IndoorHud`) in outdoor wording: "Finding your position", then "Location found", then the arrow with the turn, the distance (ft, then mi) and the destination, and "I'm here" to finish. The arrow comes from the heading and position, so it needs no anchor; a green terrain-resolved marker with the HUD pin label is added at the destination when the terrain anchor resolves, and its failure no longer ends the session.
 
 The result uses the indoor envelope, always with `localizationQueries: 0`:
 
@@ -27,7 +35,9 @@ The result uses the indoor envelope, always with `localizationQueries: 0`:
 
 After the result the outdoor AR session is off. The next request reloads the indoor scene, which routes it.
 
-The gate requires device support, the Earth service, active Earth tracking, horizontal accuracy of at most 5 m and heading accuracy of at most 10°. The VPS result expires when the phone moves more than 5 m from the queried point. Any other state removes the marker. These thresholds, the arrival radius and the timeout need real-device validation. The on-screen text is IMGUI and is a stand-in for a designed HUD.
+The gate requires device support, the Earth service, active Earth tracking, horizontal accuracy of at most 5 m and heading accuracy of at most 10°. The VPS result expires when the phone moves more than 5 m from the queried point. Any other state removes the marker. These thresholds, the arrival radius and the timeout need real-device validation. Before the user agrees only the ARCore notice (IMGUI) is shown; the standalone prototype keeps its IMGUI status box.
+
+On a device the scene logs `[ArDiag]` (camera textures, session, entry count across scene reloads) and `[OutdoorAr]` (state, session, route flags) lines on change, with no location, image or key, to help diagnose AR re-entry.
 
 ## Authorization and export
 
