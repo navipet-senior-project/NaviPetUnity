@@ -92,9 +92,15 @@ namespace IndoorAr
             }
             if (parsed.OutdoorOnly)
             {
-                // A missing destination reads as (0, 0), which no route ends at.
                 var to = parsed.destination;
-                if (to == null || (to.latitude == 0 && to.longitude == 0)
+                var supplied = new IndoorArRequest
+                {
+                    destination = new IndoorArDestination { latitude = double.NaN, longitude = double.NaN }
+                };
+                JsonUtility.FromJsonOverwrite(json, supplied);
+                var coordinates = supplied.destination;
+                if (to == null || coordinates == null || double.IsNaN(coordinates.latitude)
+                    || double.IsNaN(coordinates.longitude)
                     || !(Math.Abs(to.latitude) <= 90) || !(Math.Abs(to.longitude) <= 180))
                 {
                     return false;

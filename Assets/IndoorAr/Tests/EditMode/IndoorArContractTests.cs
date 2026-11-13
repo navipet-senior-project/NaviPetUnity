@@ -74,8 +74,20 @@ public class IndoorArContractTests
         Assert.IsFalse(request.dataUseAccepted);
     }
 
+    [Test]
+    public void OutdoorRequestAcceptsZeroCoordinates()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(
+            "{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":0,\"longitude\":0}}",
+            out var request));
+        Assert.AreEqual(0, request.destination.latitude);
+        Assert.AreEqual(0, request.destination.longitude);
+    }
+
     [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"dataUseAccepted\":true}")]
     [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"name\":\"VEC\"}}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"longitude\":-118.1108}}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":33.7829}}")]
     [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":90.1,\"longitude\":-118.1108}}")]
     [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":33.7829,\"longitude\":180.1}}")]
     [TestCase("{\"schemaVersion\":3,\"mode\":\"outdoor\",\"destination\":{\"latitude\":33.7829,\"longitude\":-118.1108}}")]
