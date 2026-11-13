@@ -22,6 +22,21 @@ namespace IndoorAr
         public double longitude;
     }
 
+    /// <summary>One walking-route point. NaN until the JSON supplies it, so a missing coordinate is not read as 0.</summary>
+    [Serializable]
+    public class IndoorArWaypoint
+    {
+        public double latitude = double.NaN;
+        public double longitude = double.NaN;
+    }
+
+    /// <summary>The walking route an outdoor request follows, start to destination.</summary>
+    [Serializable]
+    public class IndoorArRoute
+    {
+        public IndoorArWaypoint[] waypoints;
+    }
+
     /// <summary>
     /// Bridge contract v1/v2 request from the Flutter app. The pose is in the
     /// MultiSet MapSet frame and is used as is. v2 sends arToken as an object;
@@ -35,6 +50,9 @@ namespace IndoorAr
         public bool LocalizeOnly => mode == "localize";
         public bool OutdoorOnly => mode == "outdoor";
         public IndoorArDestination destination;
+        public IndoorArRoute route;
+        /// <summary>An outdoor request with a route to follow. Without one the guidance is a straight direction only.</summary>
+        public bool HasRoute => route != null && route.waypoints != null && route.waypoints.Length > 0;
         public bool dataUseAccepted;
         public string room;
         public string doorKey;
@@ -105,6 +123,8 @@ namespace IndoorAr
                 {
                     return false;
                 }
+                // A route that is present but unusable is a sender bug; guiding by bearing instead would pass it off as a route.
+                if (parsed.HasRoute && !OutdoorRouteIsValid(parsed.route.waypoints)) return false;
                 request = parsed;
                 return true;
             }
@@ -115,6 +135,17 @@ namespace IndoorAr
                 return false;
             }
             request = parsed;
+            return true;
+        }
+
+        public const int MaxRouteWaypoints = 1000;
+
+        static bool OutdoorRouteIsValid(IndoorArWaypoint[] waypoints)
+        {
+            if (waypoints.Length < 2 || waypoints.Length > MaxRouteWaypoints) return false;
+            foreach (var point in waypoints)
+                if (point == null || double.IsNaN(point.latitude) || double.IsNaN(point.longitude)
+                    || !(Math.Abs(point.latitude) <= 90) || !(Math.Abs(point.longitude) <= 180)) return false;
             return true;
         }
 

@@ -54,6 +54,7 @@ namespace IndoorAr
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
+            ArCameraDiagnostics.Attach();
             BeginSession(IndoorArBridge.ReadRequestJson());
             if (_session == null || _session.State == IndoorArState.Done) yield break;
             var started = _session;
