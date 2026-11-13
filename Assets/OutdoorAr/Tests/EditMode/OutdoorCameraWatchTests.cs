@@ -17,5 +17,14 @@ namespace OutdoorAr.Tests
         {
             Assert.AreEqual(expected, OutdoorCameraWatch.Decide(runningS, frame, restarted));
         }
+
+        [TestCase(9.9f, false, false)]
+        [TestCase(10f, false, true)]
+        [TestCase(12f, false, true)]
+        [TestCase(12f, true, false)]
+        public void LoaderInitializationWaitIsBounded(float elapsedS, bool loaderReady, bool expected)
+        {
+            Assert.AreEqual(expected, OutdoorCameraWatch.LoaderInitializationTimedOut(elapsedS, loaderReady));
+        }
     }
 }

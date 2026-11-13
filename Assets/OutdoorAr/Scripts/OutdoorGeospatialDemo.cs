@@ -284,7 +284,19 @@ namespace OutdoorAr
                 yield break;
             }
             yield return null;
-            yield return manager.InitializeLoader();
+            var initialize = manager.InitializeLoader();
+            var initializeStartedAt = Time.realtimeSinceStartup;
+            while (initialize.MoveNext())
+            {
+                if (OutdoorCameraWatch.LoaderInitializationTimedOut(
+                    Time.realtimeSinceStartup - initializeStartedAt, manager.activeLoader != null))
+                {
+                    Debug.Log("[OutdoorAr] camera restart=loader-timeout");
+                    Finish(IndoorArContract.Unavailable(0, DurationMs()));
+                    yield break;
+                }
+                yield return initialize.Current;
+            }
             if (manager.activeLoader == null)
             {
                 Debug.Log("[OutdoorAr] camera restart=no-loader");
