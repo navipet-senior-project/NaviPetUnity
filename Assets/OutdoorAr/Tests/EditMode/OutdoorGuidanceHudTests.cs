@@ -74,6 +74,15 @@ namespace OutdoorAr.Tests
         }
 
         [Test]
+        public void RejectedArrivalExplainsPreciseAccuracyRequirement()
+        {
+            var view = OutdoorGuidanceHud.Compose(Request(), OutdoorArState.Approximate, true, false,
+                80, 120, 30, false, LiveDoorHud.LocationFoundHoldS + .1f, null,
+                "Precise location needed to confirm arrival.");
+            Assert.AreEqual("Precise location needed to confirm arrival.", view.DetailOverride);
+        }
+
+        [Test]
         public void ArrowFollowsTheTurnAndDistanceIsTheRouteWhenThereIsOne()
         {
             var direct = Compose(Request());

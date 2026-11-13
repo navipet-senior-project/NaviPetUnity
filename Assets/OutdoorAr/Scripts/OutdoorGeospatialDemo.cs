@@ -44,6 +44,7 @@ namespace OutdoorAr
         double _turnDeg;
         IndoorHud _hud;
         bool _arrived;
+        string _arrivalFeedback;
         bool _noPin;
         bool _offRoute;
         int _segment;
@@ -167,7 +168,7 @@ namespace OutdoorAr
                 var to = _request.destination;
                 _distanceM = OutdoorGeospatialGate.DistanceM(pose.Latitude, pose.Longitude, to.latitude, to.longitude);
                 // Arrival needs precise accuracy: a 10 m error could otherwise put the walker at the door from 20 m away.
-                _arrived |= readiness.CanPlaceGuidanceAnchor && _distanceM <= OutdoorGeospatialGate.ArrivalRadiusM;
+                _arrived |= OutdoorGeospatialGate.CanArrive(readiness.CanPlaceGuidanceAnchor, _distanceM);
                 var bearing = OutdoorGeospatialGate.BearingDeg(pose.Latitude, pose.Longitude, to.latitude, to.longitude);
                 if (_request.HasRoute)
                 {
@@ -349,8 +350,12 @@ namespace OutdoorAr
 
         void OnArrivedTapped()
         {
-            if (!double.IsNaN(_distanceM))
+            if (OutdoorGeospatialGate.CanArrive(readiness.CanPlaceGuidanceAnchor, _distanceM))
                 Finish(IndoorArContract.Arrived((float)_distanceM, 0, DurationMs()));
+            else
+                _arrivalFeedback = !readiness.CanPlaceGuidanceAnchor
+                    ? "Precise location needed to confirm arrival."
+                    : "Keep following your route to the destination.";
         }
 
         void UpdateHud(bool hasPose)
@@ -358,7 +363,7 @@ namespace OutdoorAr
             if (_hud == null || _finished) return;
             var anchor = _cue == null ? (Vector3?)null : _cue.transform.position + Vector3.up;
             _hud.Show(OutdoorGuidanceHud.Compose(_request, readiness.State, hasPose, _arrived, _distanceM,
-                _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor));
+                _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor, _arrivalFeedback));
             LogState();
         }
 

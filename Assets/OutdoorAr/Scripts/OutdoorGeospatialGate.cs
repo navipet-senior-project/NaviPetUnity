@@ -156,6 +156,10 @@ namespace OutdoorAr
         public static bool CanGuide(OutdoorArState state) =>
             state == OutdoorArState.Ready || state == OutdoorArState.Approximate;
 
+        public static bool CanArrive(bool precise, double distanceM) =>
+            precise && !double.IsNaN(distanceM) && !double.IsInfinity(distanceM)
+            && distanceM >= 0 && distanceM <= ArrivalRadiusM;
+
         /// <summary>Accuracy as a bucket for logs, so no raw value leaves the phone. "none" when not tracking.</summary>
         public static string AccuracyBucket(double value, bool tracking, double a, double b, double c)
         {

@@ -15,7 +15,7 @@ namespace OutdoorAr
 
         public static IndoorHudView Compose(IndoorArRequest request, OutdoorArState state, bool hasPose,
             bool arrived, double distanceM, double routeRemainingM, double turnDeg, bool offRoute,
-            float readyForS, Vector3? labelAnchor)
+            float readyForS, Vector3? labelAnchor, string arrivalFeedback = null)
         {
             var view = new IndoorHudView
             {
@@ -31,8 +31,9 @@ namespace OutdoorAr
             else if (hasPose)
             {
                 view.State = readyForS < LiveDoorHud.LocationFoundHoldS ? IndoorHudState.Localized : IndoorHudState.Straight;
+                if (!string.IsNullOrEmpty(arrivalFeedback)) view.DetailOverride = arrivalFeedback;
                 // GPS-class accuracy: say so beside the distance. Off the route (30 m) outweighs the 10 m error, so that text stays.
-                if (state == OutdoorArState.Approximate && view.State == IndoorHudState.Straight && !offRoute)
+                if (string.IsNullOrEmpty(view.DetailOverride) && state == OutdoorArState.Approximate && view.State == IndoorHudState.Straight && !offRoute)
                     view.DetailOverride = (double.IsNaN(view.DistanceM) ? "" : IndoorHud.DistanceLabel(view.DistanceM) + " · ") + ApproximateNote;
             }
             else

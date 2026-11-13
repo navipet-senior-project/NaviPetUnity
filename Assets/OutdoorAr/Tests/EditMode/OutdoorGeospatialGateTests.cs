@@ -138,6 +138,18 @@ namespace OutdoorAr.Tests
             Assert.AreEqual(expected, OutdoorGeospatialGate.CanGuide(state));
         }
 
+        [TestCase(true, 0, true)]
+        [TestCase(true, 10, true)]
+        [TestCase(true, 10.01, false)]
+        [TestCase(false, 1, false)]
+        [TestCase(true, double.NaN, false)]
+        [TestCase(true, double.PositiveInfinity, false)]
+        [TestCase(true, -1, false)]
+        public void ArrivalRequiresPreciseAccuracyAndDistanceWithinRadius(bool precise, double distance, bool expected)
+        {
+            Assert.AreEqual(expected, OutdoorGeospatialGate.CanArrive(precise, distance));
+        }
+
         [TestCase(false, 3.0, "none")]
         [TestCase(true, double.NaN, "bad")]
         [TestCase(true, -1.0, "bad")]
