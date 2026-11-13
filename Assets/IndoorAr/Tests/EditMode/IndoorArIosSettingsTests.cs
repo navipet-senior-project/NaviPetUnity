@@ -47,9 +47,16 @@ public class IndoorArIosSettingsTests
         {
             File.Delete(path);
         }
-        var settings = File.ReadAllText("ProjectSettings/ARCoreExtensionsProjectSettings.json");
-        StringAssert.IsMatch("\"IOSCloudServicesApiKey\"\\s*:\\s*\"\"", settings);
-        StringAssert.IsMatch("\"AndroidCloudServicesApiKey\"\\s*:\\s*\"\"", settings);
+        var settings = JsonUtility.FromJson<ArCoreSettings>(File.ReadAllText("ProjectSettings/ARCoreExtensionsProjectSettings.json"));
+        Assert.AreEqual("", settings.IOSCloudServicesApiKey);
+        Assert.AreEqual("", settings.AndroidCloudServicesApiKey);
+    }
+
+    [Serializable]
+    class ArCoreSettings
+    {
+        public string IOSCloudServicesApiKey;
+        public string AndroidCloudServicesApiKey;
     }
 
     [Test]

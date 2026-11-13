@@ -28,6 +28,7 @@ namespace OutdoorAr
         PermissionCallbacks _permissionCallbacks;
 #endif
         ARGeospatialAnchor _anchor;
+        ResolveAnchorOnTerrainPromise _terrainPromise;
         GameObject _cue;
         string _requestJson;
         IndoorArRequest _request;
@@ -104,11 +105,26 @@ namespace OutdoorAr
                     return;
                 }
                 // Counted only while the session runs, so a permission dialog does not use it up.
-                _waitingFor = session.enabled && !readiness.CanPlaceGuidanceAnchor ? _waitingFor + Time.deltaTime : 0f;
+                _waitingFor = session.enabled && (!readiness.CanPlaceGuidanceAnchor
+                    || (_terrainPromise != null && _terrainPromise.State == PromiseState.Pending))
+                    ? _waitingFor + Time.deltaTime : 0f;
                 if (_waitingFor > OutdoorGeospatialGate.ReadyTimeoutS)
                 {
                     Finish(IndoorArContract.LocalizationFailed(0, DurationMs()));
                     return;
+                }
+                if (_terrainPromise != null && _terrainPromise.State != PromiseState.Pending)
+                {
+                    if (_terrainPromise.State != PromiseState.Done
+                        || _terrainPromise.Result.TerrainAnchorState != TerrainAnchorState.Success
+                        || _terrainPromise.Result.Anchor == null)
+                    {
+                        Finish(IndoorArContract.LocalizationFailed(0, DurationMs()));
+                        return;
+                    }
+                    _anchor = _terrainPromise.Result.Anchor;
+                    _terrainPromise = null;
+                    CreateCue();
                 }
             }
 
@@ -133,19 +149,25 @@ namespace OutdoorAr
 
             if (_anchor == null)
             {
-                _anchor = _request == null
-                    ? anchors.AddAnchor(pose.Latitude, pose.Longitude, pose.Altitude, pose.EunRotation)
-                    // shortcut: the marker floats at the phone's altitude, use a terrain anchor if slopes hide it.
-                    : anchors.AddAnchor(_request.destination.latitude, _request.destination.longitude,
-                        pose.Altitude, Quaternion.identity);
-                if (_anchor == null) return;
-                _cue = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                _cue.name = "Geospatial tracking cue";
-                _cue.transform.SetParent(_anchor.transform, false);
-                _cue.transform.localPosition = Vector3.up * 1.5f;
-                _cue.transform.localScale = Vector3.one * (_request == null ? 0.3f : 1f);
-                _cue.GetComponent<Renderer>().material.color = Color.green;
+                if (_request == null)
+                {
+                    _anchor = anchors.AddAnchor(pose.Latitude, pose.Longitude, pose.Altitude, pose.EunRotation);
+                    if (_anchor != null) CreateCue();
+                }
+                else if (_terrainPromise == null)
+                    _terrainPromise = anchors.ResolveAnchorOnTerrainAsync(_request.destination.latitude,
+                        _request.destination.longitude, 1.5, Quaternion.identity);
             }
+        }
+
+        void CreateCue()
+        {
+            _cue = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            _cue.name = "Geospatial tracking cue";
+            _cue.transform.SetParent(_anchor.transform, false);
+            _cue.transform.localPosition = Vector3.up * 1.5f;
+            _cue.transform.localScale = Vector3.one * (_request == null ? 0.3f : 1f);
+            _cue.GetComponent<Renderer>().material.color = Color.green;
         }
 
         void Consent()
