@@ -2,7 +2,7 @@
 
 `OutdoorAr/Scenes/OutdoorGeospatialDemo.unity` is the only scene with Geospatial mode on. `OutdoorGeospatialConfig.asset` enables it for that scene alone, and its AR session starts only after the user opts in. The indoor scene and its MultiSet session are unchanged. Do not reuse MultiSet poses outdoors or claim campus coverage.
 
-Nothing here was run on a phone or against Google Cloud. EditMode tests cover the request parsing, the readiness gate, and the distance and turn math.
+The approximate gate and re-entry mitigation are not verified on-device; the iPhone observations below are diagnostic evidence, not validation of the fix. Google Cloud setup was not checked. EditMode tests cover the request parsing, the readiness gate, and the distance and turn math.
 
 ## Hosted session
 
@@ -47,7 +47,7 @@ On a device the scene logs `[ArDiag]` (camera textures, session, entry count acr
 
 The Android export (`Indoor AR → Export Android Library`) includes the outdoor scene. With Geospatial on, ARCore Extensions adds the fine and coarse location permissions to the library manifest and depends on `com.google.android.gms:play-services-location` and `com.google.android.gms:play-services-auth-base`. The export marks the location hardware features as not required, so the host app still installs on a phone without GPS.
 
-iOS uses an API key. The committed settings leave ARCore Extensions iOS support off and hold no key. The iOS export (`Indoor AR → Export iOS Xcode Project`) reads the key from `~/.config/navipet/arcore-ios-key`, turns iOS support and API key authorization on for that build only, and includes the outdoor scene. Without that file it builds the indoor scene alone and an outdoor request on iOS returns `unavailable`. `docs/ios-export.md` has the details and the limits of a key shipped inside an app.
+iOS authorization and export behavior, including the local API-key file and outdoor-scene inclusion, are documented in [the iOS export guide](../../docs/ios-export.md#arcore-api-key-for-outdoor-ar).
 
 Both exports replace the Build Settings scene list with their own for the length of the build, then restore it. ARCore Extensions reads its session configs from that list and fails an iOS build that lists a Geospatial scene while iOS authorization is off.
 
