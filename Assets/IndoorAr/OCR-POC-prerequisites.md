@@ -35,4 +35,12 @@ It produces no pose today because these inputs do not exist:
 
 Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCorners` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure in `SignPose` mode; `MultiSet` is the default.
 
-The VEC floor-plan JSON supplies the room IDs, building ID, and floor IDs for identity matching. Its positions and rotations are not interchangeable with the MapSet door frame; do not use them to create sign geometry, poses, or transforms.
+## Room identity and door poses (reuse, no second database)
+
+`Assets/IndoorNavigation/Data/vec_floors1and2.json` is the single directory. It holds 32 hand-placed markers (17 doors, 3 entrances, 4 bathrooms, 4 stairs, 4 elevators) exported by `IndoorMapExporter` relative to `IndoorMapOrigin`. `IndoorRoomIdentityMatcher` already turns sign text into a room ID from it; each `IndoorRoomLandmark` now also carries `DoorPositionInMap` and `DoorHeadingInMapDeg`.
+
+The JSON frame is not the MapSet frame, but it differs by one rigid transform: yaw 5.356 degrees, offset (0.279, -2.212, 0.838) m (`IndoorMapFrame`). That was fitted on the 17 door rows copied from `vec_destination_points` (`IndoorArDoorMeshTests`) and holds to 0.0001 m, with the heading in the real VEC119 request (185.36) matching. `IndoorMapFrameTests` fails if the JSON or the transform drifts; re-derive the transform when the MapSet is re-aligned. The backend table stays authoritative for doors; the transform only reaches rooms or markers the request does not carry.
+
+What a point is: a door marker, a 0.3 m cube placed by hand on the floor at the door threshold (y is within 0.5 m of the scanned floor), not a room centre, a sign, or a navigation waypoint. Its heading points from the hallway into the room (doors on opposite sides of a hallway differ by 180 degrees), which is the `intoWallHeadingDeg` convention `IndoorSignPose` uses. These two facts are read from the data, not measured.
+
+Still unmeasured for a pose, so `IndoorSignCalibration.json` stays empty: sign width and height, the sign centre's height above the floor and its sideways offset from the door marker (signs often sit beside the door), the OCR corners, the camera intrinsics and screen-to-camera transform, and a paired comparison against `CameraInMap`. Nothing named "BlueTight" exists in this repo, the backend, or the Flutter app.

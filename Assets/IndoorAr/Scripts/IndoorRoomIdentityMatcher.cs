@@ -21,12 +21,19 @@ namespace IndoorAr
         public string Id { get; }
         public string BuildingId { get; }
         public string FloorId { get; }
+        /// <summary>The door marker (a floor-level point, not the sign) in the MapSet frame; from the directory JSON.</summary>
+        public Vector3 DoorPositionInMap { get; }
+        /// <summary>Unity yaw of the door marker in the MapSet frame; it points from the hallway into the room.</summary>
+        public float DoorHeadingInMapDeg { get; }
 
-        public IndoorRoomLandmark(string id, string buildingId, string floorId)
+        public IndoorRoomLandmark(string id, string buildingId, string floorId,
+            Vector3 doorPositionInMap = default, float doorHeadingInMapDeg = 0f)
         {
             Id = id;
             BuildingId = buildingId;
             FloorId = floorId;
+            DoorPositionInMap = doorPositionInMap;
+            DoorHeadingInMapDeg = doorHeadingInMapDeg;
         }
     }
 
@@ -58,6 +65,8 @@ namespace IndoorAr
             public string id;
             public string type;
             public string floorId;
+            public Vector3 position;
+            public float rotationY;
         }
 
         public static IndoorRoomMatch Match(
@@ -93,7 +102,7 @@ namespace IndoorAr
 
                 if (match != null)
                     return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
-                match = new IndoorRoomLandmark(item.id, directory.buildingId, item.floorId);
+                match = Landmark(item, directory.buildingId);
             }
 
             return match == null
@@ -128,12 +137,16 @@ namespace IndoorAr
                 var number = NormalizeRoomNumber(item.id);
                 if (number == null || !numbers.Contains(number)) continue;
                 if (match != null) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
-                match = new IndoorRoomLandmark(item.id, directory.buildingId, item.floorId);
+                match = Landmark(item, directory.buildingId);
             }
             return match == null
                 ? new IndoorRoomMatch(IndoorRoomMatchStatus.NoMatch)
                 : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match);
         }
+
+        static IndoorRoomLandmark Landmark(VecObject item, string buildingId) =>
+            new IndoorRoomLandmark(item.id, buildingId, item.floorId,
+                IndoorMapFrame.ToMapSet(item.position), IndoorMapFrame.HeadingToMapSet(item.rotationY));
 
         static string NormalizeRoomNumber(string value)
         {
