@@ -20,6 +20,8 @@ namespace IndoorAr
         [SerializeField] MonoBehaviour localizerBehaviour; // must implement IIndoorArLocalizer
         [SerializeField] GameObject doorPinPrefab;
         [SerializeField] Camera arCamera;
+        // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
+        [SerializeField] bool signLocalization = true;
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
@@ -42,6 +44,9 @@ namespace IndoorAr
         string _baselineLog;
         Material _pinAmberMaterial;
         Material _pinCoreMaterial;
+        IndoorRoomOcrDemo _mlKitOcr;
+        IndoorRoomVisionOcr _visionOcr;
+        IndoorSignTracker _signs;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -53,6 +58,11 @@ namespace IndoorAr
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
+            _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();
+            _visionOcr = GetComponent<IndoorRoomVisionOcr>();
+            if (_mlKitOcr != null) _mlKitOcr.Result += OnSignRead;
+            if (_visionOcr != null) _visionOcr.Result += OnSignRead;
+            UpdateSignOcr();
             BeginSession(IndoorArBridge.ReadRequestJson());
             if (_session == null || _session.State == IndoorArState.Done) yield break;
             var started = _session;
@@ -80,6 +90,7 @@ namespace IndoorAr
             _failureRelease = false;
             _scanPoseReady = false;
             _slowHoldLeft = 0f;
+            _signs = new IndoorSignTracker();
             if (!IndoorArContract.TryParseRequest(json, out var request))
             {
                 Deliver(IndoorArContract.Error(IndoorArContract.BadRequest, 0, 0));
@@ -96,6 +107,7 @@ namespace IndoorAr
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += _session.OnAttemptStarted;
             _localizer.Localized += OnLocalizedObserved;
+            _localizer.NotLocalized += _session.OnNotLocalized;
             if (!restart || Application.isEditor) return;
             var ar = UnityEngine.Object.FindAnyObjectByType<ARSession>();
             if (ar != null) ar.Reset();
@@ -111,6 +123,7 @@ namespace IndoorAr
                 var json = IndoorArBridge.ReadRequestJson();
                 if (json != null && json != _requestJson) BeginSession(json);
             }
+            UpdateSignOcr();
             if (_session == null || _delivered) return;
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
@@ -180,6 +193,28 @@ namespace IndoorAr
             LogBaseline();
         }
 
+        // OCR runs only until the first pose, so it never competes with the pinned view.
+        void UpdateSignOcr()
+        {
+            var on = signLocalization && !_delivered && _session != null
+                && _session.State is IndoorArState.Init or IndoorArState.Auth or IndoorArState.Localizing;
+            if (_mlKitOcr != null) _mlKitOcr.enabled = on;
+            if (_visionOcr != null) _visionOcr.enabled = on;
+        }
+
+        void OnSignRead(string text, IndoorRoomMatch match)
+        {
+            if (!signLocalization || _session == null || _delivered || _signs == null) return;
+            var now = Time.unscaledTime;
+            if (_signs.Observe(match, now))
+            {
+                _session.OnSignConfirmed(_signs.Confirmed);
+                _baseline?.NoteSignConfirmed(NowMs());
+                LogBaseline();
+            }
+            if (_signs.InView(now)) _session.OnSignInView();
+        }
+
         void NoteArReady()
         {
             _baseline?.NoteArReady(NowMs());
@@ -210,7 +245,10 @@ namespace IndoorAr
             var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor);
             if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
             if (view.State == IndoorHudState.Scanning)
+            {
                 view.ScanTooFast = SampleScanMotion();
+                if (view.ScanTooFast && _session.SignRoom != null) view.TitleOverride = view.DetailOverride = null; // slow-down wins
+            }
             else
             {
                 _scanPoseReady = false;
@@ -300,7 +338,12 @@ namespace IndoorAr
             return root;
         }
 
-        void OnDestroy() => ReleaseSession();
+        void OnDestroy()
+        {
+            if (_mlKitOcr != null) _mlKitOcr.Result -= OnSignRead;
+            if (_visionOcr != null) _visionOcr.Result -= OnSignRead;
+            ReleaseSession();
+        }
 
         void ReleaseSession()
         {
@@ -339,6 +382,7 @@ namespace IndoorAr
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= _session.OnAttemptStarted;
             _localizer.Localized -= OnLocalizedObserved;
+            _localizer.NotLocalized -= _session.OnNotLocalized;
         }
 
         static void DestroyOwned(UnityEngine.Object obj)

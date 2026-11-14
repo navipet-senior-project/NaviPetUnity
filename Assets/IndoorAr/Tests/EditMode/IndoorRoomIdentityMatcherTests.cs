@@ -57,4 +57,31 @@ public class IndoorRoomIdentityMatcherTests
         Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
             IndoorRoomIdentityMatcher.Match("119 and 120", "VEC", "floor_1", VecDirectory).Status);
     }
+
+    [TestCase("VEC 215", "VEC215", "floor_2")]
+    [TestCase("ROOM\nVEC 120\nCLASSROOM", "VEC120", "floor_1")]
+    [TestCase("120\n120", "VEC120", "floor_1")]
+    public void SignMatchesAnyFloorFromAnyLine(string text, string id, string floor)
+    {
+        var result = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
+        Assert.AreEqual(IndoorRoomMatchStatus.Matched, result.Status);
+        Assert.AreEqual(id, result.Landmark.Id);
+        Assert.AreEqual(floor, result.Landmark.FloorId);
+        Assert.AreEqual("VEC", result.Landmark.BuildingId);
+    }
+
+    [Test]
+    public void SignNamingTwoRoomsOrNoneIsNotAGuess()
+    {
+        Assert.AreEqual(IndoorRoomMatchStatus.Ambiguous,
+            IndoorRoomIdentityMatcher.MatchSign("VEC 119\nVEC 120", VecDirectory).Status);
+        Assert.AreEqual(IndoorRoomMatchStatus.NoMatch,
+            IndoorRoomIdentityMatcher.MatchSign("VEC 999", VecDirectory).Status);
+        Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
+            IndoorRoomIdentityMatcher.MatchSign("EXIT", VecDirectory).Status);
+        Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
+            IndoorRoomIdentityMatcher.MatchSign("  ", VecDirectory).Status);
+        Assert.AreEqual(IndoorRoomMatchStatus.MissingBuilding,
+            IndoorRoomIdentityMatcher.MatchSign("119", "{}").Status);
+    }
 }

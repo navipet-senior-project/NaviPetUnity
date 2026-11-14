@@ -9,7 +9,7 @@ namespace IndoorAr
     /// <summary>Optional Android OCR demo using AR Foundation's existing camera stream.</summary>
     public sealed class IndoorRoomOcrDemo : MonoBehaviour
     {
-        const float FrameIntervalSeconds = 1f;
+        const float FrameIntervalSeconds = .5f;
         [SerializeField] ARCameraManager cameraManager;
         [SerializeField] TextAsset directory;
         float _nextFrameAt;
@@ -84,9 +84,8 @@ namespace IndoorAr
         public void OnMlKitText(string recognizedText)
         {
             _recognizing = false;
-            var match = IndoorRoomIdentityMatcher.Match(
-                recognizedText, "VEC", "floor_1",
-                _directoryJson ?? (directory == null ? null : directory.text));
+            var match = IndoorRoomIdentityMatcher.MatchSign(
+                recognizedText, _directoryJson ?? (directory == null ? null : directory.text));
             Debug.Log($"[IndoorAr OCR] text='{recognizedText}' roomMatch={match.Status}");
             Result?.Invoke(recognizedText, match);
         }

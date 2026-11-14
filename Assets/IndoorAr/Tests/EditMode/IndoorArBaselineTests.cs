@@ -47,6 +47,20 @@ public class IndoorArBaselineTests
     }
 
     [Test]
+    public void SignTimeIsTheFirstConfirmedSignOnly()
+    {
+        var baseline = new IndoorArBaseline();
+        baseline.NoteSignConfirmed(500);
+        Assert.IsNull(baseline.TimeToSignMs);
+        baseline.NoteSessionOpened(1000);
+        baseline.NoteSignConfirmed(2200);
+        baseline.NoteSignConfirmed(5000);
+        Assert.AreEqual(1200, baseline.TimeToSignMs);
+        Assert.IsNull(baseline.TimeToFirstLocalizationMs, "a sign is not a pose");
+        StringAssert.EndsWith(" timeToSignMs=1200", baseline.LogLine());
+    }
+
+    [Test]
     public void ArrowDisplayIsNotWorldAlignment()
     {
         var baseline = new IndoorArBaseline();
@@ -61,7 +75,7 @@ public class IndoorArBaselineTests
         Assert.IsNull(baseline.RequestLatencyMs);
         Assert.AreEqual(1, baseline.TrackingLosses);
         Assert.AreEqual(
-            "[IndoorArBaseline] arStartupMs=na requestLatencyMs=na timeToFirstLocalizationMs=600 arrowShownMs=2100 arrowAlignment=unmeasured attempts=0 retries=0 trackingLosses=1 unansweredAttempts=0",
+            "[IndoorArBaseline] arStartupMs=na requestLatencyMs=na timeToFirstLocalizationMs=600 arrowShownMs=2100 arrowAlignment=unmeasured attempts=0 retries=0 trackingLosses=1 unansweredAttempts=0 timeToSignMs=na",
             baseline.LogLine());
     }
 }

@@ -10,7 +10,7 @@ namespace IndoorAr
     /// <summary>Optional iOS Vision OCR using AR Foundation's existing camera stream.</summary>
     public sealed class IndoorRoomVisionOcr : MonoBehaviour
     {
-        const float FrameIntervalSeconds = 1f;
+        const float FrameIntervalSeconds = .5f;
         [SerializeField] ARCameraManager cameraManager;
         [SerializeField] TextAsset directory;
         float _nextFrameAt;
@@ -100,8 +100,8 @@ namespace IndoorAr
         public void OnVisionText(string recognizedText)
         {
             _recognizing = false;
-            var match = IndoorRoomIdentityMatcher.Match(
-                recognizedText, "VEC", "floor_1", directory == null ? null : directory.text);
+            var match = IndoorRoomIdentityMatcher.MatchSign(
+                recognizedText, directory == null ? null : directory.text);
             Result?.Invoke(recognizedText, match);
         }
 

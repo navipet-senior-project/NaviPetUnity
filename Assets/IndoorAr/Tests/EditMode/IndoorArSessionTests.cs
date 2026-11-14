@@ -228,4 +228,58 @@ public class IndoorArSessionTests
             "{\"status\":\"cancelled\",\"localizationQueries\":0,\"durationMs\":250}",
             session.ResultJson);
     }
+
+    static readonly IndoorRoomLandmark Sign120 = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+
+    [Test]
+    public void ConfirmedSignIsReportedButNeverPins()
+    {
+        var session = Localizing(out _);
+        session.OnSignConfirmed(Sign120);
+        session.OnSignInView();
+        Assert.AreEqual(IndoorArState.Localizing, session.State, "room identity is not a pose");
+        Assert.IsFalse(session.WasPinned);
+        session.Cancel();
+        Assert.AreEqual(
+            "{\"status\":\"cancelled\",\"localizationQueries\":0,\"durationMs\":0,\"signRoom\":\"VEC120\"}",
+            session.ResultJson);
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC119", "VEC", "floor_1"));
+        StringAssert.Contains("VEC120", session.ResultJson, "a finished result does not change");
+    }
+
+    [Test]
+    public void SignInViewSpendsTheRetryEarlyOnlyAfterANoPoseAnswer()
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        var requests = 0;
+        session.LocalizeRequested += () => requests++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnAttemptStarted();
+        session.OnSignConfirmed(Sign120);
+        session.OnSignInView();
+        Assert.AreEqual(1, requests, "no early retry while the attempt is still open");
+
+        session.OnNotLocalized();
+        session.OnSignInView();
+        Assert.AreEqual(2, requests);
+        session.OnNotLocalized();
+        session.OnSignInView();
+        Assert.AreEqual(2, requests, "one retry per localizing pass");
+
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(IndoorArState.Done, session.State, "the attempt budget is unchanged");
+        StringAssert.StartsWith("{\"status\":\"localizationFailed\"", session.ResultJson);
+        StringAssert.EndsWith(",\"signRoom\":\"VEC120\"}", session.ResultJson);
+    }
+
+    [Test]
+    public void ResultHasNoSignRoomWithoutASign()
+    {
+        var session = Localizing(out _);
+        session.OnNotLocalized();
+        session.OnSignInView();
+        session.Cancel();
+        StringAssert.DoesNotContain("signRoom", session.ResultJson);
+    }
 }
