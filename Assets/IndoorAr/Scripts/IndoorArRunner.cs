@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -47,6 +48,7 @@ namespace IndoorAr
         IndoorRoomOcrDemo _mlKitOcr;
         IndoorRoomVisionOcr _visionOcr;
         IndoorSignTracker _signs;
+        readonly HashSet<int> _sessionAttempts = new HashSet<int>();
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -91,6 +93,7 @@ namespace IndoorAr
             _scanPoseReady = false;
             _slowHoldLeft = 0f;
             _signs = new IndoorSignTracker();
+            _sessionAttempts.Clear();
             if (!IndoorArContract.TryParseRequest(json, out var request))
             {
                 Deliver(IndoorArContract.Error(IndoorArContract.BadRequest, 0, 0));
@@ -105,9 +108,9 @@ namespace IndoorAr
             _session.LocalizeRequested += RequestLocalization;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
-            _localizer.AttemptStarted += _session.OnAttemptStarted;
+            _localizer.AttemptStarted += OnAttemptStarted;
             _localizer.Localized += OnLocalizedObserved;
-            _localizer.NotLocalized += _session.OnNotLocalized;
+            _localizer.NotLocalized += OnNotLocalized;
             if (!restart || Application.isEditor) return;
             var ar = UnityEngine.Object.FindAnyObjectByType<ARSession>();
             if (ar != null) ar.Reset();
@@ -183,6 +186,17 @@ namespace IndoorAr
                 Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");
             _localizer.Localize();
             LogBaseline();
+        }
+
+        void OnAttemptStarted(int attemptId)
+        {
+            _sessionAttempts.Add(attemptId);
+            _session?.OnAttemptStarted();
+        }
+
+        void OnNotLocalized(int attemptId)
+        {
+            if (_sessionAttempts.Remove(attemptId)) _session?.OnNotLocalized();
         }
 
         void OnLocalizedObserved(float? confidence)
@@ -381,9 +395,9 @@ namespace IndoorAr
             _session.LocalizeRequested -= RequestLocalization;
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
-            _localizer.AttemptStarted -= _session.OnAttemptStarted;
+            _localizer.AttemptStarted -= OnAttemptStarted;
             _localizer.Localized -= OnLocalizedObserved;
-            _localizer.NotLocalized -= _session.OnNotLocalized;
+            _localizer.NotLocalized -= OnNotLocalized;
         }
 
         static void DestroyOwned(UnityEngine.Object obj)

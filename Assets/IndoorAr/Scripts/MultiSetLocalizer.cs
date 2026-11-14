@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using MultiSet;
 using UnityEngine;
@@ -24,12 +25,14 @@ namespace IndoorAr
         [SerializeField] SingleFrameLocalizationManager manager;
         [SerializeField] Transform mapSpace;
         bool _authPending;
+        int _attemptId;
+        readonly Queue<int> _pendingAttempts = new Queue<int>();
 
         public event Action Authenticated;
         public event Action<bool> AuthFailed;
-        public event Action AttemptStarted;
+        public event Action<int> AttemptStarted;
         public event Action<float?> Localized;
-        public event Action NotLocalized;
+        public event Action<int> NotLocalized;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
 
@@ -100,17 +103,30 @@ namespace IndoorAr
         public void Localize()
         {
             manager.StopAllCoroutines();
-            AttemptStarted?.Invoke();
+            var attemptId = ++_attemptId;
+            _pendingAttempts.Enqueue(attemptId);
+            AttemptStarted?.Invoke(attemptId);
             manager.LocalizeFrame();
         }
 
         void OnLocalized(LocalizationSuccessResponse result)
         {
-            if (result != null && result.poseFound) Localized?.Invoke(result.confidence);
+            if (result != null && result.poseFound)
+            {
+                if (_pendingAttempts.Count > 0) _pendingAttempts.Dequeue();
+                Localized?.Invoke(result.confidence);
+            }
             else OnNotLocalized();
         }
-        void OnNotLocalized() => NotLocalized?.Invoke();
-        void OnLocalizedWithoutConfidence() => Localized?.Invoke(null);
+        void OnNotLocalized()
+        {
+            if (_pendingAttempts.Count > 0) NotLocalized?.Invoke(_pendingAttempts.Dequeue());
+        }
+        void OnLocalizedWithoutConfidence()
+        {
+            if (_pendingAttempts.Count > 0) _pendingAttempts.Dequeue();
+            Localized?.Invoke(null);
+        }
 
         void OnDestroy()
         {
