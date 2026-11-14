@@ -96,8 +96,9 @@ namespace OutdoorAr.Tests
         }
 
         [TestCase(TrackingState.None, 1, 1)]
-        [TestCase(TrackingState.Tracking, 5.01, 1)]
-        [TestCase(TrackingState.Tracking, 1, 10.01)]
+        [TestCase(TrackingState.Tracking, 10.01, 1)]
+        [TestCase(TrackingState.Tracking, 1, 20.01)]
+        [TestCase(TrackingState.Tracking, -1, 1)]
         [TestCase(TrackingState.Tracking, double.NaN, 1)]
         [TestCase(TrackingState.Tracking, 1, double.PositiveInfinity)]
         public void RejectsUncertainOrInvalidPose(TrackingState tracking, double horizontal, double heading)
@@ -113,6 +114,53 @@ namespace OutdoorAr.Tests
             var actual = EvaluateReady(horizontal: 5, heading: 10);
             Assert.AreEqual(OutdoorArState.Ready, actual);
             Assert.IsTrue(OutdoorGeospatialGate.CanPlaceGuidanceAnchor(actual));
+        }
+
+        [TestCase(5.01, 1)]
+        [TestCase(1, 10.01)]
+        [TestCase(10, 20)]
+        public void GpsClassAccuracyGuidesAsApproximateWithoutAnAnchor(double horizontal, double heading)
+        {
+            var actual = EvaluateReady(horizontal: horizontal, heading: heading);
+            Assert.AreEqual(OutdoorArState.Approximate, actual);
+            Assert.IsTrue(OutdoorGeospatialGate.CanGuide(actual));
+            Assert.IsFalse(OutdoorGeospatialGate.CanPlaceGuidanceAnchor(actual));
+            Assert.IsFalse(OutdoorGeospatialGate.IsUnavailable(actual));
+        }
+
+        [TestCase(OutdoorArState.Ready, true)]
+        [TestCase(OutdoorArState.Approximate, true)]
+        [TestCase(OutdoorArState.TrackingUncertain, false)]
+        [TestCase(OutdoorArState.ServiceInitializing, false)]
+        [TestCase(OutdoorArState.VpsCheckRequired, false)]
+        public void OnlyReadyAndApproximateMayGuide(OutdoorArState state, bool expected)
+        {
+            Assert.AreEqual(expected, OutdoorGeospatialGate.CanGuide(state));
+        }
+
+        [TestCase(true, 0, true)]
+        [TestCase(true, 10, true)]
+        [TestCase(true, 10.01, false)]
+        [TestCase(false, 1, false)]
+        [TestCase(true, double.NaN, false)]
+        [TestCase(true, double.PositiveInfinity, false)]
+        [TestCase(true, -1, false)]
+        public void ArrivalRequiresPreciseAccuracyAndDistanceWithinRadius(bool precise, double distance, bool expected)
+        {
+            Assert.AreEqual(expected, OutdoorGeospatialGate.CanArrive(precise, distance));
+        }
+
+        [TestCase(false, 3.0, "none")]
+        [TestCase(true, double.NaN, "bad")]
+        [TestCase(true, -1.0, "bad")]
+        [TestCase(true, 4.0, "le5")]
+        [TestCase(true, 5.0, "le5")]
+        [TestCase(true, 5.1, "le10")]
+        [TestCase(true, 20.0, "le20")]
+        [TestCase(true, 20.1, "gt20")]
+        public void LogsAccuracyOnlyAsABucket(bool tracking, double value, string expected)
+        {
+            Assert.AreEqual(expected, OutdoorGeospatialGate.AccuracyBucket(value, tracking, 5, 10, 20));
         }
 
         [Test]
@@ -160,6 +208,7 @@ namespace OutdoorAr.Tests
         [TestCase(OutdoorArState.VpsCheckFailed, false)]
         [TestCase(OutdoorArState.VpsUnavailable, false)]
         [TestCase(OutdoorArState.TrackingUncertain, false)]
+        [TestCase(OutdoorArState.Approximate, false)]
         [TestCase(OutdoorArState.Ready, false)]
         public void OnlyStatesWaitingCannotFixEndAHostedSession(OutdoorArState state, bool expected)
         {

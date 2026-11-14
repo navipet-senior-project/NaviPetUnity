@@ -14,6 +14,7 @@ namespace IndoorAr
         int _entry;
         int _textures = -1; // -1: no camera frame yet
         ARCameraManager _camera;
+        ARSession _session;
         string _last;
 
         public static void Attach()
@@ -30,10 +31,17 @@ namespace IndoorAr
                 _camera = FindAnyObjectByType<ARCameraManager>();
                 if (_camera != null) _camera.frameReceived += OnFrame;
             }
-            var line = $"[ArDiag] entry={_entry} scene={SceneManager.GetActiveScene().name} arSession={ARSession.state} cameraManager={_camera != null && _camera.enabled} cameraTextures={_textures}";
+            var line = $"[ArDiag] entry={_entry} scene={SceneManager.GetActiveScene().name} arSession={ARSession.state} cameraManager={_camera != null && _camera.enabled} sessionRunning={SessionRunning()} cameraTextures={_textures}";
             if (line == _last) return;
             _last = line;
             Debug.Log(line);
+        }
+
+        // Separates "the session never started" from "it runs but delivers no texture" on a re-entry.
+        bool SessionRunning()
+        {
+            if (_session == null) _session = FindAnyObjectByType<ARSession>();
+            return _session != null && _session.subsystem != null && _session.subsystem.running;
         }
 
         void OnFrame(ARCameraFrameEventArgs args) => _textures = args.textures.Count;

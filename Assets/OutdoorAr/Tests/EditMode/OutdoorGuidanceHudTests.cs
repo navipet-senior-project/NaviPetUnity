@@ -49,9 +49,37 @@ namespace OutdoorAr.Tests
         }
 
         [Test]
+        public void ApproximateAccuracyIsLabelledBesideTheDistance()
+        {
+            var settled = LiveDoorHud.LocationFoundHoldS + .1f;
+            var view = Compose(Request(), OutdoorArState.Approximate, readyFor: settled, distance: 80);
+            Assert.AreEqual(IndoorHudState.Straight, view.State);
+            Assert.AreEqual(IndoorHud.DistanceLabel(80) + " · " + OutdoorGuidanceHud.ApproximateNote, view.DetailOverride);
+            Assert.IsNull(Compose(Request(), OutdoorArState.Ready, readyFor: settled).DetailOverride);
+            Assert.IsNull(Compose(Request(), OutdoorArState.Approximate, readyFor: 0.2f).DetailOverride);
+        }
+
+        [Test]
+        public void OffRouteTextOutranksTheApproximateLabel()
+        {
+            var view = OutdoorGuidanceHud.Compose(Request(route: true), OutdoorArState.Approximate, true, false,
+                80, 120, 30, true, LiveDoorHud.LocationFoundHoldS + .1f, null);
+            Assert.IsNull(view.DetailOverride);
+        }
+
+        [Test]
         public void ArrivalWins()
         {
             Assert.AreEqual(IndoorHudState.Arrived, Compose(Request(), arrived: true, readyFor: 0f).State);
+        }
+
+        [Test]
+        public void RejectedArrivalExplainsPreciseAccuracyRequirement()
+        {
+            var view = OutdoorGuidanceHud.Compose(Request(), OutdoorArState.Approximate, true, false,
+                80, 120, 30, false, LiveDoorHud.LocationFoundHoldS + .1f, null,
+                "Precise location needed to confirm arrival.");
+            Assert.AreEqual("Precise location needed to confirm arrival.", view.DetailOverride);
         }
 
         [Test]
