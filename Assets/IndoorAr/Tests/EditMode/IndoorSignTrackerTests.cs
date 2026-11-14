@@ -38,6 +38,16 @@ public class IndoorSignTrackerTests
     }
 
     [Test]
+    public void SameLineAmbiguityResetsConfirmation()
+    {
+        var tracker = new IndoorSignTracker();
+        tracker.Observe(Read("VEC 119"), 0f);
+        Assert.IsFalse(tracker.Observe(Read("VEC 119 VEC 120"), .5f));
+        Assert.IsFalse(tracker.Observe(Read("VEC 119"), 1f));
+        Assert.IsTrue(tracker.Observe(Read("VEC 119"), 1.5f));
+    }
+
+    [Test]
     public void ANewRoomReplacesTheConfirmedOne()
     {
         var tracker = new IndoorSignTracker();
