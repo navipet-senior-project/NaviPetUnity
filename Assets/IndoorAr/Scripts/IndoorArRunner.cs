@@ -358,6 +358,7 @@ namespace IndoorAr
                 _pin.localPosition = new Vector3(door.position.x, door.position.y, door.position.z);
                 _pin.localRotation = Quaternion.Euler(0f, door.headingDeg, 0f);
             }
+            WatchMapSpace(pinned);
             if (_pin != null)
             {
                 _pin.gameObject.SetActive(pinned);
@@ -368,6 +369,35 @@ namespace IndoorAr
                     if (direction.sqrMagnitude > 0.0001f) _pin.rotation = Quaternion.LookRotation(direction);
                 }
             }
+        }
+
+        public const float MapShiftMeters = 0.02f;
+        public const float MapShiftDegrees = 0.5f;
+
+        /// <summary>The pin is a MapSpace child, so it only moves in the world if MapSpace itself is re-posed.</summary>
+        public static bool MapShifted(Vector3 was, Quaternion wasRotation, Vector3 now, Quaternion nowRotation,
+            out float meters, out float degrees)
+        {
+            meters = Vector3.Distance(was, now);
+            degrees = Quaternion.Angle(wasRotation, nowRotation);
+            return meters > MapShiftMeters || degrees > MapShiftDegrees;
+        }
+
+        Vector3 _mapPosition;
+        Quaternion _mapRotation;
+        bool _mapWatched;
+
+        // Logs the size of any MapSpace move while the pin is shown, never where MapSpace is.
+        void WatchMapSpace(bool pinned)
+        {
+            if (!pinned) { _mapWatched = false; return; }
+            var map = _localizer.MapSpace;
+            if (_mapWatched && MapShifted(_mapPosition, _mapRotation, map.position, map.rotation, out var meters, out var degrees)
+                && !Application.isEditor)
+                Debug.Log($"[IndoorAr] map space moved after pin shiftM={meters:0.00} turnDeg={degrees:0.0}");
+            _mapPosition = map.position;
+            _mapRotation = map.rotation;
+            _mapWatched = true;
         }
 
         Vector3 CameraInMap() => _localizer.MapSpace.InverseTransformPoint(arCamera.transform.position);

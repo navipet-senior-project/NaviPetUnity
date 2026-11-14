@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.InputSystem.XR;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.Management;
 
@@ -81,13 +82,18 @@ namespace IndoorAr
             var sessions = UnityEngine.Object.FindObjectsByType<ARSession>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             var cameras = UnityEngine.Object.FindObjectsByType<ARCameraManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             var backgrounds = UnityEngine.Object.FindObjectsByType<ARCameraBackground>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            // Unproven candidate for a camera that renders the feed but no longer follows the phone after a loader
+            // restart: the pose driver binds its input actions to the XR devices a loader creates, so it cycles too.
+            var drivers = UnityEngine.Object.FindObjectsByType<TrackedPoseDriver>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             if (enabled)
             {
                 foreach (var session in sessions) session.enabled = true;
                 foreach (var camera in cameras) camera.enabled = true;
                 foreach (var background in backgrounds) background.enabled = true;
+                foreach (var driver in drivers) driver.enabled = true;
                 return;
             }
+            foreach (var driver in drivers) driver.enabled = false;
             foreach (var background in backgrounds) background.enabled = false;
             foreach (var camera in cameras) camera.enabled = false;
             foreach (var session in sessions) session.enabled = false;
