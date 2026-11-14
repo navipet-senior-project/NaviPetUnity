@@ -355,5 +355,37 @@ namespace IndoorAr.Tests
             session.Tick(IndoorArSession.LocalizeTimeoutS);
             Assert.AreEqual(IndoorHudState.NotFound, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
         }
-    }
+
+        static IndoorHudView SignView(string id, string floor, bool localizeOnly = false)
+        {
+            var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
+            request.mode = localizeOnly ? "localize" : request.mode;
+            var session = new IndoorArSession(request, request.mapCode);
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            session.OnSignConfirmed(new IndoorRoomLandmark(id, "VEC", floor));
+            return LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f);
+        }
+
+        [Test]
+        public void RoomSignCopyIsApproximateAndCatchesTheWrongFloor()
+        {
+            var near = SignView("VEC120", "floor_1");
+            Assert.AreEqual(IndoorHudState.Scanning, near.State, "a sign never shows the arrow");
+            Assert.AreEqual("Near VEC 120 · Floor 1", near.TitleOverride);
+            Assert.AreEqual("From the room sign. Keep scanning for the arrow", near.DetailOverride);
+
+            var upstairs = SignView("VEC215", "floor_2");
+            Assert.AreEqual("VEC 119 is on Floor 1", upstairs.TitleOverride);
+            Assert.AreEqual("This sign reads VEC 215 on Floor 2", upstairs.DetailOverride);
+
+            var door = SignView("VEC119", "floor_1");
+            Assert.AreEqual("This sign reads VEC 119", door.TitleOverride);
+            Assert.AreEqual("Keep scanning so AR can confirm the door", door.DetailOverride);
+
+            var localize = SignView("VEC215", "floor_2", localizeOnly: true);
+            Assert.AreEqual("Near VEC 215 · Floor 2", localize.TitleOverride, "localize mode has no wrong floor");
+            Assert.AreEqual("From the room sign. AR is still aligning", localize.DetailOverride);
+        }
+}
 }

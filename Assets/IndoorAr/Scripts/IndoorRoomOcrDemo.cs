@@ -6,17 +6,18 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace IndoorAr
 {
-    /// <summary>Optional Android OCR demo using AR Foundation's existing camera stream.</summary>
+    /// <summary>Android room-sign OCR using AR Foundation's existing camera stream.</summary>
     public sealed class IndoorRoomOcrDemo : MonoBehaviour
     {
-        const float FrameIntervalSeconds = 1f;
+        const float FrameIntervalSeconds = .5f;
         [SerializeField] ARCameraManager cameraManager;
         [SerializeField] TextAsset directory;
         float _nextFrameAt;
         bool _converting;
         bool _recognizing;
+        float _recognitionStarted;
 
-        public event Action<string, IndoorRoomMatch> Result;
+        public event Action<string, IndoorRoomMatch, float> Result;
 
         public static bool IsValidRgbaFrame(int width, int height, int byteCount) =>
             width > 0 && height > 0 && width <= 1280 && height <= 720
@@ -51,6 +52,7 @@ namespace IndoorAr
         void CaptureLatestFrame()
         {
             if (!cameraManager.TryAcquireLatestCpuImage(out var image)) return;
+            _recognitionStarted = Time.realtimeSinceStartup;
             var scale = Mathf.Min(1f, 640f / image.width, 480f / image.height);
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
             var height = Mathf.Max(1, Mathf.RoundToInt(image.height * scale));
@@ -84,11 +86,10 @@ namespace IndoorAr
         public void OnMlKitText(string recognizedText)
         {
             _recognizing = false;
-            var match = IndoorRoomIdentityMatcher.Match(
-                recognizedText, "VEC", "floor_1",
-                _directoryJson ?? (directory == null ? null : directory.text));
+            var match = IndoorRoomIdentityMatcher.MatchSign(
+                recognizedText, _directoryJson ?? (directory == null ? null : directory.text));
             Debug.Log($"[IndoorAr OCR] text='{recognizedText}' roomMatch={match.Status}");
-            Result?.Invoke(recognizedText, match);
+            Result?.Invoke(recognizedText, match, _recognitionStarted);
         }
 
         public void OnMlKitError(string message)

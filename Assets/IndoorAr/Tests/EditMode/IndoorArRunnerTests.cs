@@ -15,14 +15,26 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
 {
     public event Action Authenticated;
     public event Action<bool> AuthFailed;
-    public event Action AttemptStarted;
+    public event Action<int> AttemptStarted;
     public event Action<float?> Localized;
+    public event Action<int> NotLocalized;
     public Transform MapSpace => transform;
     public string MapCode => "MSET_XTBY7AM7ZK77";
     public int AuthenticationCalls { get; private set; }
+    public int AttemptCount { get; private set; }
+    public int LastAttemptId { get; private set; }
     public void Authenticate() { AuthenticationCalls++; Authenticated?.Invoke(); }
     public bool Succeed = true;
-    public void Localize() { AttemptStarted?.Invoke(); if (Succeed) Localized?.Invoke(0.73f); }
+    public bool DeferAnswer;
+    public void Localize()
+    {
+        LastAttemptId = ++AttemptCount;
+        AttemptStarted?.Invoke(LastAttemptId);
+        if (DeferAnswer) return;
+        if (Succeed) Localized?.Invoke(0.73f);
+        else NotLocalized?.Invoke(LastAttemptId);
+    }
+    public void CompleteWithoutPose(int attemptId) => NotLocalized?.Invoke(attemptId);
 }
 
 public class IndoorArRunnerTests
@@ -122,6 +134,51 @@ public class IndoorArRunnerTests
         session.OnAuthenticated();
         Assert.AreEqual(IndoorArState.Localizing, session.State);
         Assert.AreEqual(1, session.Queries);
+    }
+
+    [Test]
+    public void PriorSessionNoPoseCannotTriggerCurrentSessionsSignRetry()
+    {
+        var runner = Runner();
+        var start = (IEnumerator)Call(runner, "Start");
+        start.MoveNext();
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        var oldSession = Field<IndoorArSession>(runner, "_session");
+        oldSession.OnArSupport(true);
+        oldSession.OnAuthenticated();
+        var oldAttempt = localizer.LastAttemptId;
+
+        runner.GetType().GetMethod("BeginSession", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(runner, new object[] { _request });
+        var currentSession = Field<IndoorArSession>(runner, "_session");
+        currentSession.OnArSupport(true);
+        currentSession.OnAuthenticated();
+        var currentAttempt = localizer.LastAttemptId;
+        localizer.CompleteWithoutPose(oldAttempt);
+
+        var match = IndoorRoomIdentityMatcher.MatchSign("119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
+        var started = Field<float>(runner, "_sessionStarted");
+        var onSignRead = runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic);
+        onSignRead.Invoke(runner, new object[] { "119", match, started });
+        onSignRead.Invoke(runner, new object[] { "119", match, started });
+        Assert.AreEqual(2, localizer.AttemptCount, "old failure cannot spend current session retry");
+
+        localizer.CompleteWithoutPose(currentAttempt);
+        onSignRead.Invoke(runner, new object[] { "119", match, started });
+        Assert.AreEqual(3, localizer.AttemptCount, "current session failure retains early sign retry");
+    }
+
+    [Test]
+    public void StaleSignReadCannotSetNewSessionRoom()
+    {
+        var runner = Runner();
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        var match = IndoorRoomIdentityMatcher.MatchSign("119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
+        runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(runner, new object[] { "119", match, Field<float>(runner, "_sessionStarted") - 1f });
+        Assert.IsNull(session.SignRoom);
     }
 
     [Test]

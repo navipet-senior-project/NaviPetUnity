@@ -125,6 +125,13 @@ namespace IndoorAr
         public static string Error(string errorCode, int localizationQueries, long durationMs) =>
             Build("error", null, errorCode, localizationQueries, durationMs);
 
+        /// <summary>Adds the optional signRoom field. Older hosts ignore unknown fields.</summary>
+        public static string WithSignRoom(string resultJson, string signRoom) =>
+            // Room ids come from the bundled VEC directory (VEC + digits), so they need no escaping.
+            string.IsNullOrEmpty(signRoom) || string.IsNullOrEmpty(resultJson)
+                ? resultJson
+                : resultJson.Insert(resultJson.Length - 1, ",\"signRoom\":\"" + signRoom + "\"");
+
         // Written by hand: JsonUtility cannot omit fields. Status and error codes
         // are constants from this file, so they need no escaping.
         static string Build(string status, float? checkDistanceM, string errorCode,

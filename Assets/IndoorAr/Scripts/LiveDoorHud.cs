@@ -28,7 +28,7 @@ namespace IndoorAr
             var door = request.position;
             var target = door == null ? Vector3.zero : new Vector3(door.x, door.y, door.z);
             var authFailed = AuthFailed(session);
-            return new IndoorHudView
+            var view = new IndoorHudView
             {
                 State = StateFor(session, pinnedForS),
                 Destination = Destination(request),
@@ -39,6 +39,33 @@ namespace IndoorAr
                 TitleOverride = authFailed ? "AR sign-in failed" : null,
                 DetailOverride = authFailed ? "The session could not use the AR token." : null,
             };
+            if (view.State == IndoorHudState.Scanning && session.SignRoom != null) ShowSign(view, session.SignRoom);
+            return view;
+        }
+
+        /// <summary>Room-sign copy while the AR pose is still pending. It names a room, never a direction.</summary>
+        static void ShowSign(IndoorHudView view, IndoorRoomLandmark sign)
+        {
+            var label = RoomLabel(sign.Id);
+            var at = sign.FloorId.LastIndexOf('_');
+            int.TryParse(at < 0 ? sign.FloorId : sign.FloorId.Substring(at + 1), out var signFloor);
+            if (!view.LocalizeOnly && view.Floor > 0 && signFloor != view.Floor)
+            {
+                view.TitleOverride = view.Destination + " is on Floor " + view.Floor;
+                view.DetailOverride = "This sign reads " + label + " on Floor " + signFloor;
+            }
+            else if (!view.LocalizeOnly && string.Equals(label, view.Destination, StringComparison.OrdinalIgnoreCase))
+            {
+                view.TitleOverride = "This sign reads " + label;
+                view.DetailOverride = "Keep scanning so AR can confirm the door";
+            }
+            else
+            {
+                view.TitleOverride = "Near " + label + " · Floor " + signFloor;
+                view.DetailOverride = view.LocalizeOnly
+                    ? "From the room sign. AR is still aligning"
+                    : "From the room sign. Keep scanning for the arrow";
+            }
         }
 
         public static string Destination(IndoorArRequest request)

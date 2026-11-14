@@ -20,6 +20,7 @@ namespace IndoorAr
         float _localizingS;
         float _startupS;
         bool _retried;
+        bool _noPose;
         float? _confidence;
         float _arrivalDistance;
 
@@ -38,6 +39,8 @@ namespace IndoorAr
         public int Queries { get; private set; }
         public bool WasPinned { get; private set; }
         public string ResultJson { get; private set; }
+        /// <summary>Last room sign confirmed by OCR. Approximate location only: never a pose.</summary>
+        public IndoorRoomLandmark SignRoom { get; private set; }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 
@@ -78,6 +81,29 @@ namespace IndoorAr
             WasPinned = true;
         }
 
+        public void OnNotLocalized()
+        {
+            if (State == IndoorArState.Localizing) _noPose = true;
+        }
+
+        public void OnSignConfirmed(IndoorRoomLandmark room)
+        {
+            if (State != IndoorArState.Done && room != null) SignRoom = room;
+        }
+
+        /// <summary>
+        /// A confirmed sign is in view, so the camera faces a mapped wall. If the open attempt
+        /// already answered without a pose, spend the one retry now instead of at the timeout.
+        /// </summary>
+        public void OnSignInView()
+        {
+            if (State != IndoorArState.Localizing || !_noPose || _retried) return;
+            _retried = true;
+            _noPose = false;
+            _localizingS = 0f;
+            LocalizeRequested?.Invoke();
+        }
+
         // Re-localize only after tracking loss, never on a timer.
         public void OnTrackingLost()
         {
@@ -110,6 +136,7 @@ namespace IndoorAr
                 return;
             }
             _retried = true;
+            _noPose = false;
             _localizingS = 0f;
             LocalizeRequested?.Invoke();
         }
@@ -155,12 +182,13 @@ namespace IndoorAr
             State = IndoorArState.Localizing;
             _localizingS = 0f;
             _retried = false;
+            _noPose = false;
             LocalizeRequested?.Invoke();
         }
 
         void Finish(string resultJson)
         {
-            ResultJson = resultJson;
+            ResultJson = IndoorArContract.WithSignRoom(resultJson, SignRoom?.Id);
             State = IndoorArState.Done;
         }
     }
