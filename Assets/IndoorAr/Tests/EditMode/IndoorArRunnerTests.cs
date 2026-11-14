@@ -500,6 +500,16 @@ public class IndoorArRunnerTests
         Assert.IsInstanceOf<RunnerFakeLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
     }
 
+    [Test]
+    public void LocalizationModeDefaultsToMultiSet()
+    {
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, _host.AddComponent<Camera>());
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        Assert.IsInstanceOf<RunnerFakeLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
+    }
+
     static string[] Labels(IndoorArRunner runner) =>
         runner.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray();
 }

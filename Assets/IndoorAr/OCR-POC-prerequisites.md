@@ -10,7 +10,7 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 
 ## Sign-assisted localization
 
-`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default). OCR runs only while the session is starting or localizing and stops once MultiSet returns a pose, so it never competes with the pinned view. Turning the flag off disables both adapters. The runner's `localizationMode` (default `SignPose`) decides who answers the pose: `SignPose` never authenticates or calls MultiSet (see the last section); `MultiSet` restores the original VPS flow. Switch it on the `IndoorArRunner` component.
+`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default). OCR runs only while the session is starting or localizing and stops once MultiSet returns a pose, so it never competes with the pinned view. Turning the flag off disables both adapters. The runner's `localizationMode` (default `MultiSet`) decides who answers the pose: `MultiSet` is the original VPS flow; `SignPose` never authenticates or calls MultiSet (see the last section) and cannot localize until the measurements there exist. Switch it on the `IndoorArRunner` component.
 
 `IndoorSignTracker` confirms a room after two reads within four seconds. A frame naming two rooms resets the count; text with no room number is ignored. A confirmed sign does three things:
 
@@ -33,6 +33,6 @@ It produces no pose today because these inputs do not exist:
 3. Camera intrinsics (`fx`, `fy`, `cx`, `cy`) and distortion at the same device camera mode and resolution as the OCR frame, plus the transform from the OCR image (display orientation) to the AR camera's frame. `Observe` assumes corners already in the AR camera's orientation.
 4. A paired validation of the solved pose against `CameraInMap` captured at the same moment, through a written, measured frame conversion. The solver uses one homography decomposition; check both planar IPPE solutions before trusting oblique views.
 
-Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCorners` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure; set `localizationMode` to `MultiSet` to get the old VPS flow back.
+Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCorners` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure in `SignPose` mode; `MultiSet` is the default.
 
 The VEC floor-plan JSON supplies the room IDs, building ID, and floor IDs for identity matching. Its positions and rotations are not interchangeable with the MapSet door frame; do not use them to create sign geometry, poses, or transforms.

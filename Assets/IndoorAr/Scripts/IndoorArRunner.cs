@@ -24,8 +24,8 @@ namespace IndoorAr
         [SerializeField] Camera arCamera;
         // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
         [SerializeField] bool signLocalization = true;
-        // SignPose never calls MultiSet; MultiSet restores the original VPS flow.
-        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.SignPose;
+        // MultiSet is the validated flow. SignPose never calls MultiSet but has no measured geometry yet.
+        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.MultiSet;
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
