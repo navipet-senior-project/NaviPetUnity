@@ -79,6 +79,8 @@ namespace IndoorAr
             if (_mlKitOcr != null) _mlKitOcr.Result += OnSignRead;
             if (_visionOcr != null) _visionOcr.Result += OnSignRead;
             UpdateSignOcr();
+            if (!Application.isEditor)
+                Debug.Log($"[IndoorAr] mode={localizationMode} signLocalization={signLocalization}");
             if (ArSessionLifecycle.StartNeedsLoader(Application.isEditor, ArSessionLifecycle.LoaderActive,
                 IndoorArRouterHold.Holds(IndoorArBridge.ReadRequestJson())))
             {
@@ -264,8 +266,12 @@ namespace IndoorAr
             if (!signLocalization || _session == null || _delivered || _signs == null
                 || recognitionStarted < _sessionStarted) return;
             var now = Time.unscaledTime;
+            // Status and room id only: the raw recognized text never reaches the log.
+            if (!Application.isEditor)
+                Debug.Log($"[IndoorAr] sign read status={match?.Status} room={match?.Landmark?.Id ?? "none"}");
             if (_signs.Observe(match, now))
             {
+                if (!Application.isEditor) Debug.Log($"[IndoorAr] sign confirmed room={_signs.Confirmed.Id}");
                 _session.OnSignConfirmed(_signs.Confirmed);
                 _baseline?.NoteSignConfirmed(NowMs());
                 LogBaseline();
