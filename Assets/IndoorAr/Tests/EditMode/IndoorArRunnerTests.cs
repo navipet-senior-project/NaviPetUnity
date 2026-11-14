@@ -126,6 +126,18 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void StaleSignReadCannotSetNewSessionRoom()
+    {
+        var runner = Runner();
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        var match = IndoorRoomIdentityMatcher.MatchSign("119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
+        runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(runner, new object[] { "119", match, Field<float>(runner, "_sessionStarted") - 1f });
+        Assert.IsNull(session.SignRoom);
+    }
+
+    [Test]
     public void PinUsesMapLocalPoseAndHidesOnTrackingLoss()
     {
         var runner = Runner();

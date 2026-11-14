@@ -15,8 +15,9 @@ namespace IndoorAr
         float _nextFrameAt;
         bool _converting;
         bool _recognizing;
+        float _recognitionStarted;
 
-        public event Action<string, IndoorRoomMatch> Result;
+        public event Action<string, IndoorRoomMatch, float> Result;
 
         public static bool IsValidRgbaFrame(int width, int height, int byteCount) =>
             width > 0 && height > 0 && width <= 1280 && height <= 720
@@ -51,6 +52,7 @@ namespace IndoorAr
         void CaptureLatestFrame()
         {
             if (!cameraManager.TryAcquireLatestCpuImage(out var image)) return;
+            _recognitionStarted = Time.realtimeSinceStartup;
             var scale = Mathf.Min(1f, 640f / image.width, 480f / image.height);
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
             var height = Mathf.Max(1, Mathf.RoundToInt(image.height * scale));
@@ -87,7 +89,7 @@ namespace IndoorAr
             var match = IndoorRoomIdentityMatcher.MatchSign(
                 recognizedText, _directoryJson ?? (directory == null ? null : directory.text));
             Debug.Log($"[IndoorAr OCR] text='{recognizedText}' roomMatch={match.Status}");
-            Result?.Invoke(recognizedText, match);
+            Result?.Invoke(recognizedText, match, _recognitionStarted);
         }
 
         public void OnMlKitError(string message)

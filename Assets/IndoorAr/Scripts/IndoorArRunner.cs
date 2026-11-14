@@ -202,9 +202,10 @@ namespace IndoorAr
             if (_visionOcr != null) _visionOcr.enabled = on;
         }
 
-        void OnSignRead(string text, IndoorRoomMatch match)
+        void OnSignRead(string text, IndoorRoomMatch match, float recognitionStarted)
         {
-            if (!signLocalization || _session == null || _delivered || _signs == null) return;
+            if (!signLocalization || _session == null || _delivered || _signs == null
+                || recognitionStarted < _sessionStarted) return;
             var now = Time.unscaledTime;
             if (_signs.Observe(match, now))
             {

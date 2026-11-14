@@ -16,8 +16,9 @@ namespace IndoorAr
         float _nextFrameAt;
         bool _converting;
         bool _recognizing;
+        float _recognitionStarted;
 
-        public event Action<string, IndoorRoomMatch> Result;
+        public event Action<string, IndoorRoomMatch, float> Result;
 
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")]
@@ -57,6 +58,7 @@ namespace IndoorAr
         void CaptureLatestFrame()
         {
             if (!cameraManager.TryAcquireLatestCpuImage(out var image)) return;
+            _recognitionStarted = Time.realtimeSinceStartup;
             var orientation = VisionOrientation(Screen.orientation);
             var scale = Mathf.Min(1f, 640f / image.width, 480f / image.height);
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
@@ -102,7 +104,7 @@ namespace IndoorAr
             _recognizing = false;
             var match = IndoorRoomIdentityMatcher.MatchSign(
                 recognizedText, directory == null ? null : directory.text);
-            Result?.Invoke(recognizedText, match);
+            Result?.Invoke(recognizedText, match, _recognitionStarted);
         }
 
         public void OnVisionError(string ignored)
