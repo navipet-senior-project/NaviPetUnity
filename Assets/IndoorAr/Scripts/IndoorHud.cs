@@ -225,7 +225,7 @@ namespace IndoorAr
                 case IndoorHudState.NotFound: return view.Outdoor ? "Couldn't check outdoor coverage" : "Couldn't find you";
                 case IndoorHudState.Localized: return "Location found";
                 case IndoorHudState.Straight:
-                    if (view.Outdoor && view.FollowingRoute) return RouteTitle(view);
+                    if (view.FollowingRoute) return RouteTitle(view);
                     if (view.WrongFloor) return view.Destination + " is on Floor " + view.Floor;
                     if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return view.Destination + " is ahead";
                     float yaw = Mathf.DeltaAngle(0f, view.ArrowYaw);
@@ -252,7 +252,7 @@ namespace IndoorAr
             {
                 case IndoorHudState.Scanning: return view.Outdoor ? "Point the camera at the buildings around you" : view.ScanTooFast ? "Move your phone more slowly" : "Move your phone slowly across the hallway";
                 case IndoorHudState.NotFound: return view.Outdoor ? "Check your connection and try again." : "Step into a hallway and scan the walls and signs.";
-                case IndoorHudState.Localized: return view.LocalizeOnly ? "Your location was found" : (view.Outdoor && view.FollowingRoute ? "Route to " : "Direction to ") + view.Destination + " is ready";
+                case IndoorHudState.Localized: return view.LocalizeOnly ? "Your location was found" : (view.FollowingRoute ? "Route to " : "Direction to ") + view.Destination + " is ready";
                 case IndoorHudState.Straight:
                     if (view.Outdoor)
                     {
@@ -260,7 +260,9 @@ namespace IndoorAr
                         if (view.OffRoute) return distance + "Walk back to the route";
                         return distance + (view.FollowingRoute ? view.Destination : "Direction only, not a route");
                     }
-                    return view.WrongFloor ? "You are on a different floor" : "Arrow points to the room";
+                    if (view.WrongFloor) return "You are on a different floor";
+                    if (view.FollowingRoute) return DistanceLabel(view.DistanceM) + " · Hallway route to " + view.Destination;
+                    return "Arrow points to the room";
                 default: return RoomLine(view);
             }
         }

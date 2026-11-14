@@ -501,13 +501,18 @@ public class IndoorArRunnerTests
     }
 
     [Test]
-    public void LocalizationModeDefaultsToMultiSet()
+    public void LocalizationModeDefaultsToSignsFirstWithMultiSetBehindIt()
     {
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, _host.AddComponent<Camera>());
         ((IEnumerator)Call(runner, "Start")).MoveNext();
-        Assert.IsInstanceOf<RunnerFakeLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
+        Assert.IsInstanceOf<SignFirstLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        Field<IIndoorArLocalizer>(runner, "_localizer").Authenticate();
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual(0, localizer.AttemptCount, "MultiSet is not the first thing asked");
     }
 
     static string[] Labels(IndoorArRunner runner) =>

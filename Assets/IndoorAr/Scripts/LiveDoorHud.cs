@@ -5,12 +5,14 @@ namespace IndoorAr
 {
     /// <summary>
     /// Maps the door-verifier session onto IndoorHudView.
-    /// The guide arrow is the horizontal yaw from the camera to the door.
-    /// shortcut: no walkable map, so this never turns or avoids walls.
+    /// The guide arrow follows the hallway route when the walk grid has one, and otherwise is the horizontal
+    /// yaw from the camera straight to the door, which never turns or avoids walls.
     /// </summary>
     public static class LiveDoorHud
     {
         public const float LocationFoundHoldS = 1.5f;
+        // The arrow aims at the first route point at least this far away, so it does not flip at a corner point.
+        public const float RouteLookAheadM = 1f;
 
         public static bool LocalizationFailed(IndoorArSession session) =>
             session.State == IndoorArState.Done
@@ -22,11 +24,16 @@ namespace IndoorAr
             && session.ResultJson != null
             && session.ResultJson.Contains("\"errorCode\":\"MULTISET_AUTH\"");
 
-        public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap, float pinnedForS)
+        /// <param name="route">Hallway waypoints from the camera to the door in the MapSet frame, or null for none.</param>
+        public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap,
+            float pinnedForS, Vector3[] route = null)
         {
             var request = session.Request;
             var door = request.position;
             var target = door == null ? Vector3.zero : new Vector3(door.x, door.y, door.z);
+            // A route on this floor's grid says nothing about how to change floors.
+            if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || session.IsWrongFloor(cameraInMap)) route = null;
+            else target = IndoorWalkGrid.NextWaypoint(route, cameraInMap, RouteLookAheadM);
             var authFailed = AuthFailed(session);
             var view = new IndoorHudView
             {
@@ -36,6 +43,8 @@ namespace IndoorAr
                 ArrowYaw = door == null ? 0f : GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
                 LocalizeOnly = request.LocalizeOnly,
                 WrongFloor = !request.LocalizeOnly && door != null && session.IsWrongFloor(cameraInMap),
+                FollowingRoute = route != null,
+                DistanceM = route == null ? double.NaN : IndoorWalkGrid.LengthM(route),
                 TitleOverride = authFailed ? "AR sign-in failed" : null,
                 DetailOverride = authFailed ? "The session could not use the AR token." : null,
             };

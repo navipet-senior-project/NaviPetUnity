@@ -24,8 +24,9 @@ namespace IndoorAr
         [SerializeField] Camera arCamera;
         // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
         [SerializeField] bool signLocalization = true;
-        // MultiSet is the validated flow. SignPose never calls MultiSet but has no measured geometry yet.
-        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.MultiSet;
+        // SignFirst steers from room signs and keeps MultiSet as the last fallback; its sign fix is coarse and
+        // not yet checked on a device. SignPose never calls MultiSet but has no measured geometry yet.
+        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.SignFirst;
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
@@ -53,7 +54,13 @@ namespace IndoorAr
         IndoorRoomVisionOcr _visionOcr;
         IndoorSignTracker _signs;
         SignPoseLocalizer _signPose;
+        SignFirstLocalizer _signFirst;
         readonly HashSet<int> _sessionAttempts = new HashSet<int>();
+        const float RerouteM = .5f;
+        IndoorWalkGrid _walkGrid;
+        Vector3[] _route;
+        Vector3 _routeFrom;
+        bool _routeTried;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -73,6 +80,8 @@ namespace IndoorAr
                     IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text));
                 _localizer = _signPose;
             }
+            else if (localizationMode == IndoorLocalizationMode.SignFirst)
+                _localizer = _signFirst = new SignFirstLocalizer(_localizer);
             ArCameraDiagnostics.Attach();
             _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();
             _visionOcr = GetComponent<IndoorRoomVisionOcr>();
@@ -136,6 +145,10 @@ namespace IndoorAr
             }
             _session = new IndoorArSession(request, _localizer.MapCode);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
+            _walkGrid = int.TryParse(request.floor, out var floor)
+                ? IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid")?.text, floor) : null;
+            _route = null;
+            _routeTried = false;
             _baseline = new IndoorArBaseline();
             _baselineLog = null;
             _baseline.NoteSessionOpened(NowMs());
@@ -184,6 +197,7 @@ namespace IndoorAr
             if (_session.State == IndoorArState.Pinned) _pinnedFor += Time.unscaledDeltaTime;
             else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
+            _signFirst?.Tick(Time.unscaledDeltaTime);
             if (!_stateLogged || _loggedState != _session.State)
             {
                 _loggedState = _session.State;
@@ -252,11 +266,13 @@ namespace IndoorAr
             LogBaseline();
         }
 
-        // OCR runs only until the first pose, so it never competes with the pinned view.
+        // OCR runs only until the first pose, so it never competes with the pinned view. Sign-first keeps it
+        // running while pinned: every further sign lengthens the trail the map is aligned from.
         void UpdateSignOcr()
         {
             var on = signLocalization && !_delivered && _session != null
-                && _session.State is IndoorArState.Init or IndoorArState.Auth or IndoorArState.Localizing;
+                && (_session.State is IndoorArState.Init or IndoorArState.Auth or IndoorArState.Localizing
+                    || (_signFirst != null && _session.State == IndoorArState.Pinned));
             if (_mlKitOcr != null) _mlKitOcr.enabled = on;
             if (_visionOcr != null) _visionOcr.enabled = on;
         }
@@ -275,6 +291,7 @@ namespace IndoorAr
                 _session.OnSignConfirmed(_signs.Confirmed);
                 _baseline?.NoteSignConfirmed(NowMs());
                 LogBaseline();
+                if (_signFirst != null) ObserveSignTrail();
                 // No adapter returns sign corners yet, so this reports the first missing input on device.
                 if (_signPose != null)
                 {
@@ -284,6 +301,23 @@ namespace IndoorAr
                 }
             }
             if (_signs.InView(now)) _session.OnSignInView();
+        }
+
+        // Logs how good the trail is and how far it disagrees with the pose in use: sizes only, no position.
+        void ObserveSignTrail()
+        {
+            var camera = arCamera.transform.position;
+            var inMap = CameraInMap();
+            var fix = _signFirst.Observe(_signs.Confirmed, camera);
+            if (Application.isEditor) return;
+            var line = $"[IndoorAr] sign trail signs={fix.Signs} baselineM={fix.BaselineM:0.0} residualM={fix.ResidualM:0.0} yawBoundDeg={Mathf.Round(fix.YawBoundDeg)} usable={fix.Usable} applied={_signFirst.FromSigns}";
+            if (fix.Signs >= 2 && !_signFirst.FromSigns && _session.WasPinned)
+            {
+                var map = _localizer.MapSpace;
+                var off = fix.Origin + Quaternion.Euler(0f, fix.YawDeg, 0f) * inMap - camera;
+                line += $" vsPoseM={new Vector2(off.x, off.z).magnitude:0.0} vsPoseDeg={Mathf.Round(Mathf.Abs(Mathf.DeltaAngle(fix.YawDeg, map.eulerAngles.y)))}";
+            }
+            Debug.Log(line);
         }
 
         void NoteArReady()
@@ -313,12 +347,17 @@ namespace IndoorAr
             if (_session.State == IndoorArState.Done
                 && !LiveDoorHud.LocalizationFailed(_session)
                 && !LiveDoorHud.AuthFailed(_session)) return;
-            var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor);
+            var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor, Route(CameraInMap()));
             if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
+            var fromSigns = _signFirst != null && _signFirst.FromSigns;
+            if (fromSigns && view.State is IndoorHudState.Localized or IndoorHudState.Straight && !view.WrongFloor)
+                view.DetailOverride = "Approximate, from room signs";
+            if (view.State == IndoorHudState.Scanning && _signFirst != null && _session.SignRoom == null)
+                view.DetailOverride ??= "Point the camera at room signs as you walk";
             if (view.State == IndoorHudState.Scanning)
             {
                 view.ScanTooFast = SampleScanMotion();
-                if (view.ScanTooFast && _session.SignRoom != null) view.TitleOverride = view.DetailOverride = null; // slow-down wins
+                if (view.ScanTooFast) view.TitleOverride = view.DetailOverride = null; // slow-down wins
             }
             else
             {
@@ -331,6 +370,31 @@ namespace IndoorAr
                 LogBaseline();
             }
             _hud.Show(view);
+        }
+
+        /// <summary>The hallway route from the camera to the door, searched again only after the camera moved.</summary>
+        Vector3[] Route(Vector3 cameraInMap)
+        {
+            if (_walkGrid == null || _session.State != IndoorArState.Pinned || _session.Request.LocalizeOnly
+                || _session.IsWrongFloor(cameraInMap))
+            {
+                _routeTried = false;
+                return _route = null;
+            }
+            var moved = new Vector2(cameraInMap.x - _routeFrom.x, cameraInMap.z - _routeFrom.z).magnitude;
+            if (_routeTried && moved < RerouteM) return _route;
+            var had = _route != null;
+            var first = !_routeTried;
+            var door = _session.Request.position;
+            if (!_walkGrid.TryRoute(cameraInMap, new Vector3(door.x, door.y, door.z), out _route)) _route = null;
+            _routeFrom = cameraInMap;
+            _routeTried = true;
+            // Whether the grid connects the camera to the door, and how far: no position, no waypoint.
+            if (!Application.isEditor && (first || had != (_route != null)))
+                Debug.Log(_route == null
+                    ? "[IndoorAr] route status=none"
+                    : $"[IndoorAr] route status=found waypoints={_route.Length} lengthM={Mathf.Round(IndoorWalkGrid.LengthM(_route))}");
+            return _route;
         }
 
         bool SampleScanMotion()
@@ -350,7 +414,9 @@ namespace IndoorAr
         void UpdatePin()
         {
             // The pin stays behind the arrival card.
-            var pinned = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived) && !_session.Request.LocalizeOnly;
+            // A sign fix can be metres and many degrees off, which would put the pin on the wrong door.
+            var pinned = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived) && !_session.Request.LocalizeOnly
+                && (_signFirst == null || !_signFirst.FromSigns);
             if (pinned && _pin == null)
             {
                 var door = _session.Request;

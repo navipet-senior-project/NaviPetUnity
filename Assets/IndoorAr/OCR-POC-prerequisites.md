@@ -10,7 +10,7 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 
 ## Sign-assisted localization
 
-`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default). OCR runs only while the session is starting or localizing and stops once MultiSet returns a pose, so it never competes with the pinned view. Turning the flag off disables both adapters. The runner's `localizationMode` (default `MultiSet`) decides who answers the pose: `MultiSet` is the original VPS flow; `SignPose` never authenticates or calls MultiSet (see the last section) and cannot localize until the measurements there exist. Switch it on the `IndoorArRunner` component.
+`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default). In `MultiSet` and `SignPose` modes OCR runs only while the session is starting or localizing and stops at the first pose; in `SignFirst` it keeps running while pinned. Turning the flag off disables both adapters. The runner's `localizationMode` (default `SignFirst`) decides who answers the pose: `SignFirst` aligns the map coarsely from a trail of room signs and asks MultiSet only as a fallback (next section); `MultiSet` is the original VPS flow; `SignPose` never authenticates or calls MultiSet (see below) and cannot localize until the measurements there exist. Switch it on the `IndoorArRunner` component.
 
 `IndoorSignTracker` confirms a room after two reads within four seconds. A frame naming two rooms resets the count; text with no room number is ignored. A confirmed sign does three things:
 
@@ -18,9 +18,21 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 - If MultiSet already answered the open attempt without a pose and the confirmed sign is in view, the one retry is spent at once instead of at the 30 s timeout. The attempt budget does not change.
 - The result JSON gains an optional `signRoom` field with the last confirmed room ID. Hosts that do not know the field ignore it.
 
-A sign read alone never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`; only a solved pose does (`SignPose`) or a MultiSet answer (`MultiSet` mode). `SignPose` never falls back to MultiSet.
+One sign read alone never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`; only a solved pose (`SignPose`), a MultiSet answer, or a usable sign trail (`SignFirst`) does. `SignPose` never falls back to MultiSet.
 
 The Flutter `google_mlkit_text_recognition` plugin was evaluated and not adopted. Flutter does not own the camera while the Unity AR activity runs, so the plugin would need a second camera session or a frame copy between the engines. The Android adapter already uses the same ML Kit v2 bundled Latin recognizer, and iOS uses Apple Vision, which needs no extra pods.
+
+## Signs first, MultiSet last (`SignFirst`, coarse, not device-verified)
+
+`SignFirstLocalizer` wraps the MultiSet localizer. A localization request starts a 15 s hold instead of a MultiSet query. Each confirmed sign is stored in `IndoorSignTrail` with the AR camera position at that moment. One sign names a room, which is an area, so it never produces a fix. Two or more signs give a 2D least-squares yaw and offset for the MapSet origin from the path AR tracked between them. The fix is used only when the doors are at least 8 m apart and the fit residual is at most 1.5 m. If the hold ends without such a fix, MultiSet is asked, and its pose then wins: later sign fixes are logged against it but do not move the map.
+
+What the fix is not: an exact pose. It assumes the reader stands 1.5 m out from the door marker, within 1.5 m of that point, holding the phone 1.4 m above the floor. None of the three was measured. The heading is never claimed tighter than `atan(2 * 1.5 m / baseline)` (21 degrees at 8 m, 17 at 10 m) and the position is no better than about 1.5 m. While the map is posed from signs the HUD says "Approximate, from room signs", the door pin is hidden because it could land on the wrong door, and the `checkDistanceM` in an arrival result is equally coarse. The device log prints `[IndoorAr] sign trail signs= baselineM= residualM= yawBoundDeg= usable= applied=`, plus `vsPoseM=` and `vsPoseDeg=` when a MultiSet pose is in use, which is the paired comparison needed to tune or reject these assumptions. Covered by synthetic tests only.
+
+## Hallway route
+
+`IndoorWalkGridExport` (menu Indoor AR > Rebuild Walk Grid From Scan) rasterizes `Assets/building scans/floor 1 + 2.glb` into `Resources/IndoorWalkGrid.json`: 0.25 m cells in the MapSet frame, walkable where the scan has a floor surface and nothing between 0.4 m and 1.4 m above it. `IndoorWalkGrid` runs A* over it from the camera to the door, and the arrow aims at the next route point instead of straight at the door. The HUD shows "Hallway route to" with the route length. When the camera or door is more than 1.6 m from a walkable cell, or the camera is on another floor, there is no route and the arrow falls back to the straight line ("Arrow points to the room").
+
+Coverage today: all 9 mapped floor-1 doors and all 8 floor-2 doors snap onto the grid and connect to each other (`IndoorWalkGridTests`). The scan has hallways only, not room interiors, and no floor surface under the VEC119, 120, 121 and 124 markers, so their routes end at the nearest hallway cell, up to 1.6 m from the marker. There is no route between floors (stairs and elevators are point markers only), no drawn path line, and the route has not been walked on a device. Re-run the export when the scan or the MapSet alignment changes.
 
 ## Precise pose from a sign (prototype, inert until measured)
 
@@ -33,7 +45,7 @@ It produces no pose today because these inputs do not exist:
 3. Camera intrinsics (`fx`, `fy`, `cx`, `cy`) and distortion at the same device camera mode and resolution as the OCR frame, plus the transform from the OCR image (display orientation) to the AR camera's frame. `Observe` assumes corners already in the AR camera's orientation.
 4. A paired validation of the solved pose against `CameraInMap` captured at the same moment, through a written, measured frame conversion. The solver uses one homography decomposition; check both planar IPPE solutions before trusting oblique views.
 
-Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCorners` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure in `SignPose` mode; `MultiSet` is the default.
+Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCorners` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure in `SignPose` mode; `SignFirst` is the default.
 
 ## Room identity and door poses (reuse, no second database)
 

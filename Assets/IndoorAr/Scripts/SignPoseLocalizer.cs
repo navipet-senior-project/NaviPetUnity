@@ -8,7 +8,9 @@ namespace IndoorAr
         /// <summary>Camera pose from a read room sign (IndoorSignPose). Never calls MultiSet.</summary>
         SignPose,
         /// <summary>The original MultiSet single-frame VPS flow.</summary>
-        MultiSet
+        MultiSet,
+        /// <summary>Room signs first (SignFirstLocalizer); MultiSet only when no usable sign fix arrives in time.</summary>
+        SignFirst
     }
 
     /// <summary>
