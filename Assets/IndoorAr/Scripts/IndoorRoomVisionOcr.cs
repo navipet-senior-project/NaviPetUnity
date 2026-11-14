@@ -7,7 +7,7 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace IndoorAr
 {
-    /// <summary>Optional iOS Vision OCR using AR Foundation's existing camera stream.</summary>
+    /// <summary>iOS room-sign OCR using AR Foundation's existing camera stream.</summary>
     public sealed class IndoorRoomVisionOcr : MonoBehaviour
     {
         const float FrameIntervalSeconds = .5f;

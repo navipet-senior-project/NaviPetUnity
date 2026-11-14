@@ -1,4 +1,4 @@
-# OCR identity proof and device checks
+# Indoor AR OCR and device checks
 
 `IndoorRoomIdentityMatcher` compares recognizer text with room IDs after checking the selected building and floor against the directory. A match identifies a directory entry; it does not prove that OCR was correct or that the phone is localized.
 
