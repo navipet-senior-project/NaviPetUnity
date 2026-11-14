@@ -110,13 +110,14 @@ namespace IndoorAr
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             var numbers = new HashSet<string>();
             var whole = NormalizeRoomNumber(recognizedText);
-            if (whole != null) numbers.Add(whole);
+            if (whole != null && whole.Length == 3) numbers.Add(whole);
             foreach (var line in recognizedText.Split('\n'))
             {
                 var number = NormalizeRoomNumber(line);
-                if (number != null) numbers.Add(number);
+                if (number != null && number.Length == 3) numbers.Add(number);
             }
             if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
 
             var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson ?? "");
             if (directory == null || string.IsNullOrWhiteSpace(directory.buildingId))
