@@ -38,6 +38,7 @@ namespace IndoorAr
         float _slowHoldLeft;
         IndoorArState _loggedState;
         bool _stateLogged;
+        bool _armingEntry;
         float _sessionStarted;
         IndoorArBaseline _baseline;
         string _baselineLog;
@@ -108,6 +109,10 @@ namespace IndoorAr
             _localizer.AttemptStarted += _session.OnAttemptStarted;
             _localizer.Localized += OnLocalizedObserved;
             if (!restart || Application.isEditor) return;
+            foreach (var arSession in UnityEngine.Object.FindObjectsByType<ARSession>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                arSession.enabled = true;
+            foreach (var camera in UnityEngine.Object.FindObjectsByType<ARCameraManager>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                camera.enabled = true;
             var ar = UnityEngine.Object.FindAnyObjectByType<ARSession>();
             if (ar != null) ar.Reset();
             _session.OnArSupport(ARSession.state != ARSessionState.Unsupported);
@@ -117,10 +122,19 @@ namespace IndoorAr
 
         void Update()
         {
-            if (_localizer != null)
+            if (_localizer != null && !_armingEntry)
             {
                 var json = IndoorArBridge.ReadRequestJson();
-                if (json != null && json != _requestJson) BeginSession(json);
+                if (json != null && json != _requestJson)
+                {
+                    if (Application.isEditor || !ArSessionLifecycle.ShouldInitialize(ArSessionLifecycle.LoaderActive))
+                        BeginSession(json);
+                    else
+                    {
+                        _armingEntry = true;
+                        StartCoroutine(ArmEntry(json));
+                    }
+                }
             }
             if (_session == null || _delivered) return;
             if (BackPressed()) OnHudExit();
@@ -358,11 +372,21 @@ namespace IndoorAr
             else DestroyImmediate(obj);
         }
 
+        IEnumerator ArmEntry(string json)
+        {
+            var init = ArSessionLifecycle.InitializeOnEntry();
+            while (init.MoveNext()) yield return init.Current;
+            _armingEntry = false;
+            BeginSession(json);
+        }
+
         void Deliver(string resultJson)
         {
             if (_delivered) return;
             _delivered = true;
             _requestJson = null;
+            if (Application.isPlaying) StopAllCoroutines();
+            ArSessionLifecycle.StopSessionsAndTearDown();
             IndoorArBridge.Deliver(resultJson);
         }
 
