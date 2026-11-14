@@ -52,6 +52,102 @@ public class IndoorArContractTests
         Assert.IsNull(IndoorArContract.ReadArToken(json));
     }
 
+    const string Outdoor =
+        "{\"schemaVersion\":2,\"mode\":\"outdoor\"," +
+        "\"destination\":{\"name\":\"VEC\",\"latitude\":33.7829,\"longitude\":-118.1108},\"dataUseAccepted\":true}";
+
+    [Test]
+    public void OutdoorRequestNeedsOnlyADestination()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Outdoor, out var request));
+        Assert.IsTrue(request.OutdoorOnly);
+        Assert.IsTrue(request.dataUseAccepted);
+        Assert.AreEqual("VEC", request.destination.name);
+        Assert.AreEqual(33.7829, request.destination.latitude, 1e-9);
+        Assert.AreEqual(-118.1108, request.destination.longitude, 1e-9);
+    }
+
+    [Test]
+    public void OutdoorRequestWithoutTheNoticeFlagStillNeedsConsent()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Outdoor.Replace(",\"dataUseAccepted\":true", ""), out var request));
+        Assert.IsFalse(request.dataUseAccepted);
+    }
+
+    [Test]
+    public void OutdoorRequestAcceptsZeroCoordinates()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(
+            "{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":0,\"longitude\":0}}",
+            out var request));
+        Assert.AreEqual(0, request.destination.latitude);
+        Assert.AreEqual(0, request.destination.longitude);
+    }
+
+    static string WithRoute(string waypoints) =>
+        Outdoor.Replace(",\"dataUseAccepted\":true", ",\"dataUseAccepted\":true,\"route\":{\"waypoints\":" + waypoints + "}");
+
+    [Test]
+    public void OutdoorRequestCarriesAnOrderedRoute()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(
+            WithRoute("[{\"latitude\":33.78,\"longitude\":-118.11},{\"latitude\":0,\"longitude\":0},{\"latitude\":33.7829,\"longitude\":-118.1108}]"),
+            out var request));
+        Assert.IsTrue(request.HasRoute);
+        Assert.AreEqual(3, request.route.waypoints.Length);
+        Assert.AreEqual(33.78, request.route.waypoints[0].latitude, 1e-9);
+        Assert.AreEqual(0, request.route.waypoints[1].longitude);
+    }
+
+    [Test]
+    public void OutdoorRequestWithoutARouteIsDirectionOnly()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Outdoor, out var request));
+        Assert.IsFalse(request.HasRoute);
+        Assert.IsTrue(IndoorArContract.TryParseRequest(WithRoute("[]"), out request));
+        Assert.IsFalse(request.HasRoute);
+    }
+
+    [TestCase("[{\"latitude\":33.78,\"longitude\":-118.11}]")]
+    [TestCase("[{\"latitude\":33.78,\"longitude\":-118.11},{\"latitude\":33.79}]")]
+    [TestCase("[{\"latitude\":33.78,\"longitude\":-118.11},{\"longitude\":-118.12}]")]
+    [TestCase("[{\"latitude\":33.78,\"longitude\":-118.11},{\"latitude\":91,\"longitude\":-118.12}]")]
+    [TestCase("[{\"latitude\":33.78,\"longitude\":-118.11},{\"latitude\":33.79,\"longitude\":181}]")]
+    public void RejectsABadOutdoorRoute(string waypoints)
+    {
+        Assert.IsFalse(IndoorArContract.TryParseRequest(WithRoute(waypoints), out var request));
+        Assert.IsNull(request);
+    }
+
+    [Test]
+    public void RejectsARouteWithTooManyWaypoints()
+    {
+        var points = string.Join(",", System.Linq.Enumerable.Repeat("{\"latitude\":33.78,\"longitude\":-118.11}", IndoorArContract.MaxRouteWaypoints + 1));
+        Assert.IsFalse(IndoorArContract.TryParseRequest(WithRoute("[" + points + "]"), out _));
+    }
+
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"dataUseAccepted\":true}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"name\":\"VEC\"}}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"longitude\":-118.1108}}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":33.7829}}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":90.1,\"longitude\":-118.1108}}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"outdoor\",\"destination\":{\"latitude\":33.7829,\"longitude\":180.1}}")]
+    [TestCase("{\"schemaVersion\":3,\"mode\":\"outdoor\",\"destination\":{\"latitude\":33.7829,\"longitude\":-118.1108}}")]
+    [TestCase("{\"schemaVersion\":2,\"mode\":\"somewhere\",\"destination\":{\"latitude\":33.7829,\"longitude\":-118.1108}}")]
+    public void RejectsABadOutdoorRequest(string json)
+    {
+        Assert.IsFalse(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.IsNull(request);
+    }
+
+    [Test]
+    public void BuildsUnavailable()
+    {
+        Assert.AreEqual(
+            "{\"status\":\"unavailable\",\"localizationQueries\":0,\"durationMs\":12}",
+            IndoorArContract.Unavailable(0, 12));
+    }
+
     [TestCase(null)]
     [TestCase("")]
     [TestCase("not json")]

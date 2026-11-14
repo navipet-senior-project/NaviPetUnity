@@ -121,3 +121,11 @@ InitTestScene*.unity*
 /[Aa]ssets/Samples/
 /[Aa]ssets/Samples.meta
 /[Aa]ssets/DefaultNetworkPrefabs.asset*
+
+# Written by ARCore Extensions on every Android export. RuntimeConfig.asset would hold an API key if one were set.
+/[Aa]ssets/ExtensionsAssets/
+/[Aa]ssets/ExtensionsAssets.meta
+/[Aa]ssets/Plugins/Android/gradleTemplate.properties*
+/[Aa]ssets/Plugins/Android/mainTemplate.gradle*
+/[Aa]ssets/Plugins/Android/settingsTemplate.gradle*
+/[Aa]ssets/Plugins/Android/proguard-user.txt*

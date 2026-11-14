@@ -3,6 +3,7 @@
     "rootNamespace": "IndoorAr.Editor",
     "references": [
         "IndoorAr.Runtime",
+        "Google.XR.ARCoreExtensions",
         "Unity.XR.Management",
         "Unity.XR.Management.Editor",
         "Unity.XR.ARFoundation",

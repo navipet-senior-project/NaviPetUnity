@@ -24,6 +24,11 @@ namespace IndoorAr
         public string DetailOverride;
         // World position the room label floats over; null hides the label.
         public Vector3? LabelAnchor;
+        // Outdoor guidance reuses this HUD: no floor, and a distance because the walk is long.
+        public bool Outdoor;
+        public bool FollowingRoute;
+        public bool OffRoute;
+        public double DistanceM = double.NaN;
     }
 
     public static class MockIndoorRoute
@@ -108,7 +113,7 @@ namespace IndoorAr
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             FitSafeArea();
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor;
             if (_chrome != chrome)
             {
                 Build(view);
@@ -202,17 +207,25 @@ namespace IndoorAr
             CardButton(card, "Done", "Done", 0f, 1f, Navy, White, () => DoneRequested?.Invoke());
         }
 
-        static string RoomLine(IndoorHudView view) => view.Destination + " · Floor " + view.Floor;
+        static string RoomLine(IndoorHudView view) => view.Outdoor ? view.Destination : view.Destination + " · Floor " + view.Floor;
+
+        /// <summary>Feet under 1000, then miles, like the app's route steps.</summary>
+        public static string DistanceLabel(double meters)
+        {
+            var feet = meters * 3.28084;
+            return feet < 1000 ? Mathf.RoundToInt((float)feet) + " ft" : (meters / 1609.344).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " mi";
+        }
 
         static string TitleText(IndoorHudView view)
         {
             if (!string.IsNullOrEmpty(view.TitleOverride)) return view.TitleOverride;
             switch (view.State)
             {
-                case IndoorHudState.Scanning: return view.ScanTooFast ? "Slow down" : "Scanning the hallway";
-                case IndoorHudState.NotFound: return "Couldn't find you";
+                case IndoorHudState.Scanning: return view.Outdoor ? "Finding your position" : view.ScanTooFast ? "Slow down" : "Scanning the hallway";
+                case IndoorHudState.NotFound: return view.Outdoor ? "Couldn't check outdoor coverage" : "Couldn't find you";
                 case IndoorHudState.Localized: return "Location found";
                 case IndoorHudState.Straight:
+                    if (view.Outdoor && view.FollowingRoute) return RouteTitle(view);
                     if (view.WrongFloor) return view.Destination + " is on Floor " + view.Floor;
                     if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return view.Destination + " is ahead";
                     float yaw = Mathf.DeltaAngle(0f, view.ArrowYaw);
@@ -222,15 +235,32 @@ namespace IndoorAr
             }
         }
 
+        // The arrow points along the route, so say what to do instead of where the destination is.
+        static string RouteTitle(IndoorHudView view)
+        {
+            if (view.OffRoute) return "You're off the route";
+            if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return "Follow the route";
+            float yaw = Mathf.DeltaAngle(0f, view.ArrowYaw);
+            if (Mathf.Abs(yaw) > 135f) return "Turn around";
+            return yaw > 0f ? "Turn right" : "Turn left";
+        }
+
         static string DetailText(IndoorHudView view)
         {
             if (!string.IsNullOrEmpty(view.DetailOverride)) return view.DetailOverride;
             switch (view.State)
             {
-                case IndoorHudState.Scanning: return view.ScanTooFast ? "Move your phone more slowly" : "Move your phone slowly across the hallway";
-                case IndoorHudState.NotFound: return "Step into a hallway and scan the walls and signs.";
-                case IndoorHudState.Localized: return view.LocalizeOnly ? "Your location was found" : "Direction to " + view.Destination + " is ready";
-                case IndoorHudState.Straight: return view.WrongFloor ? "You are on a different floor" : "Arrow points to the room";
+                case IndoorHudState.Scanning: return view.Outdoor ? "Point the camera at the buildings around you" : view.ScanTooFast ? "Move your phone more slowly" : "Move your phone slowly across the hallway";
+                case IndoorHudState.NotFound: return view.Outdoor ? "Check your connection and try again." : "Step into a hallway and scan the walls and signs.";
+                case IndoorHudState.Localized: return view.LocalizeOnly ? "Your location was found" : (view.Outdoor && view.FollowingRoute ? "Route to " : "Direction to ") + view.Destination + " is ready";
+                case IndoorHudState.Straight:
+                    if (view.Outdoor)
+                    {
+                        var distance = double.IsNaN(view.DistanceM) ? "" : DistanceLabel(view.DistanceM) + " · ";
+                        if (view.OffRoute) return distance + "Walk back to the route";
+                        return distance + (view.FollowingRoute ? view.Destination : "Direction only, not a route");
+                    }
+                    return view.WrongFloor ? "You are on a different floor" : "Arrow points to the room";
                 default: return RoomLine(view);
             }
         }
