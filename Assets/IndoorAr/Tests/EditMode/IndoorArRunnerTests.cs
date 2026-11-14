@@ -67,11 +67,12 @@ public class IndoorArRunnerTests
         UnityEngine.Object.DestroyImmediate(_pinPrefab);
     }
 
-    IndoorArRunner Runner()
+    IndoorArRunner Runner(IndoorLocalizationMode mode = IndoorLocalizationMode.MultiSet)
     {
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, _host.AddComponent<Camera>());
+        runner.SetLocalizationMode(mode);
         return runner;
     }
 
@@ -473,6 +474,30 @@ public class IndoorArRunnerTests
             Assert.AreEqual(IndoorArState.Localizing, session.State);
         }
         finally { state.Invoke(null, new object[] { previous }); }
+    }
+
+    [Test]
+    public void SignPoseModeLocalizesWithoutTouchingMultiSet()
+    {
+        var runner = Runner(IndoorLocalizationMode.SignPose);
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        var fake = _host.GetComponent<RunnerFakeLocalizer>();
+        Assert.IsInstanceOf<SignPoseLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
+        session.OnArSupport(true);
+        Field<IIndoorArLocalizer>(runner, "_localizer").Authenticate();
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual(0, fake.AuthenticationCalls);
+        Assert.AreEqual(0, fake.AttemptCount);
+        Assert.AreEqual(0, session.Queries, "no VPS attempt is counted");
+    }
+
+    [Test]
+    public void MultiSetModeKeepsTheOriginalLocalizer()
+    {
+        var runner = Runner(IndoorLocalizationMode.MultiSet);
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        Assert.IsInstanceOf<RunnerFakeLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
     }
 
     static string[] Labels(IndoorArRunner runner) =>

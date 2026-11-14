@@ -24,6 +24,8 @@ namespace IndoorAr
         [SerializeField] Camera arCamera;
         // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
         [SerializeField] bool signLocalization = true;
+        // SignPose never calls MultiSet; MultiSet restores the original VPS flow.
+        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.SignPose;
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
@@ -50,6 +52,7 @@ namespace IndoorAr
         IndoorRoomOcrDemo _mlKitOcr;
         IndoorRoomVisionOcr _visionOcr;
         IndoorSignTracker _signs;
+        SignPoseLocalizer _signPose;
         readonly HashSet<int> _sessionAttempts = new HashSet<int>();
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
@@ -59,9 +62,17 @@ namespace IndoorAr
             arCamera = camera;
         }
 
+        public void SetLocalizationMode(IndoorLocalizationMode mode) => localizationMode = mode;
+
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
+            if (localizationMode == IndoorLocalizationMode.SignPose)
+            {
+                _signPose = new SignPoseLocalizer(_localizer.MapSpace, _localizer.MapCode,
+                    IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text));
+                _localizer = _signPose;
+            }
             ArCameraDiagnostics.Attach();
             _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();
             _visionOcr = GetComponent<IndoorRoomVisionOcr>();
@@ -258,6 +269,13 @@ namespace IndoorAr
                 _session.OnSignConfirmed(_signs.Confirmed);
                 _baseline?.NoteSignConfirmed(NowMs());
                 LogBaseline();
+                // No adapter returns sign corners yet, so this reports the first missing input on device.
+                if (_signPose != null)
+                {
+                    var status = _signPose.Observe(new IndoorSignObservation { RoomId = _signs.Confirmed.Id });
+                    if (!Application.isEditor)
+                        Debug.Log($"[IndoorAr] sign pose room={_signs.Confirmed.Id} status={status}");
+                }
             }
             if (_signs.InView(now)) _session.OnSignInView();
         }

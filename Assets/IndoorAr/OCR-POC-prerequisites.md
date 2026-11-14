@@ -10,7 +10,7 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 
 ## Sign-assisted localization
 
-`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default). OCR runs only while the session is starting or localizing and stops once MultiSet returns a pose, so it never competes with the pinned view. Turning the flag off disables both adapters and leaves the MultiSet-only flow unchanged.
+`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default). OCR runs only while the session is starting or localizing and stops once MultiSet returns a pose, so it never competes with the pinned view. Turning the flag off disables both adapters. The runner's `localizationMode` (default `SignPose`) decides who answers the pose: `SignPose` never authenticates or calls MultiSet (see the last section); `MultiSet` restores the original VPS flow. Switch it on the `IndoorArRunner` component.
 
 `IndoorSignTracker` confirms a room after two reads within four seconds. A frame naming two rooms resets the count; text with no room number is ignored. A confirmed sign does three things:
 
@@ -18,12 +18,21 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 - If MultiSet already answered the open attempt without a pose and the confirmed sign is in view, the one retry is spent at once instead of at the 30 s timeout. The attempt budget does not change.
 - The result JSON gains an optional `signRoom` field with the last confirmed room ID. Hosts that do not know the field ignore it.
 
-A sign never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`. The precise pose still comes only from MultiSet, which remains the fallback for every session.
+A sign read alone never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`; only a solved pose does (`SignPose`) or a MultiSet answer (`MultiSet` mode). `SignPose` never falls back to MultiSet.
 
 The Flutter `google_mlkit_text_recognition` plugin was evaluated and not adopted. Flutter does not own the camera while the Unity AR activity runs, so the plugin would need a second camera session or a frame copy between the engines. The Android adapter already uses the same ML Kit v2 bundled Latin recognizer, and iOS uses Apple Vision, which needs no extra pods.
 
-## Precise pose from a sign (not implemented)
+## Precise pose from a sign (prototype, inert until measured)
 
-Before any geometry or pose work, measure the sign width and height in metres and one sign corner's offset from a door represented in the backend's MapSet frame. Measure camera intrinsics (`fx`, `fy`, `cx`, `cy`) and distortion at the same device camera mode and resolution. A future PnP experiment must report both planar IPPE solutions and reprojection error in the OpenCV camera frame. Compare against `CameraInMap` captured at the same moment through a written, measured frame conversion. Until that paired comparison exists, OCR text and image corners cannot be treated as localization. No calibration file is shipped because nothing could consume it yet; when the measurements above exist, add one entry per sign (door key, sign size, corner offset in the MapSet frame) and keep any pose behind the paired validation.
+`IndoorSignPose` solves the camera pose in the MapSet frame from the four image corners of one measured sign (planar homography decomposition, reprojection error gate of 3 px). `SignPoseLocalizer` feeds it and, on success, moves the MapSet origin (yaw only) so the AR camera sits at the solved pose; it raises no MultiSet call and no attempt, so `localizationQueries` stays 0. The math is covered by synthetic round-trip tests only. Nothing here has run on a device.
+
+It produces no pose today because these inputs do not exist:
+
+1. Per sign, in `Assets/IndoorAr/Resources/IndoorSignCalibration.json` (shipped empty): `widthM` and `heightM` of the rectangle the OCR corners outline, `centerInMap` of that rectangle in the MapSet frame, and `intoWallHeadingDeg`. An entry only counts once `validated` is true.
+2. Sign image corners from the OCR adapters. `IndoorRoomVisionOcr.mm` and `IndoorArOcrPlugin` return text only, and Vision runs on a 640x480 downsample.
+3. Camera intrinsics (`fx`, `fy`, `cx`, `cy`) and distortion at the same device camera mode and resolution as the OCR frame, plus the transform from the OCR image (display orientation) to the AR camera's frame. `Observe` assumes corners already in the AR camera's orientation.
+4. A paired validation of the solved pose against `CameraInMap` captured at the same moment, through a written, measured frame conversion. The solver uses one homography decomposition; check both planar IPPE solutions before trusting oblique views.
+
+Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCorners` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure; set `localizationMode` to `MultiSet` to get the old VPS flow back.
 
 The VEC floor-plan JSON supplies the room IDs, building ID, and floor IDs for identity matching. Its positions and rotations are not interchangeable with the MapSet door frame; do not use them to create sign geometry, poses, or transforms.
