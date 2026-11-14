@@ -13,6 +13,7 @@
 | `retries` | — | Starts after the first, including the timeout retry, tracking-loss restart, and Try again. |
 | `trackingLosses` | — | Pinned sessions that left `SessionTracking`. |
 | `unansweredAttempts` | — | Starts that have not returned a pose. The open attempt is included until it does. |
+| `timeToSignMs` | session opened | OCR first confirms a room sign. Room identity only, not a pose; it never sets `timeToFirstLocalizationMs`. |
 
 Editor play mode does not emit this line. On a phone, filter logcat or the Xcode console for `IndoorArBaseline`. One line is printed each time a field changes.
 

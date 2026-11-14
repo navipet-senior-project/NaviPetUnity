@@ -7,17 +7,18 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace IndoorAr
 {
-    /// <summary>Optional iOS Vision OCR using AR Foundation's existing camera stream.</summary>
+    /// <summary>iOS room-sign OCR using AR Foundation's existing camera stream.</summary>
     public sealed class IndoorRoomVisionOcr : MonoBehaviour
     {
-        const float FrameIntervalSeconds = 1f;
+        const float FrameIntervalSeconds = .5f;
         [SerializeField] ARCameraManager cameraManager;
         [SerializeField] TextAsset directory;
         float _nextFrameAt;
         bool _converting;
         bool _recognizing;
+        float _recognitionStarted;
 
-        public event Action<string, IndoorRoomMatch> Result;
+        public event Action<string, IndoorRoomMatch, float> Result;
 
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")]
@@ -57,6 +58,7 @@ namespace IndoorAr
         void CaptureLatestFrame()
         {
             if (!cameraManager.TryAcquireLatestCpuImage(out var image)) return;
+            _recognitionStarted = Time.realtimeSinceStartup;
             var orientation = VisionOrientation(Screen.orientation);
             var scale = Mathf.Min(1f, 640f / image.width, 480f / image.height);
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
@@ -100,9 +102,9 @@ namespace IndoorAr
         public void OnVisionText(string recognizedText)
         {
             _recognizing = false;
-            var match = IndoorRoomIdentityMatcher.Match(
-                recognizedText, "VEC", "floor_1", directory == null ? null : directory.text);
-            Result?.Invoke(recognizedText, match);
+            var match = IndoorRoomIdentityMatcher.MatchSign(
+                recognizedText, directory == null ? null : directory.text);
+            Result?.Invoke(recognizedText, match, _recognitionStarted);
         }
 
         public void OnVisionError(string ignored)

@@ -16,6 +16,10 @@ namespace IndoorAr
 
         public static bool ShouldInitialize(bool loaderActive) => !loaderActive;
 
+        /// <summary>First Start of a reloaded scene after an exit. Outdoor requests arm their own scene.</summary>
+        public static bool StartNeedsLoader(bool isEditor, bool loaderActive, bool outdoorRequest) =>
+            !isEditor && !outdoorRequest && ShouldInitialize(loaderActive);
+
         public static bool InitializationTimedOut(float elapsedS, bool loaderReady) =>
             !loaderReady && elapsedS >= LoaderInitializationTimeoutS;
 
@@ -66,12 +70,34 @@ namespace IndoorAr
         static XRManagerSettings Manager =>
             XRGeneralSettings.Instance == null ? null : XRGeneralSettings.Instance.Manager;
 
-        static void DisableArComponents()
+        static void DisableArComponents() => SetArComponents(false);
+
+        /// <summary>
+        /// Session first, camera background last on enable and the reverse on disable. The background keeps a static
+        /// reference to the camera subsystem until it is disabled, so it must cycle with every loader.
+        /// </summary>
+        public static void SetArComponents(bool enabled)
         {
-            foreach (var session in UnityEngine.Object.FindObjectsByType<ARSession>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                session.enabled = false;
-            foreach (var camera in UnityEngine.Object.FindObjectsByType<ARCameraManager>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                camera.enabled = false;
+            var sessions = UnityEngine.Object.FindObjectsByType<ARSession>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var cameras = UnityEngine.Object.FindObjectsByType<ARCameraManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var backgrounds = UnityEngine.Object.FindObjectsByType<ARCameraBackground>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            if (enabled)
+            {
+                foreach (var session in sessions) session.enabled = true;
+                foreach (var camera in cameras) camera.enabled = true;
+                foreach (var background in backgrounds) background.enabled = true;
+                return;
+            }
+            foreach (var background in backgrounds) background.enabled = false;
+            foreach (var camera in cameras) camera.enabled = false;
+            foreach (var session in sessions) session.enabled = false;
+        }
+
+        /// <summary>A scene that loaded while no loader ran enabled its AR components against nothing. Cycle them.</summary>
+        public static void RestartArComponents()
+        {
+            SetArComponents(false);
+            SetArComponents(true);
         }
 
         static void TearDownActiveLoader()

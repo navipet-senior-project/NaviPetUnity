@@ -35,7 +35,7 @@ public class IndoorRoomVisionOcrTests
             ocr.Configure(null, directory);
             string text = null;
             IndoorRoomMatch match = null;
-            ocr.Result += (recognizedText, roomMatch) => { text = recognizedText; match = roomMatch; };
+            ocr.Result += (recognizedText, roomMatch, _) => { text = recognizedText; match = roomMatch; };
 
             ocr.OnVisionText("VEC\n119");
 
