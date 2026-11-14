@@ -17,12 +17,13 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
     public event Action<bool> AuthFailed;
     public event Action AttemptStarted;
     public event Action<float?> Localized;
+    public event Action NotLocalized;
     public Transform MapSpace => transform;
     public string MapCode => "MSET_XTBY7AM7ZK77";
     public int AuthenticationCalls { get; private set; }
     public void Authenticate() { AuthenticationCalls++; Authenticated?.Invoke(); }
     public bool Succeed = true;
-    public void Localize() { AttemptStarted?.Invoke(); if (Succeed) Localized?.Invoke(0.73f); }
+    public void Localize() { AttemptStarted?.Invoke(); if (Succeed) Localized?.Invoke(0.73f); else NotLocalized?.Invoke(); }
 }
 
 public class IndoorArRunnerTests

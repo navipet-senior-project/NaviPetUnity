@@ -12,6 +12,8 @@ namespace IndoorAr
         /// <summary>One single-frame attempt started; an upper bound on real VPS calls.</summary>
         event Action AttemptStarted;
         event Action<float?> Localized;
+        /// <summary>An attempt answered without a pose. The session may retry early on it.</summary>
+        event Action NotLocalized;
 
         /// <summary>Transform at the MapSet origin; the SDK moves it on every localization.</summary>
         Transform MapSpace { get; }

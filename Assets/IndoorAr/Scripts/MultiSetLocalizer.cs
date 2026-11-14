@@ -29,6 +29,7 @@ namespace IndoorAr
         public event Action<bool> AuthFailed;
         public event Action AttemptStarted;
         public event Action<float?> Localized;
+        public event Action NotLocalized;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
 
@@ -57,6 +58,7 @@ namespace IndoorAr
             if (ResponseEvent != null)
                 ResponseEvent.AddEventHandler(manager, (Action<LocalizationSuccessResponse>)OnLocalized);
             else manager.LocalizationSuccess.AddListener(OnLocalizedWithoutConfidence);
+            manager.LocalizationFailure.AddListener(OnNotLocalized);
             EventManager<EventData>.StartListening("AuthCallBack", OnAuthCallback);
         }
 
@@ -105,7 +107,9 @@ namespace IndoorAr
         void OnLocalized(LocalizationSuccessResponse result)
         {
             if (result != null && result.poseFound) Localized?.Invoke(result.confidence);
+            else OnNotLocalized();
         }
+        void OnNotLocalized() => NotLocalized?.Invoke();
         void OnLocalizedWithoutConfidence() => Localized?.Invoke(null);
 
         void OnDestroy()
@@ -116,6 +120,7 @@ namespace IndoorAr
                 if (ResponseEvent != null)
                     ResponseEvent.RemoveEventHandler(manager, (Action<LocalizationSuccessResponse>)OnLocalized);
                 else manager.LocalizationSuccess.RemoveListener(OnLocalizedWithoutConfidence);
+                manager.LocalizationFailure.RemoveListener(OnNotLocalized);
                 manager.StopAllCoroutines();
             }
             if (sdk != null) sdk.StopAllCoroutines();
