@@ -6,7 +6,7 @@ using UnityEngine.XR.ARSubsystems;
 
 namespace IndoorAr
 {
-    /// <summary>Optional Android OCR demo using AR Foundation's existing camera stream.</summary>
+    /// <summary>Android room-sign OCR using AR Foundation's existing camera stream.</summary>
     public sealed class IndoorRoomOcrDemo : MonoBehaviour
     {
         const float FrameIntervalSeconds = .5f;
