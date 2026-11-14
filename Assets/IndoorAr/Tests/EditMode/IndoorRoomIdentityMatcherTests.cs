@@ -84,4 +84,19 @@ public class IndoorRoomIdentityMatcherTests
         Assert.AreEqual(IndoorRoomMatchStatus.MissingBuilding,
             IndoorRoomIdentityMatcher.MatchSign("119", "{}").Status);
     }
+
+    [Test]
+    public void SignWithUnknownThreeDigitRoomIsAmbiguous()
+    {
+        Assert.AreEqual(IndoorRoomMatchStatus.Ambiguous,
+            IndoorRoomIdentityMatcher.MatchSign("VEC 120\nVEC 999", VecDirectory).Status);
+    }
+
+    [Test]
+    public void SignIgnoresNonThreeDigitNumbers()
+    {
+        var result = IndoorRoomIdentityMatcher.MatchSign("VEC 120\nVEC 12\nVEC 9999", VecDirectory);
+        Assert.AreEqual(IndoorRoomMatchStatus.Matched, result.Status);
+        Assert.AreEqual("VEC120", result.Landmark.Id);
+    }
 }
