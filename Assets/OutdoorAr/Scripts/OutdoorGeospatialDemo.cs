@@ -58,6 +58,8 @@ namespace OutdoorAr
         bool _cameraFrame;
         bool _restarting;
         float _cameraWaitS;
+        bool _entering;
+        bool _entryInitStarted;
 
         void Start()
         {
@@ -79,10 +81,11 @@ namespace OutdoorAr
             // A host that only unpauses the player sends its next request here.
             // The first scene routes every request. The editor stand-in is an indoor request.
             var json = Application.isEditor ? null : IndoorArBridge.ReadRequestJson();
-            if (json != null && json != _requestJson)
+            if (!_entering && json != null && json != _requestJson)
             {
                 _requestJson = json;
-                SceneManager.LoadScene(0);
+                _entering = true;
+                StartCoroutine(EnterNextRequest());
                 return;
             }
             if (_finished) return;
@@ -112,7 +115,17 @@ namespace OutdoorAr
             // The host asks for the camera before it starts Unity, and ARKit asks again if it has to.
             var location = OutdoorGeospatialGate.IosLocationPermission(Input.location.status);
             readiness.SetPermissions(OutdoorArPermission.Granted, location);
-            if (location == OutdoorArPermission.Granted) session.enabled = true;
+            if (location == OutdoorArPermission.Granted)
+            {
+                // A loader torn down on the previous exit has to be up before this session enables.
+                if (!_entryInitStarted && ArSessionLifecycle.ShouldInitialize(ArSessionLifecycle.LoaderActive))
+                {
+                    _entryInitStarted = true;
+                    StartCoroutine(InitBeforeSession());
+                }
+                else if (!ArSessionLifecycle.ShouldInitialize(ArSessionLifecycle.LoaderActive))
+                    session.enabled = true;
+            }
 #else
             readiness.SetPermissions(OutdoorArPermission.Unknown, OutdoorArPermission.Unknown);
 #endif
@@ -323,19 +336,40 @@ namespace OutdoorAr
             }
         }
 
-        // The host may only pause the player, so the camera and the Geospatial session stop here.
+        // The host may only pause the player. Tear the loader down here, and do not start the next one
+        // until the following entry. The camera-failure restart above is a separate path.
         void Finish(string resultJson)
         {
             _finished = true;
+            if (Application.isPlaying) StopAllCoroutines();
             _restartedFor = null;
             _requestJson = null;
             if (_hud != null) Destroy(_hud.gameObject);
             ClearAnchor();
-            session.enabled = false;
+            if (session != null) session.enabled = false;
 #if UNITY_IOS
             Input.location.Stop();
 #endif
+            ArSessionLifecycle.StopSessionsAndTearDown();
             IndoorArBridge.Deliver(resultJson);
+        }
+
+        IEnumerator EnterNextRequest()
+        {
+            var init = ArSessionLifecycle.InitializeOnEntry();
+            while (init.MoveNext()) yield return init.Current;
+            SceneManager.LoadScene(0);
+        }
+
+        IEnumerator InitBeforeSession()
+        {
+            var init = ArSessionLifecycle.InitializeOnEntry();
+            while (init.MoveNext()) yield return init.Current;
+            if (_finished || session == null) yield break;
+            if (!ArSessionLifecycle.ShouldInitialize(ArSessionLifecycle.LoaderActive))
+                session.enabled = true;
+            else
+                Finish(IndoorArContract.Unavailable(0, DurationMs()));
         }
 
         void ClearAnchor()
