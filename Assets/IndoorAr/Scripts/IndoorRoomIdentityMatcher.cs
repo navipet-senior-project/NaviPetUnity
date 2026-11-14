@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace IndoorAr
@@ -109,13 +110,8 @@ namespace IndoorAr
             if (string.IsNullOrWhiteSpace(recognizedText))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             var numbers = new HashSet<string>();
-            var whole = NormalizeRoomNumber(recognizedText);
-            if (whole != null && whole.Length == 3) numbers.Add(whole);
-            foreach (var line in recognizedText.Split('\n'))
-            {
-                var number = NormalizeRoomNumber(line);
-                if (number != null && number.Length == 3) numbers.Add(number);
-            }
+            foreach (Match number in Regex.Matches(recognizedText, @"(?<![A-Za-z0-9_])[0-9]{3}(?![A-Za-z0-9_])"))
+                numbers.Add(number.Value);
             if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
 
