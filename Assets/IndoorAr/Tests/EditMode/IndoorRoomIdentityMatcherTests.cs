@@ -113,5 +113,21 @@ public class IndoorRoomIdentityMatcherTests
     {
         Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
             IndoorRoomIdentityMatcher.MatchSign("VEC119x", VecDirectory).Status);
+        Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
+            IndoorRoomIdentityMatcher.MatchSign("ABC119", VecDirectory).Status);
+        Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
+            IndoorRoomIdentityMatcher.MatchSign("X119Y", VecDirectory).Status);
+    }
+
+    [TestCase("VEC119")]
+    [TestCase("ROOM119")]
+    [TestCase("VEC 119")]
+    [TestCase("Room 119")]
+    [TestCase("VEC-119")]
+    public void SignMatchesCompactAndSpacedPrefixes(string text)
+    {
+        var result = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
+        Assert.AreEqual(IndoorRoomMatchStatus.Matched, result.Status);
+        Assert.AreEqual("VEC119", result.Landmark.Id);
     }
 }

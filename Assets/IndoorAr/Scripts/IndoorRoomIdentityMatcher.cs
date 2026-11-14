@@ -110,8 +110,10 @@ namespace IndoorAr
             if (string.IsNullOrWhiteSpace(recognizedText))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             var numbers = new HashSet<string>();
-            foreach (Match number in Regex.Matches(recognizedText, @"(?<![A-Za-z0-9_])[0-9]{3}(?![A-Za-z0-9_])"))
-                numbers.Add(number.Value);
+            foreach (Match number in Regex.Matches(recognizedText,
+                         @"(?<![A-Za-z0-9_])(?:(?:ROOM|VEC)[ \t-]*)?([0-9]{3})(?![A-Za-z0-9_])",
+                         RegexOptions.IgnoreCase))
+                numbers.Add(number.Groups[1].Value);
             if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
 
