@@ -207,12 +207,14 @@ public class IndoorArSessionTests
         Assert.AreEqual(0f, session.HorizontalDistance(new Vector3(-5.7651f, 50f, 22.6689f)), 1e-4f);
     }
 
-    [TestCase(-0.4f, false)]
-    [TestCase(3.7f, true)]
-    public void WrongFloorUsesTheDoorHeight(float cameraY, bool wrong)
+    [Test]
+    public void FloorEvidenceNeverUsesDestinationOrUnknownHeight()
     {
         var session = new IndoorArSession(Vec119(), MapCode);
-        Assert.AreEqual(wrong, session.IsWrongFloor(new Vector3(0f, cameraY, 0f)));
+        Assert.AreEqual(0, session.CurrentFloor(2.2f, -2f, 2.2f), "destination floor 1 is not inferred from height");
+        Assert.AreEqual(0, session.CurrentFloor(20f, -2f, 2.2f), "out-of-range height is unknown");
+        Assert.IsFalse(session.IsWrongFloor(0));
+        Assert.IsTrue(session.IsWrongFloor(2));
     }
 
     [Test]
@@ -235,15 +237,67 @@ public class IndoorArSessionTests
     public void AConfirmedSignFloorOverridesTheCameraHeight()
     {
         var session = Localizing(out _);
-        var upstairsHeight = new Vector3(0f, 2.5f, 0f);
-        Assert.IsTrue(session.IsWrongFloor(upstairsHeight), "no sign: the height decides");
+        var upstairsHeight = 4f;
+        Assert.AreEqual(2, session.CurrentFloor(upstairsHeight, -2f, 2.2f));
         session.OnSignConfirmed(Sign120);
-        Assert.IsFalse(session.IsWrongFloor(upstairsHeight), "a Floor 1 sign keeps a Floor 1 destination");
+        Assert.AreEqual(1, session.CurrentFloor(upstairsHeight, -2f, 2.2f), "confirmed sign wins over height");
         session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
-        Assert.IsTrue(session.IsWrongFloor(Vector3.zero), "a Floor 2 sign at Floor 1 height is the wrong floor");
+        Assert.IsTrue(session.IsWrongFloor(session.CurrentFloor(0f, -2f, 2.2f)), "sign floor is current-floor evidence");
         Assert.AreEqual(2, new IndoorRoomLandmark("VEC215", "VEC", "floor_2").Floor);
         Assert.AreEqual(0, new IndoorRoomLandmark("VEC1", "VEC", "lobby").Floor);
     }
+
+    [Test]
+    public void MultiSetPoseConflictRetriesAndAgreeingPoseIsAccepted()
+    {
+        var session = Localizing(out _);
+        var retries = 0;
+        session.LocalizeRequested += () => retries++;
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, -2f, 2.2f), "floor-3-height pose conflicts with floor-2 sign");
+        session.OnNotLocalized();
+        session.OnSignInView();
+        Assert.AreEqual(1, retries);
+        Assert.IsFalse(session.WasPinned);
+
+        var agreeing = Localizing(out _);
+        agreeing.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsFalse(agreeing.PoseConflictsWithSign(4f, -2f, 2.2f));
+        agreeing.OnLocalized();
+        Assert.IsTrue(agreeing.WasPinned);
+    }
+
+    [Test]
+    public void UnsupportedSignAndUnmappedPoseCannotEstablishRouteFloor()
+    {
+        var session = Localizing(out _);
+        Assert.AreEqual(0, session.CurrentFloor(6.5f, -2f, 2.2f));
+        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, -2f, 2.2f), "a pose resolving above supported floors is rejected even without a sign");
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC999", "VEC", "floor_3"));
+        Assert.AreEqual(0, session.CurrentFloor(0f, -2f, 2.2f));
+        Assert.IsTrue(session.PoseConflictsWithSign(0f, -2f, 2.2f));
+    }
+
+    [Test]
+    public void StepFreeWithoutEvidenceReturnsUnavailableAndNoHudRoute()
+    {
+        var request = Vec119();
+        request.stepFree = true;
+        request.floor = "2";
+        var session = new IndoorArSession(request, MapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized();
+        session.OnSignConfirmed(Sign120);
+        session.OnStepFreeUnverified();
+        StringAssert.Contains("\"status\":\"unavailable\"", session.ResultJson);
+        StringAssert.Contains("\"errorCode\":\"STEP_FREE_UNVERIFIED\"", session.ResultJson);
+        var view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 2f);
+        Assert.IsFalse(view.FollowingRoute);
+        Assert.AreEqual(IndoorHudState.NotFound, view.State);
+        Assert.AreEqual("A step-free route to this destination cannot be confirmed.", view.DetailOverride);
+    }
+
 
     [Test]
     public void ConfirmedSignIsReportedButNeverPins()

@@ -14,7 +14,8 @@ namespace IndoorAr
     {
         public const float StartupTimeoutS = 20f;
         public const float LocalizeTimeoutS = 30f;
-        public const float WrongFloorM = 2f;
+        public const float MinEyeHeightM = 1f;
+        public const float MaxEyeHeightM = 2.2f;
 
         float _elapsedS;
         float _localizingS;
@@ -80,6 +81,46 @@ namespace IndoorAr
             _confidence = confidence;
             WasPinned = true;
         }
+
+        public int CurrentFloor(float cameraY, float floor1Y, float floor2Y)
+        {
+            if (SignRoom != null) return SignRoom.Floor is 1 or 2 ? SignRoom.Floor : 0;
+            if (!ValidFloorHeights(floor1Y, floor2Y)) return 0;
+            var floor1 = cameraY - floor1Y;
+            var floor2 = cameraY - floor2Y;
+            var on1 = floor1 >= MinEyeHeightM && floor1 <= MaxEyeHeightM;
+            var on2 = floor2 >= MinEyeHeightM && floor2 <= MaxEyeHeightM;
+            return on1 == on2 ? 0 : on1 ? 1 : 2;
+        }
+
+        public bool PoseConflictsWithSign(float cameraY, float floor1Y, float floor2Y)
+        {
+            var poseFloor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+            if (poseFloor == -1) return true;
+            return SignRoom != null && SignRoom.Floor > 0
+                && poseFloor > 0 && poseFloor != SignRoom.Floor;
+        }
+
+        public int PoseFloor(float cameraY, float floor1Y, float floor2Y) =>
+            CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+
+        int CurrentPoseFloor(float cameraY, float floor1Y, float floor2Y)
+        {
+            if (!ValidFloorHeights(floor1Y, floor2Y)) return 0;
+            var floor1 = cameraY - floor1Y;
+            var floor2 = cameraY - floor2Y;
+            var on1 = floor1 >= MinEyeHeightM && floor1 <= MaxEyeHeightM;
+            var on2 = floor2 >= MinEyeHeightM && floor2 <= MaxEyeHeightM;
+            if (on1 != on2) return on1 ? 1 : 2;
+            return cameraY > floor2Y + MaxEyeHeightM ? -1 : 0;
+        }
+
+        static bool ValidFloorHeights(float floor1Y, float floor2Y) =>
+            !float.IsNaN(floor1Y) && !float.IsInfinity(floor1Y)
+            && !float.IsNaN(floor2Y) && !float.IsInfinity(floor2Y);
+
+        public void OnStepFreeUnverified() =>
+            Finish(IndoorArContract.Unavailable(Queries, ElapsedMs, IndoorArContract.StepFreeUnverified));
 
         public void OnNotLocalized()
         {
@@ -174,16 +215,8 @@ namespace IndoorAr
             return new Vector2(cameraInMap.x - door.x, cameraInMap.z - door.z).magnitude;
         }
 
-        /// <summary>
-        /// A confirmed room sign names the floor the user stands on, so it wins over the AR height, which is only as
-        /// good as the pose (a frozen camera on 2026-11-14 put VEC 119 on the wrong floor). Height decides without one.
-        /// shortcut: the last confirmed sign holds until another is read; age it out if walking between floors
-        /// without passing a sign turns out to matter.
-        /// </summary>
-        public bool IsWrongFloor(Vector3 cameraInMap) =>
-            SignRoom != null && SignRoom.Floor > 0 && int.TryParse(Request.floor, out var floor)
-                ? SignRoom.Floor != floor
-                : Mathf.Abs(cameraInMap.y - Request.position.y) > WrongFloorM;
+        public bool IsWrongFloor(int currentFloor) =>
+            currentFloor > 0 && int.TryParse(Request.floor, out var floor) && currentFloor != floor;
 
         void StartLocalizing()
         {

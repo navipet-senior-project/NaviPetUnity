@@ -78,10 +78,16 @@ public class IndoorWalkGridTests
         Assert.IsTrue(routed.FollowingRoute);
         Assert.AreEqual(90f, routed.ArrowYaw, 1e-3f, "route: along the hallway to the corner");
         Assert.AreEqual(8.0, routed.DistanceM, 1e-4);
-        var upstairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route);
-        Assert.IsTrue(upstairs.WrongFloor);
+        var upstairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route,
+            floorUnknown: true);
+        Assert.AreEqual(IndoorHudState.Localized, upstairs.State, "unverified height cannot produce a floor route");
         Assert.IsFalse(upstairs.FollowingRoute, "a route on this floor's grid is no help from another floor");
-        var toStairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route, "stairs");
+        var noConnector = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f,
+            wrongFloorEvidence: true);
+        Assert.IsTrue(noConnector.WrongFloor);
+        Assert.IsFalse(noConnector.FollowingRoute, "no connector must not fall back to a direct arrow across floors");
+        var toStairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route, "stairs",
+            wrongFloorEvidence: true);
         Assert.IsTrue(toStairs.FollowingRoute, "on the wrong floor a route to the stairs is followed");
         Assert.AreEqual("stairs", toStairs.FloorChange);
         Assert.IsFalse(LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, "stairs").FollowingRoute,
@@ -100,23 +106,6 @@ public class IndoorWalkGridTests
         foreach (var (type, at) in connectors)
             reachable += grid.TryRoute(Door(rooms[0]), at, out _) ? type + " " : "- ";
         TestContext.WriteLine($"floor {floor} from {rooms[0]}: {reachable}");
-        foreach (var room in rooms)
-        {
-            var any = false;
-            foreach (var (_, at) in connectors) any |= grid.TryRoute(Door(room), at, out _);
-            Assert.IsTrue(any, room);
-        }
-    }
-
-    // A step-free request never ends at stairs, and the scan still reaches an elevator from every mapped door.
-    [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
-    [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
-    public void StepFreeFloorChangeIsAnElevatorFromEveryDoor(int floor, string[] rooms)
-    {
-        var grid = IndoorWalkGrid.ForFloor(Scan, floor);
-        var connectors = IndoorRoomIdentityMatcher.FloorConnectors(Directory, floor, stepFree: true);
-        Assert.AreEqual(2, connectors.Count, "two elevators per floor");
-        foreach (var (type, _) in connectors) Assert.AreEqual("elevator", type);
         foreach (var room in rooms)
         {
             var any = false;

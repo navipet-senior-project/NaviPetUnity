@@ -25,8 +25,8 @@ namespace IndoorAr
     }
 
     /// <summary>
-    /// A walkable floor grid in the MapSet frame, rasterized from the building scan. Routes are only as good as the
-    /// scan: a doorway or hallway the scan missed has no walkable cells, so TryRoute fails instead of guessing.
+    /// A provisional scan-derived route grid in the MapSet frame, not a navigation graph. Routes are only as good
+    /// as the scan: a doorway or hallway the scan missed has no walkable cells, so TryRoute fails instead of guessing.
     /// </summary>
     public sealed class IndoorWalkGrid
     {

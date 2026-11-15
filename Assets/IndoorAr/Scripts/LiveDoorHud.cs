@@ -24,22 +24,31 @@ namespace IndoorAr
             && session.ResultJson != null
             && session.ResultJson.Contains("\"errorCode\":\"MULTISET_AUTH\"");
 
+        public static bool StepFreeUnavailable(IndoorArSession session) =>
+            session.State == IndoorArState.Done && session.ResultJson != null
+            && session.ResultJson.Contains("\"errorCode\":\"STEP_FREE_UNVERIFIED\"");
+
         /// <param name="route">Hallway waypoints from the camera to the door in the MapSet frame, or null for none.</param>
         /// <param name="floorChange">"stairs" or "elevator" when the route ends there instead of at the door.</param>
         public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap,
-            float pinnedForS, Vector3[] route = null, string floorChange = null)
+            float pinnedForS, Vector3[] route = null, string floorChange = null, bool floorUnknown = false,
+            bool wrongFloorEvidence = false)
         {
             var request = session.Request;
             var door = request.position;
             var target = door == null ? Vector3.zero : new Vector3(door.x, door.y, door.z);
-            var wrongFloor = door != null && session.IsWrongFloor(cameraInMap);
+            var wrongFloor = wrongFloorEvidence || session.SignRoom != null && session.SignRoom.Floor is (1 or 2)
+                && int.TryParse(request.floor, out var requestedFloor) && session.SignRoom.Floor != requestedFloor;
             // On the wrong floor only a route to stairs or an elevator helps; one to the door would cross floors.
-            if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || wrongFloor != (floorChange != null)) route = null;
+            if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || floorUnknown
+                || wrongFloor != (floorChange != null)) route = null;
             else target = IndoorWalkGrid.NextWaypoint(route, cameraInMap, RouteLookAheadM);
             var authFailed = AuthFailed(session);
+            var stepFreeUnavailable = StepFreeUnavailable(session);
             var view = new IndoorHudView
             {
-                State = StateFor(session, pinnedForS),
+                State = stepFreeUnavailable ? IndoorHudState.NotFound
+                    : floorUnknown && session.State == IndoorArState.Pinned ? IndoorHudState.Localized : StateFor(session, pinnedForS),
                 Destination = Destination(request),
                 Floor = int.TryParse(request.floor, out var floor) ? floor : 0,
                 ArrowYaw = door == null ? 0f : GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
@@ -48,8 +57,10 @@ namespace IndoorAr
                 FollowingRoute = route != null,
                 FloorChange = route == null ? null : floorChange,
                 DistanceM = route == null ? double.NaN : IndoorWalkGrid.LengthM(route),
-                TitleOverride = authFailed ? "AR sign-in failed" : null,
-                DetailOverride = authFailed ? "The session could not use the AR token." : null,
+                TitleOverride = stepFreeUnavailable ? "Step-free route unavailable" : authFailed ? "AR sign-in failed" : null,
+                DetailOverride = stepFreeUnavailable ? "A step-free route to this destination cannot be confirmed."
+                    : floorUnknown && session.State == IndoorArState.Pinned ? "Your floor could not be confirmed."
+                    : authFailed ? "The session could not use the AR token." : null,
             };
             if (view.State == IndoorHudState.Scanning && session.SignRoom != null) ShowSign(view, session.SignRoom);
             return view;

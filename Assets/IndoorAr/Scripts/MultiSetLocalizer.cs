@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 using System.Reflection;
 using MultiSet;
 using UnityEngine;
@@ -128,10 +129,32 @@ namespace IndoorAr
             if (result != null && result.poseFound)
             {
                 if (_pendingAttempts.Count > 0) _pendingAttempts.Dequeue();
+                LogMapCodes(result);
                 Localized?.Invoke(result.confidence);
             }
             else OnNotLocalized();
         }
+
+        static void LogMapCodes(LocalizationSuccessResponse result)
+        {
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            var type = result.GetType();
+            var field = type.GetField("mapCodes", flags);
+            var property = type.GetProperty("mapCodes", flags);
+            var value = field != null ? field.GetValue(result) : property?.GetValue(result);
+            var codes = new StringBuilder();
+            if (value is string text) codes.Append(text);
+            else if (value is IEnumerable values)
+                foreach (var code in values)
+                {
+                    if (codes.Length > 0) codes.Append(',');
+                    codes.Append(code);
+                }
+            else if (value != null) codes.Append(value);
+            Debug.Log($"[IndoorAr] localization mapCodes={(codes.Length == 0 ? "unknown" : codes.ToString())}");
+        }
+
         void OnNotLocalized()
         {
             if (!_abandoned && _pendingAttempts.Count > 0) NotLocalized?.Invoke(_pendingAttempts.Dequeue());

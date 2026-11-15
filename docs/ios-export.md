@@ -55,7 +55,9 @@ For outdoor AR the host app must declare `NSLocationWhenInUseUsageDescription` a
 
 ## Step-free routes
 
-An indoor request may carry `"stepFree": true`. It is optional, and a request without it behaves as before. With it, a user on the wrong floor is routed to the nearest elevator and never to stairs; if no elevator is reachable on the hallway scan there is no route and the HUD says only that the room is on another floor. It changes nothing on the destination floor: the hallway scan records no steps, ramps or door widths, so a same-floor route is not known to be step-free. The Flutter app does not send the field yet. It has no saved mobility setting (its Accessibility screen holds unsaved display and guidance switches, and `TravelMode.accessible` is disabled), so a setting and one line in `IndoorArRequest.toJson` are needed there. Route log lines carry `stepFree=`.
+The provisional route grid comes from the VEC scan; it is not a navigation graph. It has no verified step-free attributes for same-floor segments, and the VEC directory does not prove that a floor connector is step-free. An indoor request with `"stepFree": true` therefore shows “A step-free route to this destination cannot be confirmed” and returns `unavailable` with `STEP_FREE_UNVERIFIED`; it never guides users onto an unverified route. Requests without the field keep ordinary routing. Flutter does not send the field yet; adding a saved mobility setting and serializing it in `IndoorArRequest.toJson` is a local Flutter follow-up.
+
+Floor changes use a confirmed room sign on supported floors 1–2, or camera height only when it falls in the plausible eye-height band above exactly one floor elevation from the MapSet-frame scan grid. If neither establishes a floor, Unity shows no route. MultiSet poses that conflict with a confirmed sign or resolve above supported floors are rejected for retry. Successful MultiSet localization logs map codes only.
 
 ## Host bridge
 

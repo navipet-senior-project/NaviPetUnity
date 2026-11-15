@@ -35,6 +35,7 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
         else NotLocalized?.Invoke(LastAttemptId);
     }
     public void CompleteWithoutPose(int attemptId) => NotLocalized?.Invoke(attemptId);
+    public void CompleteLocalized(float? confidence) => Localized?.Invoke(confidence);
 }
 
 public class IndoorArRunnerTests
@@ -43,8 +44,8 @@ public class IndoorArRunnerTests
     GameObject _pinPrefab;
     string _request;
 
-    static object Call(object target, string name) => target.GetType().GetMethod(name,
-        BindingFlags.Instance | BindingFlags.NonPublic).Invoke(target, null);
+    static object Call(object target, string name, params object[] args) => target.GetType().GetMethod(name,
+        BindingFlags.Instance | BindingFlags.NonPublic).Invoke(target, args);
     static T Field<T>(object target, string name) => (T)target.GetType().GetField(name,
         BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
 
@@ -232,7 +233,7 @@ public class IndoorArRunnerTests
         var camObject = new GameObject("AR Camera", typeof(Camera));
         camObject.transform.SetParent(_host.transform, false);
         // One meter short of the door, facing it.
-        camObject.transform.localPosition = new Vector3(-5.7651f, -1.8186f, 21.6689f);
+        camObject.transform.localPosition = new Vector3(-5.7651f, -0.4f, 21.6689f);
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
         var arState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
@@ -310,7 +311,7 @@ public class IndoorArRunnerTests
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var camObject = new GameObject("AR Camera", typeof(Camera));
         camObject.transform.SetParent(_host.transform, false);
-        camObject.transform.localPosition = new Vector3(1f, 1.6f, 3f);
+        camObject.transform.localPosition = new Vector3(1f, -0.4f, 3f);
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
         var arState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
@@ -334,8 +335,8 @@ public class IndoorArRunnerTests
             Assert.AreEqual(0, hud.GetComponentsInChildren<MeshRenderer>(true).Length);
             var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, camObject.transform.position, door);
             Assert.AreEqual(GuidanceCue.ArrowScreenRotation(yaw), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
-            // The test camera stands 3.4 m above the saved door height.
-            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "VEC 119 is on Floor 1");
+            // Camera height is in the supported eye-height band above Floor 1.
+            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "VEC 119 is ahead");
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>(true).Any(t => t.text.Contains("VEC 119")));
 
             camObject.transform.localRotation = Quaternion.LookRotation(Vector3.right);
@@ -545,6 +546,51 @@ public class IndoorArRunnerTests
         var runner = Runner(IndoorLocalizationMode.MultiSet);
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         Assert.IsInstanceOf<RunnerFakeLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
+    }
+
+    [Test]
+    public void FloorTwoSignRejectsFloorThreePoseAndLeavesLocalizationRetryable()
+    {
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        var cameraObject = new GameObject("AR Camera", typeof(Camera));
+        cameraObject.transform.SetParent(_host.transform, false);
+        var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+        var floor2 = IndoorWalkGrid.ForFloor(gridJson, 2);
+        cameraObject.transform.localPosition = Vector3.up * (floor2.FloorY + 4f);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, cameraObject.GetComponent<Camera>());
+        runner.SetLocalizationMode(IndoorLocalizationMode.MultiSet);
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+
+        LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] floor conflict sign=2 pose=unsupported"));
+        localizer.CompleteLocalized(.5f);
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.IsFalse(session.WasPinned);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(2, localizer.AttemptCount, "the rejected pose follows the normal retry path");
+        LogAssert.NoUnexpectedReceived();
+    }
+
+    [Test]
+    public void StepFreeWrongFloorRequestReturnsUnavailableWithoutConnectorRoute()
+    {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"stepFree\":true");
+        var runner = Runner();
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsNull(Call(runner, "Route", Vector3.zero));
+        Assert.AreEqual(IndoorArState.Done, session.State);
+        StringAssert.Contains("\"status\":\"unavailable\"", session.ResultJson);
+        StringAssert.Contains("\"errorCode\":\"STEP_FREE_UNVERIFIED\"", session.ResultJson);
+        Assert.IsNull(Field<string>(runner, "_floorChange"));
     }
 
     [Test]

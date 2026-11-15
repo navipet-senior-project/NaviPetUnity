@@ -154,17 +154,15 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// Stairs and elevators on one floor, as the directory marks them, in the MapSet frame. VEC has two floors,
-        /// so each one leads to the other; which landing it reaches is not in the data. Step-free leaves the stairs out.
+        /// Stairs and elevators on one floor, as the directory marks them, in the MapSet frame.
         /// </summary>
-        public static List<(string Type, Vector3 PositionInMap)> FloorConnectors(string vecDirectoryJson, int floor,
-            bool stepFree = false)
+        public static List<(string Type, Vector3 PositionInMap)> FloorConnectors(string vecDirectoryJson, int floor)
         {
             var found = new List<(string, Vector3)>();
             if (string.IsNullOrWhiteSpace(vecDirectoryJson)) return found;
             var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson);
             foreach (var item in directory?.objects ?? new List<VecObject>())
-                if (item != null && (item.type == "elevator" || item.type == "stairs" && !stepFree)
+                if (item != null && (item.type == "elevator" || item.type == "stairs")
                     && new IndoorRoomLandmark(item.id, null, item.floorId).Floor == floor)
                     found.Add((item.type, IndoorMapFrame.ToMapSet(item.position)));
             return found;

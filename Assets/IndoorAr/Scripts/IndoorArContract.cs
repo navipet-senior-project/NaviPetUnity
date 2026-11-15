@@ -63,8 +63,8 @@ namespace IndoorAr
         public string frame;
         public string arToken;
         /// <summary>
-        /// The user needs a route without stairs. Optional; absent means false. It only chooses elevators over stairs
-        /// for a floor change: the hallway scan holds no steps, ramps or door widths to route around.
+        /// The user needs a route without stairs. Optional; absent means false. Current route data cannot verify
+        /// step-free segments, so a true request returns unavailable.
         /// </summary>
         public bool stepFree;
     }
@@ -88,6 +88,7 @@ namespace IndoorAr
         public const string ArcoreUnsupported = "ARCORE_UNSUPPORTED";
         public const string MultisetAuth = "MULTISET_AUTH";
         public const string Network = "NETWORK";
+        public const string StepFreeUnverified = "STEP_FREE_UNVERIFIED";
         public const string OutdoorScene = "OutdoorGeospatialDemo";
 
         /// <summary>
@@ -192,9 +193,9 @@ namespace IndoorAr
         public static string LocalizationFailed(int localizationQueries, long durationMs) =>
             Build("localizationFailed", null, null, localizationQueries, durationMs);
 
-        /// <summary>The session cannot run here: device, permission, authorization or a build without the scene.</summary>
-        public static string Unavailable(int localizationQueries, long durationMs) =>
-            Build("unavailable", null, null, localizationQueries, durationMs);
+        /// <summary>The requested route cannot be verified, or the session cannot run here.</summary>
+        public static string Unavailable(int localizationQueries, long durationMs, string errorCode = null) =>
+            Build("unavailable", null, errorCode, localizationQueries, durationMs);
 
         public static string Error(string errorCode, int localizationQueries, long durationMs) =>
             Build("error", null, errorCode, localizationQueries, durationMs);
