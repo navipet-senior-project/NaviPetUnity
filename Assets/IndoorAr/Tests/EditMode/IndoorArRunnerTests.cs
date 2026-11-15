@@ -380,6 +380,53 @@ public class IndoorArRunnerTests
         LogAssert.NoUnexpectedReceived();
     }
 
+    // X and the back key both call OnHudExit; arrival is "I'm here" then Done.
+    [TestCase("cancel", "cancelled")]
+    [TestCase("arrive", "arrived")]
+    public void EveryExitDeliversOnceThenTheNextLaunchStartsClean(string exit, string status)
+    {
+        var runner = Runner(IndoorLocalizationMode.SignFirst);
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var first = Field<IndoorArSession>(runner, "_session");
+        var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
+        first.OnArSupport(true);
+        first.OnAuthenticated(); // opens the sign hold
+        LogAssert.Expect(LogType.Log, new Regex($"\\[IndoorAr\\] result .*\"status\":\"{status}\""));
+        if (exit == "cancel")
+        {
+            signFirst.Tick(SignFirstLocalizer.HoldS - 1f); // leave mid-hold: 1 s of it must not carry over
+            Call(runner, "OnHudExit");
+        }
+        else
+        {
+            signFirst.Tick(SignFirstLocalizer.HoldS); // hold runs out: the fake MultiSet pins
+            Assert.AreEqual(IndoorArState.Pinned, first.State);
+            Call(runner, "OnHudHere");
+            Call(runner, "OnHudDone");
+        }
+        Call(runner, "Update");
+        Assert.IsTrue(Field<bool>(runner, "_delivered"));
+
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"room\":\"119\"", "\"room\":\"127\"")
+            .Replace("\"doorKey\":\"VEC119\"", "\"doorKey\":\"VEC127\"");
+        Call(runner, "Update");
+        var second = Field<IndoorArSession>(runner, "_session");
+        Assert.AreNotSame(first, second);
+        Assert.IsFalse(Field<bool>(runner, "_delivered"));
+        Assert.AreEqual(1, _host.GetComponentsInChildren<IndoorHud>(true).Length, "one shared HUD, not one per launch");
+        Assert.IsFalse(signFirst.FromSigns);
+
+        // A fresh hold: MultiSet is not asked the moment the new session authenticates.
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        var queried = localizer.AttemptCount;
+        second.OnArSupport(true);
+        second.OnAuthenticated();
+        signFirst.Tick(SignFirstLocalizer.HoldS - 1f);
+        Assert.AreEqual(queried, localizer.AttemptCount);
+        Assert.AreEqual(IndoorArState.Localizing, second.State);
+        LogAssert.NoUnexpectedReceived();
+    }
+
     [Test]
     public void SameRoomSearchedTwiceStartsAFreshSession()
     {

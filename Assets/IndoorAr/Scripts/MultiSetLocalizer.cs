@@ -25,6 +25,7 @@ namespace IndoorAr
         [SerializeField] SingleFrameLocalizationManager manager;
         [SerializeField] Transform mapSpace;
         bool _authPending;
+        bool _abandoned;
         int _attemptId;
         readonly Queue<int> _pendingAttempts = new Queue<int>();
 
@@ -100,8 +101,20 @@ namespace IndoorAr
             AuthFailed?.Invoke(!connected);
         }
 
+        /// <summary>
+        /// A new session drops the previous session's unanswered query: its pose was solved against the old AR
+        /// world. Answers are ignored until this session's first Localize.
+        /// </summary>
+        public void AbandonPending()
+        {
+            manager.StopAllCoroutines();
+            _pendingAttempts.Clear();
+            _abandoned = true;
+        }
+
         public void Localize()
         {
+            _abandoned = false;
             manager.StopAllCoroutines();
             var attemptId = ++_attemptId;
             _pendingAttempts.Enqueue(attemptId);
@@ -111,6 +124,7 @@ namespace IndoorAr
 
         void OnLocalized(LocalizationSuccessResponse result)
         {
+            if (_abandoned) return;
             if (result != null && result.poseFound)
             {
                 if (_pendingAttempts.Count > 0) _pendingAttempts.Dequeue();
@@ -120,10 +134,11 @@ namespace IndoorAr
         }
         void OnNotLocalized()
         {
-            if (_pendingAttempts.Count > 0) NotLocalized?.Invoke(_pendingAttempts.Dequeue());
+            if (!_abandoned && _pendingAttempts.Count > 0) NotLocalized?.Invoke(_pendingAttempts.Dequeue());
         }
         void OnLocalizedWithoutConfidence()
         {
+            if (_abandoned) return;
             if (_pendingAttempts.Count > 0) _pendingAttempts.Dequeue();
             Localized?.Invoke(null);
         }

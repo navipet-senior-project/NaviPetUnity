@@ -137,6 +137,9 @@ namespace IndoorAr
             _slowHoldLeft = 0f;
             _signs = new IndoorSignTracker();
             _sessionAttempts.Clear();
+            // Localizers outlive a warm launch; nothing they held belongs to this session's AR world.
+            _signFirst?.Reset();
+            if (restart && localizerBehaviour is MultiSetLocalizer multiSet) multiSet.AbandonPending();
             if (!IndoorArContract.TryParseRequest(json, out var request))
             {
                 Deliver(IndoorArContract.Error(IndoorArContract.BadRequest, 0, 0));

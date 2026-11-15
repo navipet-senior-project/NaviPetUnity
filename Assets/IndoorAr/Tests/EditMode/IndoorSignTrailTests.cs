@@ -126,6 +126,33 @@ public class IndoorSignTrailTests
     }
 
     [Test]
+    public void ResetDropsTheLastSessionsSightingsAndPose()
+    {
+        var host = new GameObject("fake");
+        var truth = new GameObject("truth").transform;
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            var first = new SignFirstLocalizer(inner);
+            first.Localize();
+            Assert.AreEqual(1, first.Observe(West, Reader(truth, West)).Signs);
+
+            // The next launch's AR world starts elsewhere: an old sighting paired with a new one is no fix.
+            first.Reset();
+            truth.SetPositionAndRotation(new Vector3(30f, 0f, -12f), Quaternion.Euler(0f, 90f, 0f));
+            first.Localize();
+            var fix = first.Observe(East, Reader(truth, East));
+            Assert.AreEqual(1, fix.Signs);
+            Assert.IsFalse(first.FromSigns);
+        }
+        finally
+        {
+            Object.DestroyImmediate(host);
+            Object.DestroyImmediate(truth.gameObject);
+        }
+    }
+
+    [Test]
     public void SessionRetryDuringTheHoldDoesNotQueryMultiSetEarly()
     {
         var host = new GameObject("fake");

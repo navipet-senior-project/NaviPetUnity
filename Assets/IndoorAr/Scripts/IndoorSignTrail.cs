@@ -144,6 +144,18 @@ namespace IndoorAr
             _holdLeft = HoldS;
         }
 
+        /// <summary>
+        /// A new session runs in a new AR world: the previous session's sightings, an unfinished hold and
+        /// whichever pose won no longer apply. The runner keeps this object across warm launches.
+        /// </summary>
+        public void Reset()
+        {
+            _trail.Clear();
+            _open = _innerPosed = false;
+            FromSigns = false;
+            _holdLeft = 0f;
+        }
+
         public void Tick(float dt)
         {
             if (!_open || _holdLeft <= 0f) return;

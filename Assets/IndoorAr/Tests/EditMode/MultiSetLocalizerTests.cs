@@ -70,6 +70,21 @@ public class MultiSetLocalizerTests
     }
 
     [Test]
+    public void AnAbandonedQueryCannotPinTheNextSession()
+    {
+        var localized = 0;
+        var notLocalized = 0;
+        _adapter.Localized += _ => localized++;
+        _adapter.NotLocalized += _ => notLocalized++;
+        _adapter.AbandonPending();
+        ReportSuccess();
+        ReportSuccess(false);
+        _manager.LocalizationFailure.Invoke();
+        Assert.AreEqual(0, localized, "the previous session's answer belongs to the old AR world");
+        Assert.AreEqual(0, notLocalized);
+    }
+
+    [Test]
     public void MissingPoseDoesNotPinAndTheSessionRetries()
     {
         if (typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse") == null)
