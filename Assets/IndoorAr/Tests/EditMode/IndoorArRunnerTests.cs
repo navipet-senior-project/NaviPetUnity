@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -578,6 +579,151 @@ public class IndoorArRunnerTests
         session.Tick(IndoorArSession.LocalizeTimeoutS);
         Assert.AreEqual(2, localizer.AttemptCount, "the rejected pose follows the normal retry path");
         LogAssert.NoUnexpectedReceived();
+    }
+
+    [TestCase("signConflict")]
+    [TestCase("below")]
+    [TestCase("above")]
+    public void MultiSetCandidateMustPassFloorEvidenceBeforeChangingNavigation(string candidateKind)
+    {
+        var sdkObject = new GameObject("MultiSet SDK");
+        sdkObject.SetActive(false);
+        var sdk = sdkObject.AddComponent<IndoorArSdkManager>();
+        var managerObject = new GameObject("MultiSet Manager");
+        managerObject.SetActive(false);
+        var manager = managerObject.AddComponent<SingleFrameLocalizationManager>();
+        var localizerObject = new GameObject("MultiSet Localizer");
+        localizerObject.SetActive(false);
+        var localizer = localizerObject.AddComponent<MultiSetLocalizer>();
+        var mapRoot = new GameObject("Navigation Map Space").transform;
+        mapRoot.SetPositionAndRotation(new Vector3(7f, 2f, 9f), Quaternion.Euler(0f, 20f, 0f));
+        localizer.Configure(sdk, manager, mapRoot);
+        localizerObject.SetActive(true);
+        Call(localizer, "Awake");
+        var camera = new GameObject("AR Camera", typeof(Camera)).GetComponent<Camera>();
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camera);
+        runner.SetLocalizationMode(IndoorLocalizationMode.SignFirst);
+        var start = (IEnumerator)Call(runner, "Start");
+
+        try
+        {
+            Assert.IsTrue(start.MoveNext());
+            var session = Field<IndoorArSession>(runner, "_session");
+            var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
+            var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+            var floor1Y = IndoorWalkGrid.ForFloor(gridJson, 1).FloorY;
+            var floor2Y = IndoorWalkGrid.ForFloor(gridJson, 2).FloorY;
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+
+            LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+            signFirst.Tick(SignFirstLocalizer.HoldS);
+            localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(2f, 0f, 3f), Quaternion.identity);
+            camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
+            ReportLocalized(manager, true);
+            Assert.AreEqual(IndoorArState.Pinned, session.State);
+            Call(runner, "UpdatePin");
+
+            if (candidateKind == "signConflict")
+                session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+            session.OnTrackingLost();
+            Call(runner, "UpdatePin");
+            var pin = Field<Transform>(runner, "_pin");
+            var hud = Field<IndoorHud>(runner, "_hud").transform;
+            var beforeRootPosition = mapRoot.position;
+            var beforeRootRotation = mapRoot.rotation;
+            var beforePinPosition = pin.position;
+            var beforePinRotation = pin.rotation;
+            var beforeHudPosition = hud.position;
+            var beforeHudRotation = hud.rotation;
+            var rejectedPoseY = candidateKind == "signConflict" ? floor1Y + 1.5f
+                : candidateKind == "below" ? floor1Y - 3f : floor2Y + 3f;
+            LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+            signFirst.Tick(SignFirstLocalizer.HoldS);
+            Assert.IsFalse(localizer.SdkMapSpace.IsChildOf(mapRoot));
+            Assert.IsFalse(mapRoot.IsChildOf(localizer.SdkMapSpace));
+            localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(-12f, 8f, 19f), Quaternion.Euler(0f, 80f, 0f));
+            camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, rejectedPoseY, 0f);
+            var expectedEvidence = candidateKind == "signConflict" ? "sign=2 pose=1" : "sign=none pose=unsupported";
+            LogAssert.Expect(LogType.Log, $"[IndoorAr] floor conflict {expectedEvidence}");
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
+            ReportLocalized(manager, true);
+
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+            Assert.IsFalse(session.WasPinned);
+            Assert.IsFalse(signFirst.FromSigns);
+            Assert.IsFalse(Field<bool>(signFirst, "_innerPosed"));
+            Assert.AreEqual(beforeRootPosition, mapRoot.position);
+            Assert.AreEqual(beforeRootRotation, mapRoot.rotation);
+            Assert.AreEqual(beforePinPosition, pin.position);
+            Assert.AreEqual(beforePinRotation, pin.rotation);
+            Assert.AreEqual(beforeHudPosition, hud.position);
+            Assert.AreEqual(beforeHudRotation, hud.rotation);
+
+            if (candidateKind == "signConflict")
+            {
+                var vecDirectory = File.ReadAllText(Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+                LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+                ReadConfirmedRoom(runner, camera, "VEC 215", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
+                ReadConfirmedRoom(runner, camera, "VEC 202", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
+                Assert.AreEqual(IndoorArState.Pinned, session.State, "OCR sign trail can still localize after MultiSet rejection");
+                Assert.IsTrue(signFirst.FromSigns);
+                Assert.AreNotEqual(beforeRootPosition, mapRoot.position);
+                var signAlignedPosition = mapRoot.position;
+                var signAlignedRotation = mapRoot.rotation;
+                localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(50f, 60f, 70f), Quaternion.Euler(0f, 120f, 0f));
+                LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+                ReportLocalized(manager, true);
+                Assert.AreEqual(signAlignedPosition, mapRoot.position);
+                Assert.AreEqual(signAlignedRotation, mapRoot.rotation);
+            }
+            else
+            {
+                session.Tick(IndoorArSession.LocalizeTimeoutS);
+                LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+                localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(4f, 5f, 6f), Quaternion.identity);
+                camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
+                LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
+                ReportLocalized(manager, true);
+                Assert.AreEqual(IndoorArState.Pinned, session.State, "a new accepted request commits after the rejected callback released the lock");
+                Assert.AreEqual(new Vector3(4f, 5f, 6f), mapRoot.position);
+            }
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            Call(runner, "OnDestroy");
+            Call(localizer, "OnDestroy");
+            UnityEngine.Object.DestroyImmediate(camera.gameObject);
+            UnityEngine.Object.DestroyImmediate(localizer.SdkMapSpace.gameObject);
+            UnityEngine.Object.DestroyImmediate(localizerObject);
+            UnityEngine.Object.DestroyImmediate(managerObject);
+            UnityEngine.Object.DestroyImmediate(sdkObject);
+            UnityEngine.Object.DestroyImmediate(mapRoot.gameObject);
+        }
+    }
+
+    static void ReportLocalized(SingleFrameLocalizationManager manager, bool poseFound)
+    {
+        var callback = typeof(SingleFrameLocalizationManager).GetMethod("LocalizationSuccessCallback");
+        callback.Invoke(manager, callback.GetParameters().Length == 0 ? null
+            : new object[] { new LocalizationSuccessResponse { poseFound = poseFound, confidence = 0.73f } });
+    }
+
+    static void ReadConfirmedRoom(IndoorArRunner runner, Camera camera, string text, string vecDirectory,
+        float recognitionStarted, float offsetX, float offsetZ)
+    {
+        var match = IndoorRoomIdentityMatcher.MatchSign(text, vecDirectory);
+        var landmark = match.Landmark;
+        var along = Quaternion.Euler(0f, landmark.DoorHeadingInMapDeg, 0f) * Vector3.forward;
+        camera.transform.position = landmark.DoorPositionInMap - along * IndoorSignTrail.StandoffM
+            + Vector3.up * IndoorSignTrail.CameraHeightM + new Vector3(offsetX, 0f, offsetZ);
+        var onSignRead = typeof(IndoorArRunner).GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic);
+        var args = new object[] { text, match, recognitionStarted, null };
+        onSignRead.Invoke(runner, args);
+        onSignRead.Invoke(runner, args);
     }
 
     [Test]

@@ -53,6 +53,7 @@ namespace IndoorAr
         public event Action<int> AttemptStarted;
         public event Action<float?> Localized;
         public event Action<int> NotLocalized;
+        public Func<Transform, bool> CandidatePoseValidator { get; set; }
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
         public bool FallbackAvailable => _mapSpaceIsolated && _blurCheckDisabled && !_fallbackUnavailable;
@@ -201,17 +202,8 @@ namespace IndoorAr
             var success = result != null && result.poseFound;
             if (!CompleteRequest(out var attemptId))
                 return;
-            if (success)
-            {
-                CopyAcceptedPose();
-                LogMapCodes(result);
-                RemoveQueuedRequest();
-                Localized?.Invoke(result.confidence);
-            }
-            else
-            {
-                NotLocalized?.Invoke(attemptId);
-            }
+            if (!success) NotLocalized?.Invoke(attemptId);
+            else CompleteLocalizedPose(attemptId, result.confidence, result);
         }
 
         static void LogMapCodes(LocalizationSuccessResponse result)
@@ -241,10 +233,22 @@ namespace IndoorAr
         }
         void OnLocalizedWithoutConfidence()
         {
-            if (!CompleteRequest(out _)) return;
+            if (!CompleteRequest(out var attemptId)) return;
+            CompleteLocalizedPose(attemptId, null, null);
+        }
+
+        void CompleteLocalizedPose(int attemptId, float? confidence, LocalizationSuccessResponse result)
+        {
+            if (CandidatePoseValidator == null || !CandidatePoseValidator(sdkMapSpace))
+            {
+                if (result != null) LogMapCodes(result);
+                NotLocalized?.Invoke(attemptId);
+                return;
+            }
             CopyAcceptedPose();
+            if (result != null) LogMapCodes(result);
             RemoveQueuedRequest();
-            Localized?.Invoke(null);
+            Localized?.Invoke(confidence);
         }
 
         bool CompleteRequest(out int attemptId)
@@ -319,20 +323,21 @@ namespace IndoorAr
         void ConfigureSdkMapSpace()
         {
             if (manager == null || mapSpace == null) return;
-            if (sdkMapSpace == null || sdkMapSpace == mapSpace)
+            if (sdkMapSpace == null || sdkMapSpace == mapSpace
+                || sdkMapSpace.IsChildOf(mapSpace) || mapSpace.IsChildOf(sdkMapSpace))
             {
                 var proxy = new GameObject("MultiSet VPS Map Space");
                 proxy.transform.SetPositionAndRotation(mapSpace.position, mapSpace.rotation);
                 sdkMapSpace = proxy.transform;
             }
-            if (sdkMapSpace.IsChildOf(mapSpace)) sdkMapSpace.SetParent(null, true);
             if (MapSpaceField == null) return;
             object value = MapSpaceField.FieldType == typeof(GameObject) ? sdkMapSpace.gameObject
                 : MapSpaceField.FieldType == typeof(Transform) ? sdkMapSpace : null;
             if (value == null) return;
             MapSpaceField.SetValue(manager, value);
             _mapSpaceIsolated = MapSpaceField.GetValue(manager) == value
-                && sdkMapSpace.gameObject != mapSpace.gameObject && !sdkMapSpace.IsChildOf(mapSpace);
+                && sdkMapSpace.gameObject != mapSpace.gameObject
+                && !sdkMapSpace.IsChildOf(mapSpace) && !mapSpace.IsChildOf(sdkMapSpace);
         }
 
         void DisableBlurCheck()

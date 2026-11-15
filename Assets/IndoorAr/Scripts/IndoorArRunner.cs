@@ -83,6 +83,8 @@ namespace IndoorAr
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
+            if (localizerBehaviour is MultiSetLocalizer multiSet)
+                multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
             if (localizationMode == IndoorLocalizationMode.SignPose)
             {
                 _signPose = new SignPoseLocalizer(_localizer.MapSpace, _localizer.MapCode,
@@ -347,6 +349,12 @@ namespace IndoorAr
             Debug.Log($"[IndoorAr] floor conflict sign={(_session.SignRoom == null ? "none" : _session.SignRoom.Floor.ToString())} pose={pose}");
             if (_session.State == IndoorArState.Localizing) _session.OnNotLocalized();
             return true;
+        }
+
+        bool IsCandidateMultiSetPoseAllowed(Transform candidateMapSpace)
+        {
+            if (_session == null || _session.State != IndoorArState.Localizing || arCamera == null) return false;
+            return !RejectMultiSetFloorConflict(candidateMapSpace.InverseTransformPoint(arCamera.transform.position));
         }
 
         // Locates the confirmed sign from its corners. Logs the fit and the sign's own geometry, never the camera's.

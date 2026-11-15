@@ -13,6 +13,7 @@ public class MultiSetLocalizerTests
     GameObject _host;
     GameObject _sdkHost;
     GameObject _mapHost;
+    GameObject _proxy;
     SingleFrameLocalizationManager _manager;
     MultiSetLocalizer _adapter;
 
@@ -28,6 +29,7 @@ public class MultiSetLocalizerTests
         _host.SetActive(false);
         _adapter = _host.AddComponent<MultiSetLocalizer>();
         _adapter.Configure(sdk, _manager, _mapHost.transform);
+        _proxy = _adapter.SdkMapSpace.gameObject;
         _host.SetActive(true);
         typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
     }
@@ -38,6 +40,7 @@ public class MultiSetLocalizerTests
         if (_adapter != null) typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Object.DestroyImmediate(_host);
         Object.DestroyImmediate(_mapHost);
+        Object.DestroyImmediate(_proxy);
         Object.DestroyImmediate(_sdkHost);
     }
 
@@ -66,10 +69,38 @@ public class MultiSetLocalizerTests
     }
 
     [Test]
+    public void SdkProxyAncestorCannotMoveNavigationMap()
+    {
+        var ancestor = new GameObject("Former SDK Parent");
+        var oldProxy = _proxy;
+        _mapHost.transform.SetParent(ancestor.transform, true);
+        var position = _mapHost.transform.position;
+        var rotation = _mapHost.transform.rotation;
+        _adapter.Configure(_sdkHost.GetComponent<IndoorArSdkManager>(), _manager, _mapHost.transform, ancestor.transform);
+        _proxy = _adapter.SdkMapSpace.gameObject;
+        Object.DestroyImmediate(oldProxy);
+        try
+        {
+            Assert.AreNotSame(ancestor.transform, _adapter.SdkMapSpace);
+            Assert.IsFalse(_adapter.SdkMapSpace.IsChildOf(_adapter.MapSpace));
+            Assert.IsFalse(_adapter.MapSpace.IsChildOf(_adapter.SdkMapSpace));
+            _adapter.SdkMapSpace.SetPositionAndRotation(new Vector3(20f, 30f, 40f), Quaternion.Euler(0f, 90f, 0f));
+            Assert.AreEqual(position, _mapHost.transform.position);
+            Assert.AreEqual(rotation, _mapHost.transform.rotation);
+        }
+        finally
+        {
+            _mapHost.transform.SetParent(null, true);
+            Object.DestroyImmediate(ancestor);
+        }
+    }
+
+    [Test]
     public void SdkResponseCarriesConfidenceAndUnsubscribes()
     {
         var localized = 0;
         float? confidence = null;
+        _adapter.CandidatePoseValidator = _ => true;
         _adapter.Localized += value => { localized++; confidence = value; };
         LocalizeWithoutEditorFailure();
         _adapter.SdkMapSpace.SetPositionAndRotation(new Vector3(3f, 4f, 5f), Quaternion.Euler(0f, 45f, 0f));
@@ -85,6 +116,64 @@ public class MultiSetLocalizerTests
         Object.DestroyImmediate(_host);
         ReportSuccess();
         Assert.AreEqual(1, localized);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void RejectedCandidateNeverCommitsThroughEitherSuccessCallback(bool legacyCallback)
+    {
+        var localized = 0;
+        var rejectedAttempt = 0;
+        _adapter.Localized += _ => localized++;
+        _adapter.NotLocalized += attempt => rejectedAttempt = attempt;
+        _adapter.CandidatePoseValidator = _ => false;
+        LocalizeWithoutEditorFailure();
+        _mapHost.transform.SetPositionAndRotation(new Vector3(6f, 2f, 8f), Quaternion.Euler(0f, 20f, 0f));
+        _adapter.SdkMapSpace.SetPositionAndRotation(new Vector3(1f, 2f, 3f), Quaternion.Euler(0f, 90f, 0f));
+
+        if (legacyCallback)
+            typeof(MultiSetLocalizer).GetMethod("OnLocalizedWithoutConfidence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        else
+        {
+            LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
+            ReportSuccess();
+        }
+
+        Assert.AreEqual(0, localized);
+        Assert.AreEqual(1, rejectedAttempt);
+        Assert.AreEqual(new Vector3(6f, 2f, 8f), _mapHost.transform.position);
+        Assert.AreEqual(Quaternion.Euler(0f, 20f, 0f), _mapHost.transform.rotation);
+        Assert.IsFalse(_adapter.HasLiveRequest, "a genuine rejected SDK completion releases single-flight ownership");
+    }
+
+    [Test]
+    public void LegacySuccessCommitsAfterCandidateValidation()
+    {
+        var localized = 0;
+        _adapter.CandidatePoseValidator = _ => true;
+        _adapter.Localized += _ => localized++;
+        LocalizeWithoutEditorFailure();
+        _adapter.SdkMapSpace.position = new Vector3(4f, 5f, 6f);
+        typeof(MultiSetLocalizer).GetMethod("OnLocalizedWithoutConfidence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        Assert.AreEqual(1, localized);
+        Assert.AreEqual(new Vector3(4f, 5f, 6f), _mapHost.transform.position);
+        Assert.IsFalse(_adapter.HasLiveRequest);
+    }
+
+    [Test]
+    public void SuccessWithoutRunnerFloorValidatorFailsClosed()
+    {
+        var localized = 0;
+        var rejected = 0;
+        _adapter.Localized += _ => localized++;
+        _adapter.NotLocalized += _ => rejected++;
+        LocalizeWithoutEditorFailure();
+        _adapter.SdkMapSpace.position = new Vector3(4f, 5f, 6f);
+        LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
+        ReportSuccess();
+        Assert.AreEqual(0, localized);
+        Assert.AreEqual(1, rejected);
+        Assert.AreEqual(Vector3.zero, _mapHost.transform.position);
     }
 
     [Test]
@@ -111,6 +200,7 @@ public class MultiSetLocalizerTests
         var localized = 0;
         var notLocalized = 0;
         var attempts = 0;
+        _adapter.CandidatePoseValidator = _ => true;
         _adapter.Localized += _ => localized++;
         _adapter.NotLocalized += _ => notLocalized++;
         _adapter.AttemptStarted += _ => attempts++;
@@ -146,6 +236,7 @@ public class MultiSetLocalizerTests
         var localized = 0;
         var notLocalized = 0;
         var attempts = 0;
+        _adapter.CandidatePoseValidator = _ => true;
         _adapter.Localized += _ => localized++;
         _adapter.NotLocalized += _ => notLocalized++;
         _adapter.AttemptStarted += _ => attempts++;
@@ -170,6 +261,7 @@ public class MultiSetLocalizerTests
     [Test]
     public void UnresolvedRequestTimesOutAndLateResponseCannotLocalize()
     {
+        _adapter.CandidatePoseValidator = _ => true;
         var session = new IndoorArSession(new IndoorArRequest
         {
             frame = IndoorArContract.Frame, mapCode = _adapter.MapCode,
@@ -256,12 +348,15 @@ public class MultiSetLocalizerTests
     {
         LocalizeWithoutEditorFailure();
         var otherSdkHost = new GameObject("Other SDK");
+        otherSdkHost.SetActive(false);
+        var otherSdk = otherSdkHost.AddComponent<IndoorArSdkManager>();
         var otherManager = otherSdkHost.AddComponent<SingleFrameLocalizationManager>();
         var otherMap = new GameObject("Other Navigation Map");
         var otherHost = new GameObject("Other Adapter");
         otherHost.SetActive(false);
         var other = otherHost.AddComponent<MultiSetLocalizer>();
-        other.Configure(otherSdkHost.AddComponent<IndoorArSdkManager>(), otherManager, otherMap.transform);
+        other.Configure(otherSdk, otherManager, otherMap.transform);
+        var otherProxy = other.SdkMapSpace.gameObject;
         otherHost.SetActive(true);
         typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
         var attempts = 0;
@@ -284,6 +379,7 @@ public class MultiSetLocalizerTests
             typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
             Object.DestroyImmediate(otherHost);
             Object.DestroyImmediate(otherMap);
+            Object.DestroyImmediate(otherProxy);
             Object.DestroyImmediate(otherSdkHost);
         }
     }
