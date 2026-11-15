@@ -224,7 +224,7 @@ namespace IndoorAr
                 _loggedState = _session.State;
                 _stateLogged = true;
                 if (!Application.isEditor)
-                    Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)} attempts={_session.Queries}");
+                    Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)} attempts={_session.Queries} multisetFallback={MultiSetFallbackStatus()}");
             }
             UpdatePin();
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
@@ -407,6 +407,13 @@ namespace IndoorAr
             if (line == _baselineLog) return;
             _baselineLog = line;
             Debug.Log(line);
+        }
+
+        string MultiSetFallbackStatus()
+        {
+            if (localizationMode == IndoorLocalizationMode.SignPose) return "disabled";
+            if (_signFirst != null) return _signFirst.FallbackStatus;
+            return localizerBehaviour is MultiSetLocalizer multiSet ? multiSet.FallbackStatus : "unavailable";
         }
 
         long NowMs() => (long)(Time.realtimeSinceStartup * 1000f);

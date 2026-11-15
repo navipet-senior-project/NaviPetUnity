@@ -59,6 +59,8 @@ The provisional route grid comes from the VEC scan; it is not a navigation graph
 
 Floor changes use a confirmed room sign on supported floors 1–2, or camera height only when it falls in the plausible eye-height band above exactly one floor elevation from the MapSet-frame scan grid. If neither establishes a floor, Unity shows no route. MultiSet poses that conflict with a confirmed sign or resolve above supported floors are rejected for retry. Successful MultiSet localization logs map codes only.
 
+MultiSet keeps at most one request in flight. A new session waits for an older request's callback and drops that callback before starting its own request; room-sign localization continues during the wait. State logs report `multisetFallback=available`, `inFlight`, `waiting`, or `unavailable` (`disabled` in sign-pose mode). If the request stays unanswered for 30 seconds, MultiSet fallback becomes unavailable for the rest of that session and logs `[IndoorAr] multiset fallback unavailable: prior request unresolved`. A timeout does not prove the SDK stopped or prevent a late write to the shared `mapSpace` transform. A later session can use MultiSet only after the unresolved request's callback has drained.
+
 ## Host bridge
 
 Before Unity's first scene runs, from the app that embeds `UnityFramework`:

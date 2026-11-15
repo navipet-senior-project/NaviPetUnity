@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Text;
 using System.Reflection;
 using MultiSet;
@@ -20,6 +19,7 @@ namespace IndoorAr
     {
         // Public-event lookup keeps the approved 1.9.3 rollback buildable; it exposes only a UnityEvent.
         static readonly EventInfo ResponseEvent = typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse");
+        public const float RequestTimeoutS = 30f;
 
         [SerializeField] string mapCode = "MSET_XTBY7AM7ZK77";
         [SerializeField] IndoorArSdkManager sdk;
@@ -28,13 +28,13 @@ namespace IndoorAr
         bool _authPending;
         int _attemptId;
         int _generation;
-        readonly Queue<PendingAttempt> _pendingAttempts = new Queue<PendingAttempt>();
-
-        struct PendingAttempt
-        {
-            public int Id;
-            public int Generation;
-        }
+        int _activeAttemptId;
+        int _queuedAttemptId;
+        int _requestGeneration;
+        float _requestElapsed;
+        bool _requestInFlight;
+        bool _ignoreInFlight;
+        bool _fallbackUnavailable;
 
         public event Action Authenticated;
         public event Action<bool> AuthFailed;
@@ -43,6 +43,11 @@ namespace IndoorAr
         public event Action<int> NotLocalized;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
+        public bool FallbackAvailable => !_fallbackUnavailable;
+        public bool HasLiveRequest => _requestInFlight;
+        public string FallbackStatus => _fallbackUnavailable ? "unavailable"
+            : _requestInFlight && _queuedAttemptId != 0 ? "waiting"
+            : _requestInFlight ? "inFlight" : "available";
 
         public void Configure(IndoorArSdkManager sdkManager, SingleFrameLocalizationManager localizationManager, Transform space)
         {
@@ -108,34 +113,72 @@ namespace IndoorAr
             AuthFailed?.Invoke(!connected);
         }
 
-        /// <summary>
-        /// A new session drops the previous session's unanswered query: its pose was solved against the old AR
-        /// world. Answers are ignored until this session's first Localize.
-        /// </summary>
         public void AbandonPending()
         {
             _generation++;
+            _queuedAttemptId = 0;
+            _fallbackUnavailable = false;
+            _ignoreInFlight = _requestInFlight;
             manager.StopAllCoroutines();
         }
 
         public void Localize()
         {
-            manager.StopAllCoroutines();
+            if (_fallbackUnavailable) return;
             var attemptId = ++_attemptId;
-            _pendingAttempts.Enqueue(new PendingAttempt { Id = attemptId, Generation = _generation });
+            if (_requestInFlight)
+            {
+                _queuedAttemptId = attemptId;
+                return;
+            }
+            StartRequest(attemptId);
+        }
+
+        public void DropQueuedFallback()
+        {
+            _queuedAttemptId = 0;
+            if (_requestInFlight) _ignoreInFlight = true;
+        }
+
+        public void Tick(float deltaTime)
+        {
+            if (!_requestInFlight || _fallbackUnavailable) return;
+            _requestElapsed += Mathf.Max(0f, deltaTime);
+            if (_requestElapsed < RequestTimeoutS) return;
+            _fallbackUnavailable = true;
+            _queuedAttemptId = 0;
+            Debug.Log("[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        }
+
+        void Update() => Tick(Time.unscaledDeltaTime);
+
+        void StartRequest(int attemptId)
+        {
+            manager.StopAllCoroutines();
+            _requestInFlight = true;
+            _ignoreInFlight = false;
+            _activeAttemptId = attemptId;
+            _requestGeneration = _generation;
+            _requestElapsed = 0f;
             AttemptStarted?.Invoke(attemptId);
             manager.LocalizeFrame();
         }
 
         void OnLocalized(LocalizationSuccessResponse result)
         {
-            if (!TryTakeCurrentAttempt(out var attemptId)) return;
-            if (result != null && result.poseFound)
+            var success = result != null && result.poseFound;
+            if (!CompleteRequest(out var attemptId)) return;
+            if (success)
             {
                 LogMapCodes(result);
+                _queuedAttemptId = 0;
                 Localized?.Invoke(result.confidence);
             }
-            else NotLocalized?.Invoke(attemptId);
+            else
+            {
+                NotLocalized?.Invoke(attemptId);
+                StartQueuedRequest();
+            }
         }
 
         static void LogMapCodes(LocalizationSuccessResponse result)
@@ -160,33 +203,51 @@ namespace IndoorAr
 
         void OnNotLocalized()
         {
-            if (TryTakeCurrentAttempt(out var attemptId)) NotLocalized?.Invoke(attemptId);
+            if (!CompleteRequest(out var attemptId)) return;
+            NotLocalized?.Invoke(attemptId);
+            StartQueuedRequest();
         }
         void OnLocalizedWithoutConfidence()
         {
-            if (TryTakeCurrentAttempt(out _)) Localized?.Invoke(null);
+            if (!CompleteRequest(out _)) return;
+            _queuedAttemptId = 0;
+            Localized?.Invoke(null);
         }
 
-        bool TryTakeCurrentAttempt(out int attemptId)
+        bool CompleteRequest(out int attemptId)
         {
-            attemptId = 0;
-            if (_pendingAttempts.Count == 0)
+            attemptId = _activeAttemptId;
+            if (!_requestInFlight)
             {
-                Debug.Log("[IndoorAr] stale localization response ignored");
+                LogStaleResponse();
                 return false;
             }
 
-            var pending = _pendingAttempts.Dequeue();
-            if (pending.Generation != _generation)
+            // shortcut: SDK may write mapSpace before this guard; revisit if it adds transactional pose delivery.
+            var accepted = !_ignoreInFlight && !_fallbackUnavailable && _requestGeneration == _generation;
+            _requestInFlight = false;
+            _activeAttemptId = 0;
+            _requestElapsed = 0f;
+            _ignoreInFlight = false;
+            if (!accepted)
             {
-                // shortcut: MultiSet may mutate mapSpace before this callback guard; upgrade when callbacks carry request IDs.
-                Debug.Log("[IndoorAr] stale localization response ignored");
+                LogStaleResponse();
+                StartQueuedRequest();
                 return false;
             }
 
-            attemptId = pending.Id;
             return true;
         }
+
+        void StartQueuedRequest()
+        {
+            if (_queuedAttemptId == 0 || _requestInFlight || _fallbackUnavailable) return;
+            var attemptId = _queuedAttemptId;
+            _queuedAttemptId = 0;
+            StartRequest(attemptId);
+        }
+
+        static void LogStaleResponse() => Debug.Log("[IndoorAr] stale localization response ignored");
 
         void OnDestroy()
         {

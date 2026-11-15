@@ -149,6 +149,8 @@ namespace IndoorAr
 
         public Transform MapSpace => _inner.MapSpace;
         public string MapCode => _inner.MapCode;
+        public bool FallbackAvailable => _inner is not MultiSetLocalizer multiSet || multiSet.FallbackAvailable;
+        public string FallbackStatus => _inner is MultiSetLocalizer multiSet ? multiSet.FallbackStatus : "available";
         /// <summary>The map is posed from signs: steer by it, but it is too coarse to show a door pin.</summary>
         public bool FromSigns { get; private set; }
 
@@ -227,6 +229,7 @@ namespace IndoorAr
         IndoorSignFix Apply(IndoorSignFix fix)
         {
             if (!fix.Usable || _innerPosed) return fix;
+            if (_inner is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
             MapSpace.SetPositionAndRotation(fix.Origin, Quaternion.Euler(0f, fix.YawDeg, 0f));
             FromSigns = true;
             if (!_open) return fix;
