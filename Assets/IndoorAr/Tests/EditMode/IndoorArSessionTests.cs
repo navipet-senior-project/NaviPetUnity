@@ -273,6 +273,12 @@ public class IndoorArSessionTests
         var session = Localizing(out _);
         Assert.AreEqual(0, session.CurrentFloor(6.5f, -2f, 2.2f));
         Assert.IsTrue(session.PoseConflictsWithSign(6.5f, -2f, 2.2f), "a pose resolving above supported floors is rejected even without a sign");
+        Assert.AreEqual(0, session.CurrentFloor(-5f, -2f, 2.2f));
+        Assert.IsTrue(session.PoseConflictsWithSign(-5f, -2f, 2.2f), "a pose below Floor 1 is rejected");
+        var inBand = Localizing(out _);
+        Assert.IsFalse(inBand.PoseConflictsWithSign(-0.4f, -2f, 2.2f), "a pose in Floor 1's eye-height band is accepted");
+        inBand.OnLocalized();
+        Assert.IsTrue(inBand.WasPinned);
         session.OnSignConfirmed(new IndoorRoomLandmark("VEC999", "VEC", "floor_3"));
         Assert.AreEqual(0, session.CurrentFloor(0f, -2f, 2.2f));
         Assert.IsTrue(session.PoseConflictsWithSign(0f, -2f, 2.2f));

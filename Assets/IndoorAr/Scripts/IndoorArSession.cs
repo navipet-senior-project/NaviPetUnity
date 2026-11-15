@@ -112,7 +112,7 @@ namespace IndoorAr
             var on1 = floor1 >= MinEyeHeightM && floor1 <= MaxEyeHeightM;
             var on2 = floor2 >= MinEyeHeightM && floor2 <= MaxEyeHeightM;
             if (on1 != on2) return on1 ? 1 : 2;
-            return cameraY > floor2Y + MaxEyeHeightM ? -1 : 0;
+            return cameraY < floor1Y + MinEyeHeightM || cameraY > floor2Y + MaxEyeHeightM ? -1 : 0;
         }
 
         static bool ValidFloorHeights(float floor1Y, float floor2Y) =>

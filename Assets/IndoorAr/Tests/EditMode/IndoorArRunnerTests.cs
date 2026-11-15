@@ -548,16 +548,18 @@ public class IndoorArRunnerTests
         Assert.IsInstanceOf<RunnerFakeLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
     }
 
-    [Test]
-    public void FloorTwoSignRejectsFloorThreePoseAndLeavesLocalizationRetryable()
+    [TestCase(false, "2")]
+    [TestCase(true, "none")]
+    public void UnsupportedPoseHeightIsRejectedAndLeavesLocalizationRetryable(bool belowFloorOne, string signFloor)
     {
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         localizer.DeferAnswer = true;
         var cameraObject = new GameObject("AR Camera", typeof(Camera));
         cameraObject.transform.SetParent(_host.transform, false);
         var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+        var floor1 = IndoorWalkGrid.ForFloor(gridJson, 1);
         var floor2 = IndoorWalkGrid.ForFloor(gridJson, 2);
-        cameraObject.transform.localPosition = Vector3.up * (floor2.FloorY + 4f);
+        cameraObject.transform.localPosition = Vector3.up * (belowFloorOne ? floor1.FloorY - 3f : floor2.FloorY + 4f);
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, cameraObject.GetComponent<Camera>());
         runner.SetLocalizationMode(IndoorLocalizationMode.MultiSet);
@@ -565,9 +567,9 @@ public class IndoorArRunnerTests
         var session = Field<IndoorArSession>(runner, "_session");
         session.OnArSupport(true);
         session.OnAuthenticated();
-        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        if (!belowFloorOne) session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
 
-        LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] floor conflict sign=2 pose=unsupported"));
+        LogAssert.Expect(LogType.Log, new Regex($"\\[IndoorAr\\] floor conflict sign={signFloor} pose=unsupported"));
         localizer.CompleteLocalized(.5f);
         Assert.AreEqual(IndoorArState.Localizing, session.State);
         Assert.IsFalse(session.WasPinned);
