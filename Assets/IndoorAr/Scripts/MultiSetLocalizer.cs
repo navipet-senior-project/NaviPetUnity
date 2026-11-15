@@ -26,9 +26,15 @@ namespace IndoorAr
         [SerializeField] SingleFrameLocalizationManager manager;
         [SerializeField] Transform mapSpace;
         bool _authPending;
-        bool _abandoned;
         int _attemptId;
-        readonly Queue<int> _pendingAttempts = new Queue<int>();
+        int _generation;
+        readonly Queue<PendingAttempt> _pendingAttempts = new Queue<PendingAttempt>();
+
+        struct PendingAttempt
+        {
+            public int Id;
+            public int Generation;
+        }
 
         public event Action Authenticated;
         public event Action<bool> AuthFailed;
@@ -108,31 +114,28 @@ namespace IndoorAr
         /// </summary>
         public void AbandonPending()
         {
+            _generation++;
             manager.StopAllCoroutines();
-            _pendingAttempts.Clear();
-            _abandoned = true;
         }
 
         public void Localize()
         {
-            _abandoned = false;
             manager.StopAllCoroutines();
             var attemptId = ++_attemptId;
-            _pendingAttempts.Enqueue(attemptId);
+            _pendingAttempts.Enqueue(new PendingAttempt { Id = attemptId, Generation = _generation });
             AttemptStarted?.Invoke(attemptId);
             manager.LocalizeFrame();
         }
 
         void OnLocalized(LocalizationSuccessResponse result)
         {
-            if (_abandoned) return;
+            if (!TryTakeCurrentAttempt(out var attemptId)) return;
             if (result != null && result.poseFound)
             {
-                if (_pendingAttempts.Count > 0) _pendingAttempts.Dequeue();
                 LogMapCodes(result);
                 Localized?.Invoke(result.confidence);
             }
-            else OnNotLocalized();
+            else NotLocalized?.Invoke(attemptId);
         }
 
         static void LogMapCodes(LocalizationSuccessResponse result)
@@ -157,13 +160,32 @@ namespace IndoorAr
 
         void OnNotLocalized()
         {
-            if (!_abandoned && _pendingAttempts.Count > 0) NotLocalized?.Invoke(_pendingAttempts.Dequeue());
+            if (TryTakeCurrentAttempt(out var attemptId)) NotLocalized?.Invoke(attemptId);
         }
         void OnLocalizedWithoutConfidence()
         {
-            if (_abandoned) return;
-            if (_pendingAttempts.Count > 0) _pendingAttempts.Dequeue();
-            Localized?.Invoke(null);
+            if (TryTakeCurrentAttempt(out _)) Localized?.Invoke(null);
+        }
+
+        bool TryTakeCurrentAttempt(out int attemptId)
+        {
+            attemptId = 0;
+            if (_pendingAttempts.Count == 0)
+            {
+                Debug.Log("[IndoorAr] stale localization response ignored");
+                return false;
+            }
+
+            var pending = _pendingAttempts.Dequeue();
+            if (pending.Generation != _generation)
+            {
+                // shortcut: MultiSet may mutate mapSpace before this callback guard; upgrade when callbacks carry request IDs.
+                Debug.Log("[IndoorAr] stale localization response ignored");
+                return false;
+            }
+
+            attemptId = pending.Id;
+            return true;
         }
 
         void OnDestroy()

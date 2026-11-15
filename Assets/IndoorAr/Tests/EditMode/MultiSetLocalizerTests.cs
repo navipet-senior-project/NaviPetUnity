@@ -2,6 +2,8 @@ using IndoorAr;
 using MultiSet;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.TestTools;
 
 public class MultiSetLocalizerTests
 {
@@ -57,6 +59,7 @@ public class MultiSetLocalizerTests
         var localized = 0;
         float? confidence = null;
         _adapter.Localized += value => { localized++; confidence = value; };
+        LocalizeWithoutEditorFailure();
         ReportSuccess();
         Assert.AreEqual(1, localized);
         if (typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse") != null)
@@ -81,6 +84,50 @@ public class MultiSetLocalizerTests
         ReportSuccess(false);
         _manager.LocalizationFailure.Invoke();
         Assert.AreEqual(0, localized, "the previous session's answer belongs to the old AR world");
+        Assert.AreEqual(0, notLocalized);
+    }
+
+    [Test]
+    public void OldFailureAfterNewLocalizeIsIgnoredAndNewResponseIsAccepted()
+    {
+        var localized = 0;
+        var notLocalized = 0;
+        _adapter.Localized += _ => localized++;
+        _adapter.NotLocalized += _ => notLocalized++;
+
+        LocalizeWithoutEditorFailure();
+        _adapter.AbandonPending();
+        LocalizeWithoutEditorFailure();
+
+        _manager.LocalizationFailure.Invoke();
+        Assert.AreEqual(0, localized);
+        Assert.AreEqual(0, notLocalized);
+
+        ReportSuccess();
+        Assert.AreEqual(1, localized);
+        Assert.AreEqual(0, notLocalized);
+    }
+
+    [Test]
+    public void OldResponseWithoutPoseAfterNewLocalizeIsIgnoredAndNewResponseIsAccepted()
+    {
+        if (typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse") == null)
+            Assert.Ignore("Legacy SDK has no response event");
+        var localized = 0;
+        var notLocalized = 0;
+        _adapter.Localized += _ => localized++;
+        _adapter.NotLocalized += _ => notLocalized++;
+
+        LocalizeWithoutEditorFailure();
+        _adapter.AbandonPending();
+        LocalizeWithoutEditorFailure();
+
+        ReportSuccess(false);
+        Assert.AreEqual(0, localized);
+        Assert.AreEqual(0, notLocalized);
+
+        ReportSuccess();
+        Assert.AreEqual(1, localized);
         Assert.AreEqual(0, notLocalized);
     }
 
@@ -113,5 +160,15 @@ public class MultiSetLocalizerTests
         var callback = typeof(SingleFrameLocalizationManager).GetMethod("LocalizationSuccessCallback");
         callback.Invoke(_manager, callback.GetParameters().Length == 0 ? null
             : new object[] { new LocalizationSuccessResponse { poseFound = poseFound, confidence = 0.73f } });
+    }
+
+    void LocalizeWithoutEditorFailure()
+    {
+        var callback = (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), _adapter,
+            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
+        _manager.LocalizationFailure.RemoveListener(callback);
+        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+        _adapter.Localize();
+        _manager.LocalizationFailure.AddListener(callback);
     }
 }
