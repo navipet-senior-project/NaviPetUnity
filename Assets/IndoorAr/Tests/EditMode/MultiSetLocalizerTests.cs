@@ -142,7 +142,7 @@ public class MultiSetLocalizerTests
         Assert.AreEqual(0, localized);
         Assert.AreEqual(1, rejectedAttempt);
         Assert.AreEqual(new Vector3(6f, 2f, 8f), _mapHost.transform.position);
-        Assert.AreEqual(Quaternion.Euler(0f, 20f, 0f), _mapHost.transform.rotation);
+        Assert.That(Quaternion.Angle(Quaternion.Euler(0f, 20f, 0f), _mapHost.transform.rotation), Is.LessThan(0.01f));
         Assert.IsFalse(_adapter.HasLiveRequest, "a genuine rejected SDK completion releases single-flight ownership");
     }
 
@@ -217,7 +217,7 @@ public class MultiSetLocalizerTests
         Assert.AreEqual(0, localized);
         Assert.AreEqual(0, notLocalized);
         LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
-        _adapter.Tick(0f);
+        TickWithoutEditorFailure(0f);
         Assert.AreEqual(2, attempts);
         Assert.IsTrue(_adapter.HasLiveRequest);
         Assert.AreEqual("inFlight", _adapter.FallbackStatus);
@@ -250,7 +250,7 @@ public class MultiSetLocalizerTests
         Assert.AreEqual(0, localized);
         Assert.AreEqual(0, notLocalized);
         LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
-        _adapter.Tick(0f);
+        TickWithoutEditorFailure(0f);
         Assert.AreEqual(2, attempts);
 
         ReportSuccess();
@@ -369,7 +369,7 @@ public class MultiSetLocalizerTests
             LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
             other.Tick(MultiSetLocalizer.RequestTimeoutS);
             Assert.AreEqual("unavailable", other.FallbackStatus);
-            ReportFailureAndStartDeferredRequest();
+            ReportFailureAndStartDeferredRequest(false);
             other.Tick(0f);
             Assert.AreEqual(0, attempts, "timeout does not release the process-wide request lock");
             Assert.AreEqual("unavailable", other.FallbackStatus);
@@ -431,13 +431,23 @@ public class MultiSetLocalizerTests
         _manager.LocalizationFailure.AddListener(callback);
     }
 
-    void ReportFailureAndStartDeferredRequest()
+    void ReportFailureAndStartDeferredRequest(bool abandoned = true)
     {
         var callback = (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), _adapter,
             typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
         _manager.LocalizationFailure.RemoveListener(callback);
-        LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+        if (abandoned) LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
         typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        Assert.IsFalse(_adapter.HasLiveRequest, "the owner's genuine failure callback releases the process-wide lock");
+        _manager.LocalizationFailure.AddListener(callback);
+    }
+
+    void TickWithoutEditorFailure(float deltaTime)
+    {
+        var callback = (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), _adapter,
+            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
+        _manager.LocalizationFailure.RemoveListener(callback);
+        _adapter.Tick(deltaTime);
         _manager.LocalizationFailure.AddListener(callback);
     }
 

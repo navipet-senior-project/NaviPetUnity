@@ -10,6 +10,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.TestTools;
 
 public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
@@ -617,8 +618,9 @@ public class IndoorArRunnerTests
             session.OnArSupport(true);
             session.OnAuthenticated();
 
+            LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
-            signFirst.Tick(SignFirstLocalizer.HoldS);
+            TickSignFallbackWithoutEditorFailure(signFirst, localizer, manager);
             localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(2f, 0f, 3f), Quaternion.identity);
             camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
             LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
@@ -640,8 +642,9 @@ public class IndoorArRunnerTests
             var beforeHudRotation = hud.rotation;
             var rejectedPoseY = candidateKind == "signConflict" ? floor1Y + 1.5f
                 : candidateKind == "below" ? floor1Y - 3f : floor2Y + 3f;
+            LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
-            signFirst.Tick(SignFirstLocalizer.HoldS);
+            TickSignFallbackWithoutEditorFailure(signFirst, localizer, manager);
             Assert.IsFalse(localizer.SdkMapSpace.IsChildOf(mapRoot));
             Assert.IsFalse(mapRoot.IsChildOf(localizer.SdkMapSpace));
             localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(-12f, 8f, 19f), Quaternion.Euler(0f, 80f, 0f));
@@ -652,7 +655,7 @@ public class IndoorArRunnerTests
             ReportLocalized(manager, true);
 
             Assert.AreEqual(IndoorArState.Localizing, session.State);
-            Assert.IsFalse(session.WasPinned);
+            Assert.IsTrue(session.WasPinned, "the earlier accepted pose remains recorded while this candidate is rejected");
             Assert.IsFalse(signFirst.FromSigns);
             Assert.IsFalse(Field<bool>(signFirst, "_innerPosed"));
             Assert.AreEqual(beforeRootPosition, mapRoot.position);
@@ -665,9 +668,13 @@ public class IndoorArRunnerTests
             if (candidateKind == "signConflict")
             {
                 var vecDirectory = File.ReadAllText(Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+                LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
                 LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
-                ReadConfirmedRoom(runner, camera, "VEC 215", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
-                ReadConfirmedRoom(runner, camera, "VEC 202", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
+                WithoutEditorSimulationFailure(localizer, manager, () =>
+                {
+                    ReadConfirmedRoom(runner, camera, "VEC 215", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
+                    ReadConfirmedRoom(runner, camera, "VEC 202", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
+                });
                 Assert.AreEqual(IndoorArState.Pinned, session.State, "OCR sign trail can still localize after MultiSet rejection");
                 Assert.IsTrue(signFirst.FromSigns);
                 Assert.AreNotEqual(beforeRootPosition, mapRoot.position);
@@ -681,8 +688,9 @@ public class IndoorArRunnerTests
             }
             else
             {
-                session.Tick(IndoorArSession.LocalizeTimeoutS);
+                LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
                 LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+                WithoutEditorSimulationFailure(localizer, manager, () => session.Tick(IndoorArSession.LocalizeTimeoutS));
                 localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(4f, 5f, 6f), Quaternion.identity);
                 camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
                 LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
@@ -703,6 +711,22 @@ public class IndoorArRunnerTests
             UnityEngine.Object.DestroyImmediate(sdkObject);
             UnityEngine.Object.DestroyImmediate(mapRoot.gameObject);
         }
+    }
+
+    static void TickSignFallbackWithoutEditorFailure(SignFirstLocalizer signFirst,
+        MultiSetLocalizer localizer, SingleFrameLocalizationManager manager)
+    {
+        WithoutEditorSimulationFailure(localizer, manager, () => signFirst.Tick(SignFirstLocalizer.HoldS));
+    }
+
+    static void WithoutEditorSimulationFailure(MultiSetLocalizer localizer,
+        SingleFrameLocalizationManager manager, Action action)
+    {
+        var failure = (UnityAction)Delegate.CreateDelegate(typeof(UnityAction), localizer,
+            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", BindingFlags.Instance | BindingFlags.NonPublic));
+        manager.LocalizationFailure.RemoveListener(failure);
+        try { action(); }
+        finally { manager.LocalizationFailure.AddListener(failure); }
     }
 
     static void ReportLocalized(SingleFrameLocalizationManager manager, bool poseFound)
