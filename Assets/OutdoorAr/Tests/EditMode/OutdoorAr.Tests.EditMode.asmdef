@@ -2,6 +2,7 @@
     "name": "OutdoorAr.Tests.EditMode",
     "references": [
         "OutdoorAr.Runtime",
+        "IndoorAr.Runtime",
         "Google.XR.ARCoreExtensions",
         "Unity.XR.ARSubsystems",
         "UnityEngine.TestRunner",

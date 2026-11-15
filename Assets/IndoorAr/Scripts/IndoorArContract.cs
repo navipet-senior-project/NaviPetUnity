@@ -13,6 +13,30 @@ namespace IndoorAr
         public float z;
     }
 
+    /// <summary>WGS84 point an outdoor request guides to.</summary>
+    [Serializable]
+    public class IndoorArDestination
+    {
+        public string name;
+        public double latitude;
+        public double longitude;
+    }
+
+    /// <summary>One walking-route point. NaN until the JSON supplies it, so a missing coordinate is not read as 0.</summary>
+    [Serializable]
+    public class IndoorArWaypoint
+    {
+        public double latitude = double.NaN;
+        public double longitude = double.NaN;
+    }
+
+    /// <summary>The walking route an outdoor request follows, start to destination.</summary>
+    [Serializable]
+    public class IndoorArRoute
+    {
+        public IndoorArWaypoint[] waypoints;
+    }
+
     /// <summary>
     /// Bridge contract v1/v2 request from the Flutter app. The pose is in the
     /// MultiSet MapSet frame and is used as is. v2 sends arToken as an object;
@@ -24,6 +48,12 @@ namespace IndoorAr
         public int schemaVersion;
         public string mode;
         public bool LocalizeOnly => mode == "localize";
+        public bool OutdoorOnly => mode == "outdoor";
+        public IndoorArDestination destination;
+        public IndoorArRoute route;
+        /// <summary>An outdoor request with a route to follow. Without one the guidance is a straight direction only.</summary>
+        public bool HasRoute => route != null && route.waypoints != null && route.waypoints.Length > 0;
+        public bool dataUseAccepted;
         public string room;
         public string doorKey;
         public string floor;
@@ -53,6 +83,7 @@ namespace IndoorAr
         public const string ArcoreUnsupported = "ARCORE_UNSUPPORTED";
         public const string MultisetAuth = "MULTISET_AUTH";
         public const string Network = "NETWORK";
+        public const string OutdoorScene = "OutdoorGeospatialDemo";
 
         /// <summary>
         /// JsonUtility fills a missing object field with defaults, so a missing
@@ -73,14 +104,48 @@ namespace IndoorAr
                 return false;
             }
             if (parsed == null
-                || (parsed.schemaVersion != SchemaVersion && parsed.schemaVersion != SchemaVersionV2)
-                || (!string.IsNullOrEmpty(parsed.mode) && !parsed.LocalizeOnly)
+                || (parsed.schemaVersion != SchemaVersion && parsed.schemaVersion != SchemaVersionV2))
+            {
+                return false;
+            }
+            if (parsed.OutdoorOnly)
+            {
+                var to = parsed.destination;
+                var supplied = new IndoorArRequest
+                {
+                    destination = new IndoorArDestination { latitude = double.NaN, longitude = double.NaN }
+                };
+                JsonUtility.FromJsonOverwrite(json, supplied);
+                var coordinates = supplied.destination;
+                if (to == null || coordinates == null || double.IsNaN(coordinates.latitude)
+                    || double.IsNaN(coordinates.longitude)
+                    || !(Math.Abs(to.latitude) <= 90) || !(Math.Abs(to.longitude) <= 180))
+                {
+                    return false;
+                }
+                // A route that is present but unusable is a sender bug; guiding by bearing instead would pass it off as a route.
+                if (parsed.HasRoute && !OutdoorRouteIsValid(parsed.route.waypoints)) return false;
+                request = parsed;
+                return true;
+            }
+            if ((!string.IsNullOrEmpty(parsed.mode) && !parsed.LocalizeOnly)
                 || (!parsed.LocalizeOnly && (string.IsNullOrEmpty(parsed.doorKey) || string.IsNullOrEmpty(parsed.floor)))
                 || string.IsNullOrEmpty(parsed.mapCode))
             {
                 return false;
             }
             request = parsed;
+            return true;
+        }
+
+        public const int MaxRouteWaypoints = 1000;
+
+        static bool OutdoorRouteIsValid(IndoorArWaypoint[] waypoints)
+        {
+            if (waypoints.Length < 2 || waypoints.Length > MaxRouteWaypoints) return false;
+            foreach (var point in waypoints)
+                if (point == null || double.IsNaN(point.latitude) || double.IsNaN(point.longitude)
+                    || !(Math.Abs(point.latitude) <= 90) || !(Math.Abs(point.longitude) <= 180)) return false;
             return true;
         }
 
@@ -121,6 +186,10 @@ namespace IndoorAr
 
         public static string LocalizationFailed(int localizationQueries, long durationMs) =>
             Build("localizationFailed", null, null, localizationQueries, durationMs);
+
+        /// <summary>The session cannot run here: device, permission, authorization or a build without the scene.</summary>
+        public static string Unavailable(int localizationQueries, long durationMs) =>
+            Build("unavailable", null, null, localizationQueries, durationMs);
 
         public static string Error(string errorCode, int localizationQueries, long durationMs) =>
             Build("error", null, errorCode, localizationQueries, durationMs);

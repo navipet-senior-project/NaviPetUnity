@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARFoundation;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -37,6 +38,7 @@ namespace IndoorAr
         float _slowHoldLeft;
         IndoorArState _loggedState;
         bool _stateLogged;
+        bool _armingEntry;
         float _sessionStarted;
         IndoorArBaseline _baseline;
         string _baselineLog;
@@ -53,6 +55,7 @@ namespace IndoorAr
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
+            ArCameraDiagnostics.Attach();
             BeginSession(IndoorArBridge.ReadRequestJson());
             if (_session == null || _session.State == IndoorArState.Done) yield break;
             var started = _session;
@@ -85,6 +88,15 @@ namespace IndoorAr
                 Deliver(IndoorArContract.Error(IndoorArContract.BadRequest, 0, 0));
                 return;
             }
+            if (request.OutdoorOnly)
+            {
+                // The outdoor scene reads the same request and answers it. Exports without that scene say so.
+                if (Application.CanStreamedLevelBeLoaded(IndoorArContract.OutdoorScene))
+                    SceneManager.LoadScene(IndoorArContract.OutdoorScene);
+                else
+                    Deliver(IndoorArContract.Unavailable(0, 0));
+                return;
+            }
             _session = new IndoorArSession(request, _localizer.MapCode);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
             _baseline = new IndoorArBaseline();
@@ -97,6 +109,10 @@ namespace IndoorAr
             _localizer.AttemptStarted += _session.OnAttemptStarted;
             _localizer.Localized += OnLocalizedObserved;
             if (!restart || Application.isEditor) return;
+            foreach (var arSession in UnityEngine.Object.FindObjectsByType<ARSession>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                arSession.enabled = true;
+            foreach (var camera in UnityEngine.Object.FindObjectsByType<ARCameraManager>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                camera.enabled = true;
             var ar = UnityEngine.Object.FindAnyObjectByType<ARSession>();
             if (ar != null) ar.Reset();
             _session.OnArSupport(ARSession.state != ARSessionState.Unsupported);
@@ -106,10 +122,19 @@ namespace IndoorAr
 
         void Update()
         {
-            if (_localizer != null)
+            if (_localizer != null && !_armingEntry)
             {
                 var json = IndoorArBridge.ReadRequestJson();
-                if (json != null && json != _requestJson) BeginSession(json);
+                if (json != null && json != _requestJson)
+                {
+                    if (Application.isEditor || !ArSessionLifecycle.ShouldInitialize(ArSessionLifecycle.LoaderActive))
+                        BeginSession(json);
+                    else
+                    {
+                        _armingEntry = true;
+                        StartCoroutine(ArmEntry(json));
+                    }
+                }
             }
             if (_session == null || _delivered) return;
             if (BackPressed()) OnHudExit();
@@ -347,16 +372,26 @@ namespace IndoorAr
             else DestroyImmediate(obj);
         }
 
+        IEnumerator ArmEntry(string json)
+        {
+            var init = ArSessionLifecycle.InitializeOnEntry();
+            while (init.MoveNext()) yield return init.Current;
+            _armingEntry = false;
+            BeginSession(json);
+        }
+
         void Deliver(string resultJson)
         {
             if (_delivered) return;
             _delivered = true;
             _requestJson = null;
+            if (Application.isPlaying) StopAllCoroutines();
+            ArSessionLifecycle.StopSessionsAndTearDown();
             IndoorArBridge.Deliver(resultJson);
         }
 
         // Android's back button arrives as Escape.
-        static bool BackPressed()
+        public static bool BackPressed()
         {
 #if ENABLE_INPUT_SYSTEM
             return Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;

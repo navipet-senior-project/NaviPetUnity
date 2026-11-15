@@ -771,6 +771,7 @@ GameObject:
   - component: {fileID: 2101039368}
   - component: {fileID: 2101039371}
   - component: {fileID: 2101039372}
+  - component: {fileID: 2101039373}
   m_Layer: 0
   m_Name: IndoorArRunner
   m_TagString: Untagged
@@ -862,3 +863,15 @@ SceneRoots:
   - {fileID: 910155517}
   - {fileID: 1297928031}
   - {fileID: 357916414}
+--- !u!114 &2101039373
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2101039367}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3c1d5a7e9b2f4a60b8e4d1f27a6c5e93, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: IndoorAr.Runtime::IndoorAr.IndoorArRouterHold

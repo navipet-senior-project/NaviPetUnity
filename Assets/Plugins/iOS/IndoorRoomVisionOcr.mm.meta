@@ -29,7 +29,7 @@ PluginImporter:
       settings:
         AddToEmbeddedBinaries: false
         CompileFlags:
-        FrameworkDependencies: Vision.framework
+        FrameworkDependencies: Vision;
   userData:
   assetBundleName:
   assetBundleVariant:

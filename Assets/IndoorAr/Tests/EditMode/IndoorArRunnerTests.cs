@@ -63,6 +63,28 @@ public class IndoorArRunnerTests
         return runner;
     }
 
+    [Test]
+    public void OutdoorRequestInABuildWithoutTheOutdoorSceneDeliversUnavailableOnce()
+    {
+        IndoorArBridge.EditorRequestJson = "{\"schemaVersion\":2,\"mode\":\"outdoor\"," +
+            "\"destination\":{\"name\":\"VEC\",\"latitude\":33.7829,\"longitude\":-118.1108},\"dataUseAccepted\":true}";
+        var listed = EditorBuildSettings.scenes;
+        EditorBuildSettings.scenes = new EditorBuildSettingsScene[0];
+        try
+        {
+            var runner = Runner();
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*unavailable"));
+            Assert.IsFalse(((IEnumerator)Call(runner, "Start")).MoveNext());
+            Call(runner, "Update");
+            Call(runner, "Update");
+            LogAssert.NoUnexpectedReceived();
+        }
+        finally
+        {
+            EditorBuildSettings.scenes = listed;
+        }
+    }
+
     [TestCase("BAD_REQUEST")]
     [TestCase("MAP_MISMATCH")]
     public void InvalidLaunchDeliversExactlyOnce(string code)

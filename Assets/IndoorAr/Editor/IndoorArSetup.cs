@@ -160,6 +160,7 @@ namespace IndoorAr.Editor
             var camera = Camera.main ?? scene.GetRootGameObjects()
                 .SelectMany(g => g.GetComponentsInChildren<Camera>()).First();
             var runner = new GameObject("IndoorArRunner");
+            runner.AddComponent<IndoorArRouterHold>();
             var localizer = runner.AddComponent<MultiSetLocalizer>();
             AddMultiSet(localizer, camera);
             runner.AddComponent<IndoorArRunner>().Configure(localizer,
