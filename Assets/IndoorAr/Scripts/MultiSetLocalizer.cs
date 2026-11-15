@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using System.Reflection;
 using MultiSet;
@@ -19,12 +20,20 @@ namespace IndoorAr
     {
         // Public-event lookup keeps the approved 1.9.3 rollback buildable; it exposes only a UnityEvent.
         static readonly EventInfo ResponseEvent = typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse");
+        static readonly FieldInfo MapSpaceField = typeof(SingleFrameLocalizationManager).GetField("mapSpace",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        static readonly FieldInfo BlurCheckField = typeof(SingleFrameLocalizationManager).GetField("enableBlurCheck",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        static bool s_requestLive;
+        static MultiSetLocalizer s_requestOwner;
+        static readonly Queue<MultiSetLocalizer> WaitingLocalizers = new Queue<MultiSetLocalizer>();
         public const float RequestTimeoutS = 30f;
 
         [SerializeField] string mapCode = "MSET_XTBY7AM7ZK77";
         [SerializeField] IndoorArSdkManager sdk;
         [SerializeField] SingleFrameLocalizationManager manager;
         [SerializeField] Transform mapSpace;
+        [SerializeField] Transform sdkMapSpace;
         bool _authPending;
         int _attemptId;
         int _generation;
@@ -32,9 +41,12 @@ namespace IndoorAr
         int _queuedAttemptId;
         int _requestGeneration;
         float _requestElapsed;
+        float _queueElapsed;
         bool _requestInFlight;
         bool _ignoreInFlight;
         bool _fallbackUnavailable;
+        bool _mapSpaceIsolated;
+        bool _blurCheckDisabled;
 
         public event Action Authenticated;
         public event Action<bool> AuthFailed;
@@ -43,21 +55,32 @@ namespace IndoorAr
         public event Action<int> NotLocalized;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
-        public bool FallbackAvailable => !_fallbackUnavailable;
+        public bool FallbackAvailable => _mapSpaceIsolated && _blurCheckDisabled && !_fallbackUnavailable;
         public bool HasLiveRequest => _requestInFlight;
-        public string FallbackStatus => _fallbackUnavailable ? "unavailable"
-            : _requestInFlight && _queuedAttemptId != 0 ? "waiting"
+        public Transform SdkMapSpace => sdkMapSpace;
+        public string FallbackStatus => !FallbackAvailable ? "unavailable"
+            : (s_requestLive && s_requestOwner != this) || _queuedAttemptId != 0 ? "waiting"
             : _requestInFlight ? "inFlight" : "available";
 
         public void Configure(IndoorArSdkManager sdkManager, SingleFrameLocalizationManager localizationManager, Transform space)
         {
+            Configure(sdkManager, localizationManager, space, null);
+        }
+
+        public void Configure(IndoorArSdkManager sdkManager, SingleFrameLocalizationManager localizationManager,
+            Transform space, Transform sdkSpace)
+        {
             sdk = sdkManager;
             manager = localizationManager;
             mapSpace = space;
+            sdkMapSpace = sdkSpace;
+            ConfigureSdkMapSpace();
+            DisableBlurCheck();
         }
 
         void Awake()
         {
+            ConfigureSdkMapSpace();
             manager.enabled = false;
             manager.localizationType = LocalizationType.Mapset;
             manager.mapOrMapsetCode = mapCode;
@@ -67,6 +90,7 @@ namespace IndoorAr
             manager.firstLocalizationUntilSuccess = false;
             manager.confidenceCheck = false;
             manager.showAlert = false;
+            DisableBlurCheck();
             var mode = typeof(SingleFrameLocalizationManager).GetField("queryMode");
             if (mode != null) mode.SetValue(manager, Enum.Parse(mode.FieldType, "Vps1"));
             // Legacy 1.9.3 otherwise issues several single-image calls per LocalizeFrame start.
@@ -116,19 +140,19 @@ namespace IndoorAr
         public void AbandonPending()
         {
             _generation++;
-            _queuedAttemptId = 0;
+            RemoveQueuedRequest();
             _fallbackUnavailable = false;
             _ignoreInFlight = _requestInFlight;
-            manager.StopAllCoroutines();
+            if (!s_requestLive) manager.StopAllCoroutines();
         }
 
         public void Localize()
         {
-            if (_fallbackUnavailable) return;
+            if (!FallbackAvailable) return;
             var attemptId = ++_attemptId;
-            if (_requestInFlight)
+            if (s_requestLive || _queuedAttemptId != 0 || WaitingLocalizers.Count > 0)
             {
-                _queuedAttemptId = attemptId;
+                QueueRequest(attemptId);
                 return;
             }
             StartRequest(attemptId);
@@ -136,17 +160,21 @@ namespace IndoorAr
 
         public void DropQueuedFallback()
         {
-            _queuedAttemptId = 0;
+            RemoveQueuedRequest();
             if (_requestInFlight) _ignoreInFlight = true;
         }
 
         public void Tick(float deltaTime)
         {
-            if (!_requestInFlight || _fallbackUnavailable) return;
-            _requestElapsed += Mathf.Max(0f, deltaTime);
-            if (_requestElapsed < RequestTimeoutS) return;
+            if (!s_requestLive) StartNextQueuedRequest();
+            if (!FallbackAvailable) return;
+            var dt = Mathf.Max(0f, deltaTime);
+            if (_requestInFlight) _requestElapsed += dt;
+            else if (_queuedAttemptId != 0) _queueElapsed += dt;
+            else return;
+            if ((_requestInFlight ? _requestElapsed : _queueElapsed) < RequestTimeoutS) return;
             _fallbackUnavailable = true;
-            _queuedAttemptId = 0;
+            RemoveQueuedRequest();
             Debug.Log("[IndoorAr] multiset fallback unavailable: prior request unresolved");
         }
 
@@ -154,7 +182,11 @@ namespace IndoorAr
 
         void StartRequest(int attemptId)
         {
+            if (s_requestLive || !FallbackAvailable) return;
             manager.StopAllCoroutines();
+            sdkMapSpace.SetPositionAndRotation(mapSpace.position, mapSpace.rotation);
+            s_requestLive = true;
+            s_requestOwner = this;
             _requestInFlight = true;
             _ignoreInFlight = false;
             _activeAttemptId = attemptId;
@@ -167,17 +199,18 @@ namespace IndoorAr
         void OnLocalized(LocalizationSuccessResponse result)
         {
             var success = result != null && result.poseFound;
-            if (!CompleteRequest(out var attemptId)) return;
+            if (!CompleteRequest(out var attemptId))
+                return;
             if (success)
             {
+                CopyAcceptedPose();
                 LogMapCodes(result);
-                _queuedAttemptId = 0;
+                RemoveQueuedRequest();
                 Localized?.Invoke(result.confidence);
             }
             else
             {
                 NotLocalized?.Invoke(attemptId);
-                StartQueuedRequest();
             }
         }
 
@@ -205,26 +238,28 @@ namespace IndoorAr
         {
             if (!CompleteRequest(out var attemptId)) return;
             NotLocalized?.Invoke(attemptId);
-            StartQueuedRequest();
         }
         void OnLocalizedWithoutConfidence()
         {
             if (!CompleteRequest(out _)) return;
-            _queuedAttemptId = 0;
+            CopyAcceptedPose();
+            RemoveQueuedRequest();
             Localized?.Invoke(null);
         }
 
         bool CompleteRequest(out int attemptId)
         {
             attemptId = _activeAttemptId;
-            if (!_requestInFlight)
+            if (!_requestInFlight || !s_requestLive || s_requestOwner != this)
             {
                 LogStaleResponse();
                 return false;
             }
 
-            // shortcut: SDK may write mapSpace before this guard; revisit if it adds transactional pose delivery.
-            var accepted = !_ignoreInFlight && !_fallbackUnavailable && _requestGeneration == _generation;
+            var accepted = !_ignoreInFlight && FallbackAvailable && _requestGeneration == _generation;
+            // shortcut: SDK writes only to its proxy; if callbacks can vanish silently, keep the process lock until restart.
+            s_requestLive = false;
+            s_requestOwner = null;
             _requestInFlight = false;
             _activeAttemptId = 0;
             _requestElapsed = 0f;
@@ -232,25 +267,87 @@ namespace IndoorAr
             if (!accepted)
             {
                 LogStaleResponse();
-                StartQueuedRequest();
                 return false;
             }
 
             return true;
         }
 
-        void StartQueuedRequest()
+        void QueueRequest(int attemptId)
         {
-            if (_queuedAttemptId == 0 || _requestInFlight || _fallbackUnavailable) return;
-            var attemptId = _queuedAttemptId;
+            if (_queuedAttemptId == 0)
+            {
+                _queueElapsed = 0f;
+                WaitingLocalizers.Enqueue(this);
+            }
+            _queuedAttemptId = attemptId;
+        }
+
+        void RemoveQueuedRequest()
+        {
+            if (_queuedAttemptId == 0) return;
             _queuedAttemptId = 0;
-            StartRequest(attemptId);
+            _queueElapsed = 0f;
+            var waiting = WaitingLocalizers.ToArray();
+            WaitingLocalizers.Clear();
+            foreach (var localizer in waiting)
+                if (localizer != null && localizer._queuedAttemptId != 0)
+                    WaitingLocalizers.Enqueue(localizer);
+        }
+
+        static void StartNextQueuedRequest()
+        {
+            if (s_requestLive) return;
+            while (WaitingLocalizers.Count > 0)
+            {
+                var next = WaitingLocalizers.Dequeue();
+                if (next == null || next._queuedAttemptId == 0) continue;
+                var attemptId = next._queuedAttemptId;
+                next.RemoveQueuedRequest();
+                if (!next.FallbackAvailable) continue;
+                next.StartRequest(attemptId);
+                return;
+            }
+        }
+
+        void CopyAcceptedPose()
+        {
+            mapSpace.SetPositionAndRotation(sdkMapSpace.position, sdkMapSpace.rotation);
+            mapSpace.gameObject.SetActive(sdkMapSpace.gameObject.activeSelf);
+        }
+
+        void ConfigureSdkMapSpace()
+        {
+            if (manager == null || mapSpace == null) return;
+            if (sdkMapSpace == null || sdkMapSpace == mapSpace)
+            {
+                var proxy = new GameObject("MultiSet VPS Map Space");
+                proxy.transform.SetPositionAndRotation(mapSpace.position, mapSpace.rotation);
+                sdkMapSpace = proxy.transform;
+            }
+            if (sdkMapSpace.IsChildOf(mapSpace)) sdkMapSpace.SetParent(null, true);
+            if (MapSpaceField == null) return;
+            object value = MapSpaceField.FieldType == typeof(GameObject) ? sdkMapSpace.gameObject
+                : MapSpaceField.FieldType == typeof(Transform) ? sdkMapSpace : null;
+            if (value == null) return;
+            MapSpaceField.SetValue(manager, value);
+            _mapSpaceIsolated = MapSpaceField.GetValue(manager) == value
+                && sdkMapSpace.gameObject != mapSpace.gameObject && !sdkMapSpace.IsChildOf(mapSpace);
+        }
+
+        void DisableBlurCheck()
+        {
+            _blurCheckDisabled = BlurCheckField != null && BlurCheckField.FieldType == typeof(bool);
+            if (!_blurCheckDisabled) return;
+            BlurCheckField.SetValue(manager, false);
+            _blurCheckDisabled = !(bool)BlurCheckField.GetValue(manager);
         }
 
         static void LogStaleResponse() => Debug.Log("[IndoorAr] stale localization response ignored");
 
         void OnDestroy()
         {
+            RemoveQueuedRequest();
             EventManager<EventData>.StopListening("AuthCallBack", OnAuthCallback);
             if (manager != null)
             {
@@ -258,9 +355,9 @@ namespace IndoorAr
                     ResponseEvent.RemoveEventHandler(manager, (Action<LocalizationSuccessResponse>)OnLocalized);
                 else manager.LocalizationSuccess.RemoveListener(OnLocalizedWithoutConfidence);
                 manager.LocalizationFailure.RemoveListener(OnNotLocalized);
-                manager.StopAllCoroutines();
+                if (!s_requestLive) manager.StopAllCoroutines();
             }
-            if (sdk != null) sdk.StopAllCoroutines();
+            if (sdk != null && !s_requestLive) sdk.StopAllCoroutines();
         }
     }
 }

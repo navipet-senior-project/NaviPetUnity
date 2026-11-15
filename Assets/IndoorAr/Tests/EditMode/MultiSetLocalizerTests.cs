@@ -12,6 +12,7 @@ public class MultiSetLocalizerTests
 
     GameObject _host;
     GameObject _sdkHost;
+    GameObject _mapHost;
     SingleFrameLocalizationManager _manager;
     MultiSetLocalizer _adapter;
 
@@ -22,10 +23,11 @@ public class MultiSetLocalizerTests
         _sdkHost.SetActive(false);
         var sdk = _sdkHost.AddComponent<IndoorArSdkManager>();
         _manager = _sdkHost.AddComponent<SingleFrameLocalizationManager>();
+        _mapHost = new GameObject("Navigation Map Space");
         _host = new GameObject("Adapter");
         _host.SetActive(false);
         _adapter = _host.AddComponent<MultiSetLocalizer>();
-        _adapter.Configure(sdk, _manager, _sdkHost.transform);
+        _adapter.Configure(sdk, _manager, _mapHost.transform);
         _host.SetActive(true);
         typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
     }
@@ -35,6 +37,7 @@ public class MultiSetLocalizerTests
     {
         if (_adapter != null) typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Object.DestroyImmediate(_host);
+        Object.DestroyImmediate(_mapHost);
         Object.DestroyImmediate(_sdkHost);
     }
 
@@ -50,7 +53,13 @@ public class MultiSetLocalizerTests
         Assert.IsFalse(_manager.confidenceCheck);
         Assert.IsFalse(_manager.showAlert);
         Assert.IsFalse(_manager.enabled);
-        Assert.AreSame(_sdkHost.transform, _adapter.MapSpace);
+        Assert.AreSame(_mapHost.transform, _adapter.MapSpace);
+        Assert.AreNotSame(_adapter.MapSpace, _adapter.SdkMapSpace);
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+        Assert.AreSame(_adapter.SdkMapSpace.gameObject,
+            typeof(SingleFrameLocalizationManager).GetField("mapSpace", flags).GetValue(_manager));
+        Assert.IsFalse((bool)typeof(SingleFrameLocalizationManager).GetField("enableBlurCheck", flags).GetValue(_manager));
         var mode = typeof(SingleFrameLocalizationManager).GetField("queryMode");
         if (mode != null) Assert.AreEqual("Vps1", mode.GetValue(_manager).ToString());
         else Assert.AreEqual(1, typeof(SingleFrameLocalizationManager).GetField("_requestAttempts").GetValue(_manager));
@@ -63,8 +72,11 @@ public class MultiSetLocalizerTests
         float? confidence = null;
         _adapter.Localized += value => { localized++; confidence = value; };
         LocalizeWithoutEditorFailure();
+        _adapter.SdkMapSpace.SetPositionAndRotation(new Vector3(3f, 4f, 5f), Quaternion.Euler(0f, 45f, 0f));
         ReportSuccess();
         Assert.AreEqual(1, localized);
+        Assert.AreEqual(new Vector3(3f, 4f, 5f), _adapter.MapSpace.position);
+        Assert.AreEqual(Quaternion.Euler(0f, 45f, 0f), _adapter.MapSpace.rotation);
         if (typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse") != null)
             Assert.AreEqual(0.73f, confidence);
         else Assert.IsNull(confidence, "legacy SDK has no public response callback");
@@ -114,6 +126,8 @@ public class MultiSetLocalizerTests
         ReportFailureAndStartDeferredRequest();
         Assert.AreEqual(0, localized);
         Assert.AreEqual(0, notLocalized);
+        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+        _adapter.Tick(0f);
         Assert.AreEqual(2, attempts);
         Assert.IsTrue(_adapter.HasLiveRequest);
         Assert.AreEqual("inFlight", _adapter.FallbackStatus);
@@ -144,6 +158,8 @@ public class MultiSetLocalizerTests
         ReportNoPoseAndStartDeferredRequest();
         Assert.AreEqual(0, localized);
         Assert.AreEqual(0, notLocalized);
+        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+        _adapter.Tick(0f);
         Assert.AreEqual(2, attempts);
 
         ReportSuccess();
@@ -174,11 +190,12 @@ public class MultiSetLocalizerTests
         Assert.IsTrue(_adapter.HasLiveRequest);
         Assert.AreEqual("unavailable", _adapter.FallbackStatus);
 
-        _sdkHost.transform.position = new Vector3(9f, 8f, 7f);
+        _adapter.SdkMapSpace.position = new Vector3(9f, 8f, 7f);
         LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
         ReportSuccess();
         Assert.AreEqual(IndoorArState.Localizing, session.State);
-        Assert.AreEqual(new Vector3(9f, 8f, 7f), _sdkHost.transform.position);
+        Assert.AreEqual(Vector3.zero, _adapter.MapSpace.position, "late SDK transform writes remain isolated from navigation");
+        Assert.AreEqual(new Vector3(9f, 8f, 7f), _adapter.SdkMapSpace.position);
         Assert.IsFalse(_adapter.HasLiveRequest);
         Assert.IsFalse(_adapter.FallbackAvailable, "late completion does not restore fallback within this session");
         Assert.AreEqual(1, attempts);
@@ -190,6 +207,9 @@ public class MultiSetLocalizerTests
         Assert.AreEqual("available", _adapter.FallbackStatus);
         LocalizeWithoutEditorFailure();
         Assert.AreEqual(2, attempts);
+        _adapter.SdkMapSpace.position = new Vector3(1f, 2f, 3f);
+        ReportSuccess();
+        Assert.AreEqual(new Vector3(1f, 2f, 3f), _adapter.MapSpace.position);
     }
 
     [Test]
@@ -229,6 +249,43 @@ public class MultiSetLocalizerTests
             Assert.AreEqual(1, attempts, "sign success removes the deferred MultiSet request");
         }
         finally { Object.DestroyImmediate(truth.gameObject); }
+    }
+
+    [Test]
+    public void ProcessWideRequestLockPreventsOverlapAcrossLocalizers()
+    {
+        LocalizeWithoutEditorFailure();
+        var otherSdkHost = new GameObject("Other SDK");
+        var otherManager = otherSdkHost.AddComponent<SingleFrameLocalizationManager>();
+        var otherMap = new GameObject("Other Navigation Map");
+        var otherHost = new GameObject("Other Adapter");
+        otherHost.SetActive(false);
+        var other = otherHost.AddComponent<MultiSetLocalizer>();
+        other.Configure(otherSdkHost.AddComponent<IndoorArSdkManager>(), otherManager, otherMap.transform);
+        otherHost.SetActive(true);
+        typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
+        var attempts = 0;
+        other.AttemptStarted += _ => attempts++;
+        try
+        {
+            other.Localize();
+            Assert.AreEqual(0, attempts);
+            Assert.AreEqual("waiting", other.FallbackStatus);
+            LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+            other.Tick(MultiSetLocalizer.RequestTimeoutS);
+            Assert.AreEqual("unavailable", other.FallbackStatus);
+            ReportFailureAndStartDeferredRequest();
+            other.Tick(0f);
+            Assert.AreEqual(0, attempts, "timeout does not release the process-wide request lock");
+            Assert.AreEqual("unavailable", other.FallbackStatus);
+        }
+        finally
+        {
+            typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
+            Object.DestroyImmediate(otherHost);
+            Object.DestroyImmediate(otherMap);
+            Object.DestroyImmediate(otherSdkHost);
+        }
     }
 
     [Test]
@@ -284,7 +341,6 @@ public class MultiSetLocalizerTests
             typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
         _manager.LocalizationFailure.RemoveListener(callback);
         LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
-        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
         typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         _manager.LocalizationFailure.AddListener(callback);
     }
@@ -295,7 +351,6 @@ public class MultiSetLocalizerTests
             typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
         _manager.LocalizationFailure.RemoveListener(callback);
         LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
-        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
         typeof(SingleFrameLocalizationManager).GetMethod("LocalizationSuccessCallback").Invoke(_manager,
             new object[] { new LocalizationSuccessResponse { poseFound = false, confidence = 0.73f } });
         _manager.LocalizationFailure.AddListener(callback);

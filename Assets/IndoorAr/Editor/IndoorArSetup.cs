@@ -132,15 +132,18 @@ namespace IndoorAr.Editor
         static void AddMultiSet(MultiSetLocalizer localizer, Camera camera)
         {
             var space = new GameObject("Map Space");
+            var sdkSpace = new GameObject("MultiSet VPS Map Space");
             var sdk = new GameObject("MultiSet SDK").AddComponent<IndoorArSdkManager>();
             var manager = new GameObject("MultiSet Localization").AddComponent<SingleFrameLocalizationManager>();
             manager.enabled = false;
             // These private serialized fields are wired exactly as in the SDK sample scene.
             var serialized = new SerializedObject(manager);
             serialized.FindProperty("arCamera").objectReferenceValue = camera;
-            serialized.FindProperty("mapSpace").objectReferenceValue = space;
+            serialized.FindProperty("mapSpace").objectReferenceValue = sdkSpace;
+            serialized.FindProperty("enableBlurCheck").boolValue = false;
             serialized.ApplyModifiedPropertiesWithoutUndo();
-            localizer.Configure(sdk, manager, space.transform);
+            localizer.Configure(sdk, manager, space.transform, sdkSpace.transform);
+            EditorUtility.SetDirty(localizer);
 
             // SDK network-error paths require ToastManager even with showAlert disabled.
             // No Canvas and disabled Text keep its UI hidden behind our HUD.

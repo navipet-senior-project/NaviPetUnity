@@ -283,7 +283,9 @@ public class IndoorArRunnerTests
             Assert.IsNotNull(localizer);
             Assert.IsNotNull(manager);
             var serialized = new SerializedObject(manager);
-            Assert.AreSame(localizer.MapSpace.gameObject, serialized.FindProperty("mapSpace").objectReferenceValue);
+            Assert.AreNotSame(localizer.MapSpace, localizer.SdkMapSpace);
+            Assert.AreSame(localizer.SdkMapSpace.gameObject, serialized.FindProperty("mapSpace").objectReferenceValue);
+            Assert.IsFalse(serialized.FindProperty("enableBlurCheck").boolValue);
             var camera = (Camera)serialized.FindProperty("arCamera").objectReferenceValue;
             Assert.IsNotNull(camera);
             Assert.IsNotNull(camera.GetComponent<UnityEngine.XR.ARFoundation.ARCameraManager>());
