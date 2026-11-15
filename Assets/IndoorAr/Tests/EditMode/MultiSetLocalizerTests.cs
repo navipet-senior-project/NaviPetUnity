@@ -7,8 +7,6 @@ using UnityEngine.TestTools;
 
 public class MultiSetLocalizerTests
 {
-    static readonly IndoorRoomLandmark West = new IndoorRoomLandmark("VEC1", "VEC", "floor_1", new Vector3(0f, -2f, 20f), 180f);
-    static readonly IndoorRoomLandmark East = new IndoorRoomLandmark("VEC2", "VEC", "floor_1", new Vector3(10f, -2f, 20f), 180f);
 
     GameObject _host;
     GameObject _sdkHost;
@@ -312,7 +310,7 @@ public class MultiSetLocalizerTests
         LocalizeWithoutEditorFailure();
         _adapter.AbandonPending();
 
-        var first = new SignFirstLocalizer(_adapter);
+        var first = new SignFirstLocalizer(_adapter, IndoorSignTrailTests.ValidatedHere(out var sighting, out _));
         var session = new IndoorArSession(new IndoorArRequest
         {
             frame = IndoorArContract.Frame, mapCode = _adapter.MapCode,
@@ -322,25 +320,21 @@ public class MultiSetLocalizerTests
         first.Localized += session.OnLocalized;
         session.OnArSupport(true);
         session.OnAuthenticated();
+        // MultiSet's authentication lands behind the sign hold.
+        ((System.Action)typeof(MultiSetLocalizer).GetField("Authenticated", System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic).GetValue(_adapter)).Invoke();
         first.Tick(SignFirstLocalizer.HoldS);
         Assert.AreEqual(1, attempts, "the new MultiSet request waits for the old callback");
         Assert.AreEqual("waiting", first.FallbackStatus);
 
-        var truth = new GameObject("truth").transform;
-        try
-        {
-            truth.SetPositionAndRotation(new Vector3(2f, 0f, 5f), Quaternion.Euler(0f, 40f, 0f));
-            first.Observe(West, Reader(truth, West));
-            Assert.IsTrue(first.Observe(East, Reader(truth, East)).Usable);
-            Assert.AreEqual(IndoorArState.Pinned, session.State);
-            Assert.IsTrue(first.FromSigns);
+        Assert.AreEqual(IndoorSignPoseStatus.Ok, first.ObservePose(sighting));
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        Assert.IsTrue(first.FromSigns);
 
-            LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
-            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
-            Assert.AreEqual(IndoorArState.Pinned, session.State);
-            Assert.AreEqual(1, attempts, "sign success removes the deferred MultiSet request");
-        }
-        finally { Object.DestroyImmediate(truth.gameObject); }
+        LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+        typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        Assert.AreEqual(1, attempts, "sign success removes the deferred MultiSet request");
     }
 
     [Test]
@@ -416,9 +410,6 @@ public class MultiSetLocalizerTests
         callback.Invoke(_manager, callback.GetParameters().Length == 0 ? null
             : new object[] { new LocalizationSuccessResponse { poseFound = poseFound, confidence = 0.73f } });
     }
-
-    static Vector3 Reader(Transform map, IndoorRoomLandmark room) => map.TransformPoint(
-        room.DoorPositionInMap + new Vector3(0f, IndoorSignTrail.CameraHeightM, IndoorSignTrail.StandoffM));
 
     void LocalizeWithoutEditorFailure()
     {

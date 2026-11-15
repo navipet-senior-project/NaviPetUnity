@@ -279,4 +279,20 @@ public class IndoorArContractTests
             CultureInfo.CurrentCulture = previous;
         }
     }
+
+    [Test]
+    public void StatusCarriesAPoseOnlyOnceLocalized()
+    {
+        const string head = "{\"type\":\"status\",\"schemaVersion\":2,\"sessionId\":\"abc\",\"seq\":3," +
+            "\"mapCode\":\"MSET_XTBY7AM7ZK77\",\"frame\":\"multiset-mapset\",";
+        Assert.AreEqual(head + "\"state\":\"localizing\",\"tracking\":true,\"roomRecognized\":\"VEC120\"," +
+            "\"roomFloor\":1,\"localized\":false,\"fallbackAvailable\":true}",
+            IndoorArContract.Status("abc", 3, "MSET_XTBY7AM7ZK77", IndoorArState.Localizing, true, "VEC120", 1,
+                false, true, null, new UnityEngine.Vector3(1f, 2f, 3f), UnityEngine.Quaternion.identity));
+        Assert.AreEqual(head + "\"state\":\"pinned\",\"tracking\":false,\"localized\":true," +
+            "\"fallbackAvailable\":false,\"pose\":{\"source\":\"sign\",\"position\":{\"x\":1.5,\"y\":-2,\"z\":0.25}," +
+            "\"rotation\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1}}}",
+            IndoorArContract.Status("abc", 3, "MSET_XTBY7AM7ZK77", IndoorArState.Pinned, false, null, 0,
+                true, false, "sign", new UnityEngine.Vector3(1.5f, -2f, .25f), UnityEngine.Quaternion.identity));
+    }
 }

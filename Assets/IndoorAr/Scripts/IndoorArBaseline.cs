@@ -5,7 +5,8 @@ namespace IndoorAr
     /// <summary>
     /// Durations and counts for the MultiSet localization baseline.
     /// No camera frames, poses, tokens, or user location.
-    /// ArrowShownMs is when the HUD first enters the guide-arrow state, not a rendered-frame or real-world alignment check.
+    /// ArrowShownMs is when the HUD first enters the guide-arrow state, which needs a MultiSet pose or a validated
+    /// sign pose; it is not a rendered-frame or real-world alignment check.
     /// </summary>
     public sealed class IndoorArBaseline
     {
@@ -24,8 +25,12 @@ namespace IndoorAr
         public long? ArrowShownMs { get; private set; }
         /// <summary>Session open until OCR first confirms a room sign. Identity only, not a pose.</summary>
         public long? TimeToSignMs { get; private set; }
-        /// <summary>Session open until sign corners first give a usable map pose, whether or not it was the pose used.</summary>
+        /// <summary>Session open until sign corners first give a usable coarse fix. Logged only; it never poses the map.</summary>
         public long? TimeToSignFixMs { get; private set; }
+        /// <summary>Recognition time of the session's first OCR read, whatever it read.</summary>
+        public long? OcrLatencyMs { get; private set; }
+        /// <summary>Solve time of the session's first sign pose that came back Ok.</summary>
+        public long? PoseEstimateUs { get; private set; }
         /// <summary>What gave the first accepted pose: "sign", "multiset", or "na" before one.</summary>
         public string PoseSource { get; private set; } = "na";
         public bool ArrowAlignmentMeasured => false;
@@ -88,6 +93,18 @@ namespace IndoorAr
             TimeToSignFixMs = nowMs - _openedMs.Value;
         }
 
+        public void NoteOcrRead(long latencyMs)
+        {
+            if (_openedMs == null || OcrLatencyMs != null) return;
+            OcrLatencyMs = latencyMs;
+        }
+
+        public void NotePoseEstimate(long solveUs)
+        {
+            if (_openedMs == null || PoseEstimateUs != null) return;
+            PoseEstimateUs = solveUs;
+        }
+
         public void NoteTrackingLost()
         {
             if (_openedMs == null) return;
@@ -107,7 +124,9 @@ namespace IndoorAr
             + " unansweredAttempts=" + UnansweredAttempts.ToString(CultureInfo.InvariantCulture)
             + " " + Field("timeToSignMs", TimeToSignMs)
             + " " + Field("timeToSignFixMs", TimeToSignFixMs)
-            + " poseSource=" + PoseSource;
+            + " poseSource=" + PoseSource
+            + " " + Field("ocrLatencyMs", OcrLatencyMs)
+            + " " + Field("poseEstimateUs", PoseEstimateUs);
 
         static string Field(string name, long? value) =>
             name + "=" + (value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : "na");

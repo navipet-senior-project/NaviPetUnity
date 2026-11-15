@@ -117,50 +117,75 @@ namespace IndoorAr
     }
 
     /// <summary>
-    /// Room signs first, MultiSet last. A localization request starts a hold instead of a MultiSet query; a usable
-    /// sign fix during or after the hold poses the map and reports Localized. MultiSet is asked only when the hold
-    /// ends without one, and its pose then wins: a later sign fix no longer moves the map.
+    /// Room signs first, MultiSet last, at two quality levels. A confirmed sign is room-recognized evidence: its trail
+    /// and one-sign fixes are returned for logging and never move the map. Only an IndoorSignPose from a sign
+    /// validated on this device is camera-pose-localized and may pose the map. With such a sign, authentication does
+    /// not wait for MultiSet and a localization request starts a hold; MultiSet is asked only when the hold ends
+    /// without a pose. Without one, MultiSet is asked at once, as in MultiSet mode. Once MultiSet poses the map its
+    /// pose wins: a later sign pose no longer moves the map.
     /// </summary>
     public sealed class SignFirstLocalizer : IIndoorArLocalizer
     {
-        // shortcut: 15 s is a guess at how long reaching a second sign takes; tune it from device runs.
+        // shortcut: 15 s is a guess at how long reaching a calibrated sign takes; tune it from device runs.
         public const float HoldS = 15f;
         // shortcut: untested limit on one sign's estimated heading error; tune it from the "sign fix" log lines.
         public const float MaxOneSignYawSigmaDeg = 20f;
 
         readonly IIndoorArLocalizer _inner;
+        readonly IndoorSignCalibration _calibration;
         readonly IndoorSignTrail _trail = new IndoorSignTrail();
         readonly IndoorSignTriangulator _triangulator = new IndoorSignTriangulator();
         bool _open;
         bool _innerPosed;
+        bool _innerReady;
+        bool _innerWanted;
+        bool _innerAuthFailed;
         float _holdLeft;
 
-        public SignFirstLocalizer(IIndoorArLocalizer inner)
+        public SignFirstLocalizer(IIndoorArLocalizer inner, IndoorSignCalibration calibration = null)
         {
             _inner = inner;
+            _calibration = calibration ?? new IndoorSignCalibration();
+            SignsCanPose = _calibration.CanPose(SystemInfo.deviceModel);
             _inner.Localized += OnInnerLocalized;
+            _inner.Authenticated += OnInnerAuthenticated;
+            _inner.AuthFailed += OnInnerAuthFailed;
         }
 
-        public event Action Authenticated { add => _inner.Authenticated += value; remove => _inner.Authenticated -= value; }
-        public event Action<bool> AuthFailed { add => _inner.AuthFailed += value; remove => _inner.AuthFailed -= value; }
+        public event Action Authenticated;
+        public event Action<bool> AuthFailed;
         public event Action<int> AttemptStarted { add => _inner.AttemptStarted += value; remove => _inner.AttemptStarted -= value; }
         public event Action<float?> Localized;
         public event Action<int> NotLocalized { add => _inner.NotLocalized += value; remove => _inner.NotLocalized -= value; }
 
+        /// <summary>Checks a solved sign pose's camera position in the map, such as its floor, before it poses the map.</summary>
+        public Func<Vector3, bool> CandidatePoseValidator;
+
         public Transform MapSpace => _inner.MapSpace;
         public string MapCode => _inner.MapCode;
-        public bool FallbackAvailable => _inner is not MultiSetLocalizer multiSet || multiSet.FallbackAvailable;
-        public string FallbackStatus => _inner is MultiSetLocalizer multiSet ? multiSet.FallbackStatus : "available";
-        /// <summary>The map is posed from signs: steer by it, but it is too coarse to show a door pin.</summary>
+        /// <summary>Some sign is validated on this device model, so signs can pose the camera here.</summary>
+        public bool SignsCanPose { get; }
+        public bool FallbackAvailable => !_innerAuthFailed && (_inner is not MultiSetLocalizer multiSet || multiSet.FallbackAvailable);
+        public string FallbackStatus => _innerAuthFailed ? "unavailable: authentication failed"
+            : _inner is MultiSetLocalizer multiSet ? multiSet.FallbackStatus : "available";
+        /// <summary>The map is posed from a validated sign pose, not from MultiSet.</summary>
         public bool FromSigns { get; private set; }
+        /// <summary>Microseconds the last ObservePose spent solving, for the pose-estimation metric.</summary>
+        public long LastSolveUs { get; private set; }
 
-        public void Authenticate() => _inner.Authenticate();
+        public void Authenticate()
+        {
+            _innerReady = _innerWanted = _innerAuthFailed = false;
+            _inner.Authenticate();
+            // A validated sign needs no network round trip; MultiSet keeps authenticating behind it.
+            if (SignsCanPose) Authenticated?.Invoke();
+        }
 
         public void Localize()
         {
             if (_open)
             {
-                if (_holdLeft <= 0f) _inner.Localize(); // the session's retry, after the hold already ran out
+                if (_holdLeft <= 0f) AskInner(); // the session's retry, after the hold already ran out
                 return;
             }
             // A new search after tracking loss: the AR world may have jumped, so earlier sightings no longer line up.
@@ -170,6 +195,11 @@ namespace IndoorAr
                 _triangulator.Clear();
             }
             FromSigns = _innerPosed = false;
+            if (!SignsCanPose)
+            {
+                _inner.Localize(); // no sign can pose here: a hold would only delay MultiSet
+                return;
+            }
             _open = true;
             _holdLeft = HoldS;
         }
@@ -182,7 +212,7 @@ namespace IndoorAr
         {
             _trail.Clear();
             _triangulator.Clear();
-            _open = _innerPosed = false;
+            _open = _innerPosed = _innerWanted = false;
             FromSigns = false;
             _holdLeft = 0f;
         }
@@ -191,20 +221,20 @@ namespace IndoorAr
         {
             if (!_open || _holdLeft <= 0f) return;
             _holdLeft -= dt;
-            if (_holdLeft <= 0f) _inner.Localize();
+            if (_holdLeft <= 0f) AskInner();
         }
 
-        /// <summary>Feeds one confirmed sign. Returns the trail's fix so the caller can log how good it is.</summary>
+        /// <summary>Feeds one confirmed sign. Room-recognized evidence: the trail's fix is for the log only.</summary>
         public IndoorSignFix Observe(IndoorRoomLandmark room, Vector3 cameraInWorld)
         {
             _trail.Add(room, cameraInWorld);
-            return Apply(_trail.Solve());
+            return _trail.Solve();
         }
 
         /// <summary>
         /// Feeds one frame of a confirmed sign's image corners. Once enough frames locate the sign it joins the
-        /// trail, and it can pose the map alone: heading from the wall the text is on, taken as the wall its door
-        /// is in, and position from the door marker. That is approximate by SignOffsetM and the heading estimate.
+        /// trail, and alone it gives a coarse fix: heading from the wall the text is on, taken as the wall its door
+        /// is in, and position from the door marker. Both are room-recognized evidence for the log only.
         /// </summary>
         public IndoorSignTriangulation ObserveCorners(IndoorRoomLandmark room, IndoorSignObservation observation,
             out IndoorSignFix fix)
@@ -222,20 +252,55 @@ namespace IndoorAr
                 fix.YawBoundDeg = sign.YawSigmaDeg;
                 fix.OneSign = fix.Usable = true;
             }
-            fix = Apply(fix);
             return sign;
         }
 
-        IndoorSignFix Apply(IndoorSignFix fix)
+        /// <summary>
+        /// Feeds one frame of a confirmed sign. A pose from a sign validated on this device that
+        /// CandidatePoseValidator accepts poses the map, unless MultiSet already did this search.
+        /// </summary>
+        public IndoorSignPoseStatus ObservePose(IndoorSignObservation observation)
         {
-            if (!fix.Usable || _innerPosed) return fix;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var pose = IndoorSignPose.Solve(observation, _calibration.Find(observation?.RoomId));
+            LastSolveUs = watch.ElapsedTicks * 1000000L / System.Diagnostics.Stopwatch.Frequency;
+            if (pose.Status != IndoorSignPoseStatus.Ok || _innerPosed) return pose.Status;
+            if (CandidatePoseValidator != null && !CandidatePoseValidator(pose.CameraPositionInMap))
+                return IndoorSignPoseStatus.Implausible;
             if (_inner is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
-            MapSpace.SetPositionAndRotation(fix.Origin, Quaternion.Euler(0f, fix.YawDeg, 0f));
+            _innerWanted = false;
+            SignPoseLocalizer.Place(MapSpace, observation.CameraWorldPosition, observation.CameraWorldRotation,
+                pose.CameraPositionInMap, pose.CameraRotationInMap);
             FromSigns = true;
-            if (!_open) return fix;
+            if (!_open) return pose.Status;
             _open = false;
             Localized?.Invoke(null);
-            return fix;
+            return pose.Status;
+        }
+
+        // With a sign able to pose, authentication was not awaited, so MultiSet waits for its own.
+        void AskInner()
+        {
+            if (SignsCanPose && !_innerReady)
+            {
+                _innerWanted = !_innerAuthFailed;
+                return;
+            }
+            _innerWanted = false;
+            _inner.Localize();
+        }
+
+        void OnInnerAuthenticated()
+        {
+            _innerReady = true;
+            if (!SignsCanPose) Authenticated?.Invoke();
+            else if (_innerWanted) AskInner();
+        }
+
+        void OnInnerAuthFailed(bool network)
+        {
+            if (!SignsCanPose) AuthFailed?.Invoke(network);
+            else _innerAuthFailed = true; // signs can still pose; only the fallback is gone
         }
 
         void OnInnerLocalized(float? confidence)

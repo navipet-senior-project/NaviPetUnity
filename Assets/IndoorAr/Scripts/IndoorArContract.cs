@@ -207,6 +207,38 @@ namespace IndoorAr
                 ? resultJson
                 : resultJson.Insert(resultJson.Length - 1, ",\"signRoom\":\"" + signRoom + "\"");
 
+        /// <summary>
+        /// A progress message for the host while the session runs; the result still comes once through Deliver.
+        /// seq counts up within one sessionId. roomRecognized names the room a sign was read from: identity only,
+        /// not a position. The pose, the camera in the map frame when localized, is present only when localized and
+        /// must never be logged. Room ids are VEC plus digits and the map code is the build's, so nothing needs escaping.
+        /// </summary>
+        public static string Status(string sessionId, int seq, string mapCode, IndoorArState state, bool tracking,
+            string roomRecognized, int roomFloor, bool localized, bool fallbackAvailable, string poseSource,
+            Vector3 position, Quaternion rotation)
+        {
+            var json = new StringBuilder("{\"type\":\"status\",\"schemaVersion\":")
+                .Append(SchemaVersionV2.ToString(CultureInfo.InvariantCulture))
+                .Append(",\"sessionId\":\"").Append(sessionId)
+                .Append("\",\"seq\":").Append(seq.ToString(CultureInfo.InvariantCulture))
+                .Append(",\"mapCode\":\"").Append(mapCode).Append("\",\"frame\":\"").Append(Frame)
+                .Append("\",\"state\":\"").Append(state.ToString().ToLowerInvariant())
+                .Append("\",\"tracking\":").Append(tracking ? "true" : "false");
+            if (!string.IsNullOrEmpty(roomRecognized))
+                json.Append(",\"roomRecognized\":\"").Append(roomRecognized).Append("\",\"roomFloor\":")
+                    .Append(roomFloor.ToString(CultureInfo.InvariantCulture));
+            json.Append(",\"localized\":").Append(localized ? "true" : "false")
+                .Append(",\"fallbackAvailable\":").Append(fallbackAvailable ? "true" : "false");
+            if (localized)
+                json.Append(",\"pose\":{\"source\":\"").Append(poseSource)
+                    .Append("\",\"position\":{").Append(Xyz(position.x, position.y, position.z))
+                    .Append("},\"rotation\":{").Append(Xyz(rotation.x, rotation.y, rotation.z))
+                    .Append(",\"w\":").Append(rotation.w.ToString("R", CultureInfo.InvariantCulture)).Append("}}");
+            return json.Append('}').ToString();
+        }
+
+        static string Xyz(float x, float y, float z) => FormattableString.Invariant($"\"x\":{x:R},\"y\":{y:R},\"z\":{z:R}");
+
         // Written by hand: JsonUtility cannot omit fields. Status and error codes
         // are constants from this file, so they need no escaping.
         static string Build(string status, float? checkDistanceM, string errorCode,

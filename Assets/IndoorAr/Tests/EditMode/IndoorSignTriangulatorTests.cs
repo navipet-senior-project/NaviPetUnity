@@ -107,7 +107,7 @@ public class IndoorSignTriangulatorTests
     }
 
     [Test]
-    public void OneLocatedSignPosesTheMapWithinTheSignsUnmeasuredOffset()
+    public void OneLocatedSignIsACoarseFixThatNeverPosesTheMap()
     {
         var host = new GameObject("map");
         var truth = new GameObject("truth").transform;
@@ -115,10 +115,12 @@ public class IndoorSignTriangulatorTests
         {
             truth.SetPositionAndRotation(new Vector3(2f, 0f, 5f), Quaternion.Euler(0f, 40f, 0f));
             var inner = host.AddComponent<RunnerFakeLocalizer>();
+            inner.DeferAnswer = true;
             var first = new SignFirstLocalizer(inner);
             var localized = 0;
             first.Localized += _ => localized++;
             first.Localize();
+            Assert.AreEqual(1, inner.AttemptCount, "no validated sign: MultiSet is asked at once");
 
             var fix = default(IndoorSignFix);
             var sign = truth.TransformPoint(West.DoorPositionInMap + SignFromDoor);
@@ -127,13 +129,12 @@ public class IndoorSignTriangulatorTests
 
             Assert.IsTrue(fix.Usable);
             Assert.IsTrue(fix.OneSign);
-            Assert.AreEqual(1, localized);
-            Assert.IsTrue(first.FromSigns);
-            Assert.AreEqual(0f, Mathf.DeltaAngle(40f, host.transform.eulerAngles.y), 1f);
-            Assert.AreEqual(SignFromDoor.x, Vector3.Distance(truth.position, host.transform.position), .02f,
-                "the map is off by how far the sign really is from the assumed point above its door marker");
-            first.Tick(SignFirstLocalizer.HoldS);
-            Assert.AreEqual(0, inner.AttemptCount, "a sign fix ends the hold: MultiSet is not asked");
+            Assert.AreEqual(0f, Mathf.DeltaAngle(40f, fix.YawDeg), 1f);
+            Assert.AreEqual(SignFromDoor.x, Vector3.Distance(truth.position, fix.Origin), .02f,
+                "off by how far the sign really is from the assumed point above its door marker");
+            Assert.AreEqual(0, localized, "a recognized room is not a camera pose");
+            Assert.IsFalse(first.FromSigns);
+            Assert.AreEqual(Vector3.zero, host.transform.position);
 
             // A second located sign 10 m on replaces the one-sign fix with the trail's.
             sign = truth.TransformPoint(East.DoorPositionInMap + SignFromDoor);
@@ -143,7 +144,7 @@ public class IndoorSignTriangulatorTests
             Assert.IsFalse(fix.OneSign);
             Assert.AreEqual(2, fix.Signs);
             Assert.AreEqual(11.3f, fix.YawBoundDeg, .1f, "atan(2 * 1 m / 10 m)");
-            Assert.AreEqual(1, localized);
+            Assert.AreEqual(0, localized);
 
             // Where the reader stood says less than the located sign, so it does not replace it.
             var coarse = first.Observe(West, truth.TransformPoint(new Vector3(50f, 0f, 50f)));
@@ -174,8 +175,7 @@ public class IndoorSignTriangulatorTests
                 Assert.IsFalse(none.Usable);
             }
             Assert.IsFalse(first.FromSigns);
-            first.Tick(SignFirstLocalizer.HoldS);
-            Assert.AreEqual(1, inner.AttemptCount, "the hold ran out without a sign fix: MultiSet is asked");
+            Assert.AreEqual(1, inner.AttemptCount, "no validated sign: MultiSet is asked at once");
 
             host.transform.SetPositionAndRotation(new Vector3(9f, 9f, 9f), Quaternion.identity);
             var fix = default(IndoorSignFix);

@@ -76,6 +76,17 @@ Before Unity's first scene runs, from the app that embeds `UnityFramework`:
 
 `IndoorArHost.h` is copied into the export at `Libraries/Plugins/iOS/IndoorArHost.h`. Delivering a result clears the request. For a later launch, set the new request and result handler again; if the player was unloaded and left paused, setting both reloads it (see `IndoorArHost.h`). That reload path calls Unity trampoline symbols and is not verified on a device. A missing request makes Unity return `BAD_REQUEST`. A missing handler drops the result. The same error codes as Android apply, including `ARCORE_UNSUPPORTED` when the device reports no AR support.
 
+Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives progress while a session runs, on the main queue; it stays set across sessions, and without it status is dropped. On Android the same string goes to the host activity's `postStatus(String)` if it has one; a host without that method is detected once and skipped. Unity posts only when the state, tracking, recognized room, localized flag or fallback availability changes:
+
+```json
+{"type":"status","schemaVersion":2,"sessionId":"<32 hex>","seq":2,"mapCode":"MSET_XTBY7AM7ZK77",
+ "frame":"multiset-mapset","state":"pinned","tracking":true,"roomRecognized":"VEC120","roomFloor":1,
+ "localized":true,"fallbackAvailable":true,
+ "pose":{"source":"sign","position":{"x":0,"y":0,"z":0},"rotation":{"x":0,"y":0,"z":0,"w":1}}}
+```
+
+`sessionId` is new for each request and `seq` counts up within it. `roomRecognized` and `roomFloor` appear once a room sign is confirmed; that is an identity, not a position. `pose` (camera in the MapSet frame, `source` `sign` or `multiset`) appears only when `localized` is true, and is the pose at the moment of that change, not a stream. Do not log status JSON: it can carry the camera pose. The Flutter side does not decode it yet; adding the handler there and `postStatus` to `UnityHostActivity` is a local Flutter follow-up.
+
 ## Not verified here
 
 The editor used for this change has no iOS Build Support, so the iOS player was not compiled and nothing was run on a device. EditMode tests cover the shared contract, the editor bridge stand-in, and the saved iOS player and XR settings.

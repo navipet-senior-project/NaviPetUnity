@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -25,7 +24,10 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
     public int AuthenticationCalls { get; private set; }
     public int AttemptCount { get; private set; }
     public int LastAttemptId { get; private set; }
-    public void Authenticate() { AuthenticationCalls++; Authenticated?.Invoke(); }
+    public bool DeferAuth;
+    public void Authenticate() { AuthenticationCalls++; if (!DeferAuth) Authenticated?.Invoke(); }
+    public void CompleteAuth() => Authenticated?.Invoke();
+    public void FailAuth(bool network) => AuthFailed?.Invoke(network);
     public bool Succeed = true;
     public bool DeferAnswer;
     public void Localize()
@@ -391,11 +393,12 @@ public class IndoorArRunnerTests
     public void EveryExitDeliversOnceThenTheNextLaunchStartsClean(string exit, string status)
     {
         var runner = Runner(IndoorLocalizationMode.SignFirst);
+        runner.SetSignCalibration(IndoorSignTrailTests.ValidatedHere(out _, out _));
         Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
         var first = Field<IndoorArSession>(runner, "_session");
         var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
         first.OnArSupport(true);
-        first.OnAuthenticated(); // opens the sign hold
+        signFirst.Authenticate(); // opens the sign hold
         LogAssert.Expect(LogType.Log, new Regex($"\\[IndoorAr\\] result .*\"status\":\"{status}\""));
         if (exit == "cancel")
         {
@@ -605,6 +608,19 @@ public class IndoorArRunnerTests
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camera);
         runner.SetLocalizationMode(IndoorLocalizationMode.SignFirst);
+        var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+        var floor1Y = IndoorWalkGrid.ForFloor(gridJson, 1).FloorY;
+        var floor2Y = IndoorWalkGrid.ForFloor(gridJson, 2).FloorY;
+        // A sign validated on this device, on floor 2 at eye height.
+        var sign = IndoorSignPoseTests.Sign(device: SystemInfo.deviceModel);
+        sign.doorKey = "VEC215";
+        sign.centerInMap = new Vector3(2f, floor2Y + 1.5f, 8f);
+        var signCamera = sign.centerInMap + new Vector3(-1.2f, 0f, 0.2f);
+        var sighting = IndoorSignPoseTests.Observe(sign, signCamera, Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
+        sighting.RoomId = sign.doorKey;
+        runner.SetSignCalibration(new IndoorSignCalibration { signs = new[] { sign } });
+        // Play-mode tests leave the scene's destroyed ToastManager in its static; SDK alerts would warn through it.
+        typeof(ToastManager).GetProperty("Instance").GetSetMethod(true).Invoke(null, new object[] { null });
         var start = (IEnumerator)Call(runner, "Start");
 
         try
@@ -612,11 +628,11 @@ public class IndoorArRunnerTests
             Assert.IsTrue(start.MoveNext());
             var session = Field<IndoorArSession>(runner, "_session");
             var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
-            var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
-            var floor1Y = IndoorWalkGrid.ForFloor(gridJson, 1).FloorY;
-            var floor2Y = IndoorWalkGrid.ForFloor(gridJson, 2).FloorY;
             session.OnArSupport(true);
             session.OnAuthenticated();
+            // MultiSet's own authentication lands behind the sign hold.
+            ((Action)typeof(MultiSetLocalizer).GetField("Authenticated", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(localizer)).Invoke();
 
             LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
@@ -667,15 +683,8 @@ public class IndoorArRunnerTests
 
             if (candidateKind == "signConflict")
             {
-                var vecDirectory = File.ReadAllText(Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
-                LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
-                LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
-                WithoutEditorSimulationFailure(localizer, manager, () =>
-                {
-                    ReadConfirmedRoom(runner, camera, "VEC 215", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
-                    ReadConfirmedRoom(runner, camera, "VEC 202", vecDirectory, Field<float>(runner, "_sessionStarted"), 10f, 20f);
-                });
-                Assert.AreEqual(IndoorArState.Pinned, session.State, "OCR sign trail can still localize after MultiSet rejection");
+                Assert.AreEqual(IndoorSignPoseStatus.Ok, signFirst.ObservePose(sighting));
+                Assert.AreEqual(IndoorArState.Pinned, session.State, "a validated sign can still localize after MultiSet rejection");
                 Assert.IsTrue(signFirst.FromSigns);
                 Assert.AreNotEqual(beforeRootPosition, mapRoot.position);
                 var signAlignedPosition = mapRoot.position;
@@ -736,20 +745,6 @@ public class IndoorArRunnerTests
             : new object[] { new LocalizationSuccessResponse { poseFound = poseFound, confidence = 0.73f } });
     }
 
-    static void ReadConfirmedRoom(IndoorArRunner runner, Camera camera, string text, string vecDirectory,
-        float recognitionStarted, float offsetX, float offsetZ)
-    {
-        var match = IndoorRoomIdentityMatcher.MatchSign(text, vecDirectory);
-        var landmark = match.Landmark;
-        var along = Quaternion.Euler(0f, landmark.DoorHeadingInMapDeg, 0f) * Vector3.forward;
-        camera.transform.position = landmark.DoorPositionInMap - along * IndoorSignTrail.StandoffM
-            + Vector3.up * IndoorSignTrail.CameraHeightM + new Vector3(offsetX, 0f, offsetZ);
-        var onSignRead = typeof(IndoorArRunner).GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic);
-        var args = new object[] { text, match, recognitionStarted, null };
-        onSignRead.Invoke(runner, args);
-        onSignRead.Invoke(runner, args);
-    }
-
     [Test]
     public void StepFreeWrongFloorRequestReturnsUnavailableWithoutConnectorRoute()
     {
@@ -768,18 +763,77 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void StatusReachesTheHostOnEachChangeWithAPoseOnlyOnceLocalized()
+    {
+        var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        IndoorArBridge.LastStatusJson = null;
+        try
+        {
+            var runner = Runner();
+            Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+            Call(runner, "Update");
+            var first = IndoorArBridge.LastStatusJson;
+            StringAssert.Contains("\"type\":\"status\"", first);
+            StringAssert.Contains("\"seq\":1,", first);
+            StringAssert.Contains("\"localized\":false", first);
+            StringAssert.DoesNotContain("\"pose\"", first);
+            var sessionId = Regex.Match(first, "\"sessionId\":\"([0-9a-f]{32})\"").Groups[1].Value;
+            Assert.IsNotEmpty(sessionId);
+
+            Call(runner, "Update");
+            Assert.AreSame(first, IndoorArBridge.LastStatusJson, "nothing changed, so nothing is posted");
+
+            var session = Field<IndoorArSession>(runner, "_session");
+            session.OnArSupport(true);
+            session.OnAuthenticated(); // the fake MultiSet pins at once
+            Call(runner, "Update");
+            var pinned = IndoorArBridge.LastStatusJson;
+            StringAssert.Contains($"\"sessionId\":\"{sessionId}\",\"seq\":2,", pinned);
+            StringAssert.Contains("\"state\":\"pinned\",\"tracking\":true,", pinned);
+            StringAssert.Contains("\"localized\":true,\"fallbackAvailable\":false,\"pose\":{\"source\":\"multiset\"", pinned); // the fake is no MultiSetLocalizer
+        }
+        finally
+        {
+            state.Invoke(null, new object[] { previous });
+            IndoorArBridge.LastStatusJson = null;
+        }
+    }
+
+    [Test]
+    public void ASignPoseMustLandOnTheConfirmedSignsFloorDuringASearch()
+    {
+        var runner = Runner(IndoorLocalizationMode.SignFirst);
+        _host.GetComponent<RunnerFakeLocalizer>().DeferAnswer = true;
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var grid = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+        var onFloor1 = new Vector3(0f, IndoorWalkGrid.ForFloor(grid, 1).FloorY + 1.5f, 0f);
+        var onFloor2 = new Vector3(0f, IndoorWalkGrid.ForFloor(grid, 2).FloorY + 1.5f, 0f);
+        Assert.IsFalse((bool)Call(runner, "IsCandidateSignPoseAllowed", onFloor1), "no search yet");
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsFalse((bool)Call(runner, "IsCandidateSignPoseAllowed", onFloor1));
+        Assert.IsTrue((bool)Call(runner, "IsCandidateSignPoseAllowed", onFloor2));
+    }
+
+    [Test]
     public void LocalizationModeDefaultsToSignsFirstWithMultiSetBehindIt()
     {
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, _host.AddComponent<Camera>());
+        runner.SetSignCalibration(IndoorSignTrailTests.ValidatedHere(out _, out _));
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         Assert.IsInstanceOf<SignFirstLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
         var session = Field<IndoorArSession>(runner, "_session");
         session.OnArSupport(true);
         Field<IIndoorArLocalizer>(runner, "_localizer").Authenticate();
         Assert.AreEqual(IndoorArState.Localizing, session.State);
-        Assert.AreEqual(0, localizer.AttemptCount, "MultiSet is not the first thing asked");
+        Assert.AreEqual(0, localizer.AttemptCount, "MultiSet is not the first thing asked where a sign can pose");
     }
 
     static string[] Labels(IndoorArRunner runner) =>

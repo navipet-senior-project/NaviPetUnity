@@ -77,8 +77,17 @@ public class IndoorSignTrailTests
         finally { Object.DestroyImmediate(map.gameObject); }
     }
 
+    // A sign validated on the phone running the tests, and a sighting of it from (camera, 100 deg) in the map.
+    internal static IndoorSignCalibration ValidatedHere(out IndoorSignObservation sighting, out Vector3 camera)
+    {
+        var sign = IndoorSignPoseTests.Sign(device: SystemInfo.deviceModel);
+        camera = sign.centerInMap + new Vector3(-1.2f, 0f, 0.2f);
+        sighting = IndoorSignPoseTests.Observe(sign, camera, Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
+        return new IndoorSignCalibration { signs = new[] { sign } };
+    }
+
     [Test]
-    public void SignsLocalizeFirstAndMultiSetIsOnlyAskedAfterTheHold()
+    public void WithoutAValidatedSignMultiSetIsAskedAtOnceAndSignsOnlyNameTheRoom()
     {
         var host = new GameObject("fake");
         var truth = new GameObject("truth").transform;
@@ -86,43 +95,138 @@ public class IndoorSignTrailTests
         {
             truth.SetPositionAndRotation(new Vector3(2f, 0f, 5f), Quaternion.Euler(0f, 40f, 0f));
             var inner = host.AddComponent<RunnerFakeLocalizer>();
-            var first = new SignFirstLocalizer(inner);
+            inner.DeferAnswer = true;
+            var first = new SignFirstLocalizer(inner, new IndoorSignCalibration { signs = new[] { IndoorSignPoseTests.Sign() } });
+            Assert.IsFalse(first.SignsCanPose, "validated on another device model");
+            var authenticated = 0;
             var localized = 0;
+            first.Authenticated += () => authenticated++;
             first.Localized += _ => localized++;
+            first.Authenticate();
+            Assert.AreEqual(1, authenticated, "MultiSet's own authentication");
 
             first.Localize();
-            first.Tick(SignFirstLocalizer.HoldS - 1f);
-            Assert.AreEqual(0, inner.AttemptCount, "no MultiSet query while signs may still localize");
+            Assert.AreEqual(1, inner.AttemptCount, "no hold: no sign can pose here");
+            // Two signs give a usable trail fix, but a recognized room is never an XYZ: the map stays put.
             Assert.IsFalse(first.Observe(West, Reader(truth, West)).Usable);
-            Assert.AreEqual(0, localized, "one sign is not a fix");
             Assert.IsTrue(first.Observe(East, Reader(truth, East)).Usable);
-            Assert.AreEqual(1, localized);
-            Assert.IsTrue(first.FromSigns);
-            Assert.AreEqual(0f, Vector3.Distance(truth.position, host.transform.position), 1e-3f);
-            first.Tick(5f);
-            Assert.AreEqual(0, inner.AttemptCount, "a sign fix ends the hold");
-
-            // Tracking loss: a new search starts a new hold and drops sightings from the old AR world.
-            first.Localize();
+            Assert.AreEqual(Vector3.zero, host.transform.position);
             Assert.IsFalse(first.FromSigns);
-            Assert.AreEqual(1, first.Observe(West, Reader(truth, West)).Signs);
-            first.Tick(SignFirstLocalizer.HoldS);
-            Assert.AreEqual(1, inner.AttemptCount, "the hold ran out without a sign fix: MultiSet is the fallback");
-            Assert.AreEqual(2, localized);
-            Assert.IsFalse(first.FromSigns);
-
-            // MultiSet's pose wins from here: a later sign fix is reported but does not move the map.
-            host.transform.SetPositionAndRotation(new Vector3(9f, 9f, 9f), Quaternion.identity);
-            Assert.IsTrue(first.Observe(East, Reader(truth, East)).Usable);
-            Assert.AreEqual(new Vector3(9f, 9f, 9f), host.transform.position);
-            Assert.IsFalse(first.FromSigns);
-            Assert.AreEqual(2, localized);
+            Assert.AreEqual(0, localized);
         }
         finally
         {
             Object.DestroyImmediate(host);
             Object.DestroyImmediate(truth.gameObject);
         }
+    }
+
+    [Test]
+    public void AValidatedSignPosesTheMapFirstAndMultiSetIsOnlyAskedAfterTheHold()
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            var first = new SignFirstLocalizer(inner, ValidatedHere(out var sighting, out var camera));
+            Assert.IsTrue(first.SignsCanPose);
+            var localized = 0;
+            first.Localized += _ => localized++;
+            first.Authenticate();
+
+            first.Localize();
+            first.Tick(SignFirstLocalizer.HoldS - 1f);
+            Assert.AreEqual(0, inner.AttemptCount, "no MultiSet query while a sign may still pose");
+            first.CandidatePoseValidator = _ => false;
+            Assert.AreEqual(IndoorSignPoseStatus.Implausible, first.ObservePose(sighting), "e.g. on another floor");
+            Assert.AreEqual(0, localized);
+            first.CandidatePoseValidator = null;
+            Assert.AreEqual(IndoorSignPoseStatus.Ok, first.ObservePose(sighting));
+            Assert.AreEqual(1, localized);
+            Assert.IsTrue(first.FromSigns);
+            Assert.Less(Vector3.Distance(sighting.CameraWorldPosition, host.transform.TransformPoint(camera)), 0.01f);
+            first.Tick(5f);
+            Assert.AreEqual(0, inner.AttemptCount, "a sign pose ends the hold");
+
+            // Tracking loss: a new search starts a new hold.
+            first.Localize();
+            Assert.IsFalse(first.FromSigns);
+            first.Tick(SignFirstLocalizer.HoldS);
+            Assert.AreEqual(1, inner.AttemptCount, "the hold ran out without a sign pose: MultiSet is the fallback");
+            Assert.AreEqual(2, localized);
+            Assert.IsFalse(first.FromSigns);
+
+            // MultiSet's pose wins from here: a later sign pose does not move the map.
+            host.transform.SetPositionAndRotation(new Vector3(9f, 9f, 9f), Quaternion.identity);
+            Assert.AreEqual(IndoorSignPoseStatus.Ok, first.ObservePose(sighting));
+            Assert.AreEqual(new Vector3(9f, 9f, 9f), host.transform.position);
+            Assert.IsFalse(first.FromSigns);
+            Assert.AreEqual(2, localized);
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
+    [Test]
+    public void AValidatedSignDoesNotWaitForMultiSetAuthentication()
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            inner.DeferAuth = true;
+            var first = new SignFirstLocalizer(inner, ValidatedHere(out var sighting, out _));
+            var authenticated = 0;
+            var failed = 0;
+            first.Authenticated += () => authenticated++;
+            first.AuthFailed += _ => failed++;
+            first.Authenticate();
+            Assert.AreEqual(1, authenticated, "signs need no network round trip");
+            Assert.AreEqual(1, inner.AuthenticationCalls, "MultiSet still authenticates behind them");
+
+            // The hold runs out before MultiSet is ready: it is asked once authentication lands.
+            first.Localize();
+            first.Tick(SignFirstLocalizer.HoldS);
+            Assert.AreEqual(0, inner.AttemptCount);
+            inner.CompleteAuth();
+            Assert.AreEqual(1, authenticated, "not raised twice");
+            Assert.AreEqual(1, inner.AttemptCount);
+
+            // A failed MultiSet authentication only takes the fallback away; signs still pose.
+            first.Reset();
+            first.Authenticate();
+            inner.FailAuth(true);
+            Assert.AreEqual(0, failed);
+            Assert.IsFalse(first.FallbackAvailable);
+            Assert.AreEqual("unavailable: authentication failed", first.FallbackStatus);
+            first.Localize();
+            first.Tick(SignFirstLocalizer.HoldS);
+            Assert.AreEqual(1, inner.AttemptCount, "no fallback to ask");
+            first.Localize();
+            Assert.AreEqual(IndoorSignPoseStatus.Ok, first.ObservePose(sighting));
+            Assert.IsTrue(first.FromSigns);
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
+    [Test]
+    public void WithoutAValidatedSignAuthenticationIsMultiSets()
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            inner.DeferAuth = true;
+            var first = new SignFirstLocalizer(inner);
+            var authenticated = 0;
+            var failed = 0;
+            first.Authenticated += () => authenticated++;
+            first.AuthFailed += _ => failed++;
+            first.Authenticate();
+            Assert.AreEqual(0, authenticated);
+            inner.FailAuth(false);
+            Assert.AreEqual(1, failed);
+        }
+        finally { Object.DestroyImmediate(host); }
     }
 
     [Test]
@@ -160,7 +264,8 @@ public class IndoorSignTrailTests
         {
             var inner = host.AddComponent<RunnerFakeLocalizer>();
             inner.Succeed = false;
-            var first = new SignFirstLocalizer(inner);
+            var first = new SignFirstLocalizer(inner, ValidatedHere(out _, out _));
+            first.Authenticate();
             first.Localize();
             first.Localize();
             Assert.AreEqual(0, inner.AttemptCount);

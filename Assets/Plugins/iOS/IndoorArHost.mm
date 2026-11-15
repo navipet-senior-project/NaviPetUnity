@@ -12,6 +12,7 @@ void UnityPause(int pause);
 static NSString *sRequest;
 static void (^sHandler)(NSString *json);
 static BOOL sDelivered;
+static void (^sStatusHandler)(NSString *json);
 
 static void ResumeUnloadedPlayer(void) {
     // The host calls runEmbedded only while appController is nil. After
@@ -39,6 +40,10 @@ static void ResumeUnloadedPlayer(void) {
     ResumeUnloadedPlayer();
 }
 
++ (void)setStatusHandler:(void (^)(NSString *))handler {
+    sStatusHandler = [handler copy];
+}
+
 @end
 
 extern "C" {
@@ -54,6 +59,14 @@ void IndoorArDeliverResult(const char *json) {
     if (handler == nil) return;
     sHandler = nil;
     sDelivered = YES;
+    if ([NSThread isMainThread]) handler(body);
+    else dispatch_async(dispatch_get_main_queue(), ^{ handler(body); });
+}
+
+void IndoorArPostStatus(const char *json) {
+    void (^handler)(NSString *) = sStatusHandler;
+    if (handler == nil || json == NULL) return;
+    NSString *body = [NSString stringWithUTF8String:json];
     if ([NSThread isMainThread]) handler(body);
     else dispatch_async(dispatch_get_main_queue(), ^{ handler(body); });
 }

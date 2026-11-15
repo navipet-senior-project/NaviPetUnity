@@ -97,7 +97,7 @@ namespace IndoorAr
             if (corners == null || !(capture.Fx > 0f) || !(capture.Fy > 0f)) return null;
             var sighting = new IndoorSignObservation
             {
-                RoomId = roomId, CornersPx = corners,
+                RoomId = roomId, CornersPx = corners, DeviceModel = SystemInfo.deviceModel,
                 CameraWorldPosition = capture.CameraWorldPosition, CameraWorldRotation = capture.CameraWorldRotation
             };
             var turned = rotation == 90 || rotation == 270;

@@ -40,6 +40,8 @@ namespace IndoorAr
 
         public Transform MapSpace { get; }
         public string MapCode { get; }
+        /// <summary>Checks a solved camera position in the map, such as its floor, before it may pose the map.</summary>
+        public Func<Vector3, bool> CandidatePoseValidator;
 
         public void Authenticate() => Authenticated?.Invoke();
 
@@ -50,6 +52,8 @@ namespace IndoorAr
         {
             var result = IndoorSignPose.Solve(observation, _calibration.Find(observation?.RoomId));
             if (result.Status != IndoorSignPoseStatus.Ok || !_open) return result.Status;
+            if (CandidatePoseValidator != null && !CandidatePoseValidator(result.CameraPositionInMap))
+                return IndoorSignPoseStatus.Implausible;
             _open = false;
             Place(MapSpace, observation.CameraWorldPosition, observation.CameraWorldRotation,
                 result.CameraPositionInMap, result.CameraRotationInMap);

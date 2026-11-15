@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using IndoorAr;
 using NUnit.Framework;
 using UnityEngine;
@@ -5,15 +6,17 @@ using UnityEngine;
 public class IndoorSignPoseTests
 {
     const float Fx = 1500f, Fy = 1500f, Cx = 960f, Cy = 540f;
+    const string Device = "TestPhone1,1";
 
-    static IndoorSignCalibrationEntry Sign(bool validated = true) => new IndoorSignCalibrationEntry
+    internal static IndoorSignCalibrationEntry Sign(bool validated = true, string device = Device) => new IndoorSignCalibrationEntry
     {
         doorKey = "VEC120", widthM = 0.30f, heightM = 0.15f, centerInMap = new Vector3(2f, 1.5f, 8f),
-        intoWallHeadingDeg = 90f, validated = validated
+        intoWallHeadingDeg = 90f, validated = validated, validatedDevice = device
     };
 
     // Projects the sign corners the way a camera at (position, rotation) in map space would see them.
-    static IndoorSignObservation Observe(IndoorSignCalibrationEntry sign, Vector3 position, Quaternion rotation)
+    internal static IndoorSignObservation Observe(IndoorSignCalibrationEntry sign, Vector3 position, Quaternion rotation,
+        string device = Device)
     {
         var toMap = Quaternion.Euler(0f, sign.intoWallHeadingDeg, 0f);
         var plane = new[] { new Vector2(-1, 1), new Vector2(1, 1), new Vector2(1, -1), new Vector2(-1, -1) };
@@ -26,7 +29,7 @@ public class IndoorSignPoseTests
         }
         return new IndoorSignObservation
         {
-            RoomId = "VEC120", CornersPx = corners, Fx = Fx, Fy = Fy, Cx = Cx, Cy = Cy,
+            RoomId = "VEC120", CornersPx = corners, Fx = Fx, Fy = Fy, Cx = Cx, Cy = Cy, DeviceModel = device,
             CameraWorldPosition = new Vector3(10f, 0f, 3f), CameraWorldRotation = Quaternion.Euler(0f, 40f, 0f)
         };
     }
@@ -60,6 +63,102 @@ public class IndoorSignPoseTests
         Assert.AreEqual(IndoorSignPoseStatus.BadGeometry, IndoorSignPose.Solve(good, unusable).Status);
         good.Fx = 0f;
         Assert.AreEqual(IndoorSignPoseStatus.BadGeometry, IndoorSignPose.Solve(good, sign).Status);
+    }
+
+    [Test]
+    public void APoseIsTrustedOnlyOnTheDeviceItWasValidatedOn()
+    {
+        var sign = Sign();
+        var obs = Observe(sign, sign.centerInMap + new Vector3(-1.2f, 0f, 0f), Quaternion.Euler(0f, 90f, 0f));
+        Assert.AreEqual(IndoorSignPoseStatus.Ok, IndoorSignPose.Solve(obs, sign).Status);
+        obs.DeviceModel = "OtherPhone2,1";
+        Assert.AreEqual(IndoorSignPoseStatus.OtherDevice, IndoorSignPose.Solve(obs, sign).Status);
+        obs.DeviceModel = Device;
+        sign.validatedDevice = null;
+        Assert.AreEqual(IndoorSignPoseStatus.OtherDevice, IndoorSignPose.Solve(obs, sign).Status);
+
+        var calibration = new IndoorSignCalibration { signs = new[] { Sign(), Sign(false) } };
+        Assert.IsTrue(calibration.CanPose(Device));
+        Assert.IsFalse(calibration.CanPose("OtherPhone2,1"));
+        Assert.IsFalse(calibration.CanPose(null));
+        Assert.IsFalse(new IndoorSignCalibration { signs = new[] { Sign(false) } }.CanPose(Device));
+    }
+
+    [Test]
+    public void ACameraBeyondReadingDistanceIsImplausible()
+    {
+        var sign = Sign();
+        var obs = Observe(sign, sign.centerInMap + new Vector3(-5.5f, 0f, 0f), Quaternion.Euler(0f, 90f, 0f));
+        Assert.AreEqual(IndoorSignPoseStatus.Implausible, IndoorSignPose.Solve(obs, sign).Status);
+    }
+
+    [Test]
+    public void AFarObliqueSightingThatAlsoFitsItsMirrorIsAmbiguous()
+    {
+        var sign = Sign();
+        var obs = Observe(sign, sign.centerInMap + new Vector3(-4f, 0.1f, 0f), Quaternion.Euler(0f, 100f, 0f));
+        // Whole-pixel corners, as OCR reports them: at this range the flipped pose fits them as well.
+        for (var i = 0; i < 4; i++)
+            obs.CornersPx[i] = new Vector2(Mathf.Round(obs.CornersPx[i].x), Mathf.Round(obs.CornersPx[i].y));
+        Assert.AreEqual(IndoorSignPoseStatus.Ambiguous, IndoorSignPose.Solve(obs, sign).Status);
+    }
+
+    static List<(IndoorSignObservation, Vector3, float)> Samples(IndoorSignCalibrationEntry sign)
+    {
+        var samples = new List<(IndoorSignObservation, Vector3, float)>();
+        foreach (var (offset, heading) in new[] { (new Vector3(-1.2f, 0f, 0f), 90f), (new Vector3(-1.5f, -0.1f, 0.3f), 80f),
+                     (new Vector3(-1f, 0.1f, -0.2f), 100f) })
+        {
+            var at = sign.centerInMap + offset;
+            samples.Add((Observe(sign, at, Quaternion.Euler(0f, heading, 0f)), at, heading));
+        }
+        return samples;
+    }
+
+    [Test]
+    public void ValidationNeedsEnoughSamplesFromOneDeviceThatLandOnTheSurveyedPoses()
+    {
+        var sign = Sign(false);
+        Assert.IsTrue(IndoorSignPose.Validate(sign, Samples(sign)), "validation runs before the entry is validated");
+        Assert.IsFalse(IndoorSignPose.Validate(sign, Samples(sign).GetRange(0, 2)));
+        var moved = Samples(sign);
+        moved[1] = (moved[1].Item1, moved[1].Item2 + new Vector3(0.5f, 0f, 0f), moved[1].Item3);
+        Assert.IsFalse(IndoorSignPose.Validate(sign, moved));
+        var turned = Samples(sign);
+        turned[2] = (turned[2].Item1, turned[2].Item2, turned[2].Item3 + 10f);
+        Assert.IsFalse(IndoorSignPose.Validate(sign, turned));
+        var mixed = Samples(sign);
+        mixed[0].Item1.DeviceModel = "OtherPhone2,1";
+        Assert.IsFalse(IndoorSignPose.Validate(sign, mixed));
+    }
+
+    [Test]
+    public void SurveyImportValidatesOnlyWhatItsCapturesProve()
+    {
+        var sign = Sign(false);
+        var samples = Samples(sign);
+        samples[0].Item1.DeviceModel = samples[1].Item1.DeviceModel = samples[2].Item1.DeviceModel = "samsung SM-G991B";
+        var line = IndoorSignSurvey.CaptureLine(samples[0].Item1);
+        StringAssert.StartsWith("[IndoorAr] sign capture room=VEC120 fx=1500 fy=1500 cx=960 cy=540 corners=", line);
+        var parsed = IndoorSignSurvey.ParseCapture(line);
+        Assert.AreEqual("samsung SM-G991B", parsed.DeviceModel);
+        Assert.Less(Vector2.Distance(samples[0].Item1.CornersPx[2], parsed.CornersPx[2]), 0.06f);
+        Assert.IsNull(IndoorSignSurvey.ParseCapture("[IndoorAr] sign capture room=VEC120 fx=1500"));
+
+        var survey = new IndoorSignSurvey { signs = new[] { sign, Sign() } };
+        survey.signs[1].doorKey = "VEC121"; // claims validation with no samples
+        survey.samples = samples.ConvertAll(s => new IndoorSignSurveySample
+            { capture = IndoorSignSurvey.CaptureLine(s.Item1), cameraInMap = s.Item2, headingDeg = s.Item3 }).ToArray();
+        var report = new List<string>();
+        var calibration = IndoorSignSurvey.ToCalibration(JsonUtility.ToJson(survey), report);
+        Assert.IsTrue(calibration.Find("VEC120").validated);
+        Assert.AreEqual("samsung SM-G991B", calibration.Find("VEC120").validatedDevice);
+        Assert.IsFalse(calibration.Find("VEC121").validated);
+        Assert.IsNull(calibration.Find("VEC121").validatedDevice);
+        Assert.AreEqual(new[] { "VEC120: samples=3 validated=True device=samsung SM-G991B", "VEC121: samples=0 validated=False" }, report);
+
+        survey.samples[1].cameraInMap += new Vector3(0f, 0f, 1f);
+        Assert.IsFalse(IndoorSignSurvey.ToCalibration(JsonUtility.ToJson(survey), null).Find("VEC120").validated);
     }
 
     [Test]
@@ -122,6 +221,11 @@ public class IndoorSignPoseTests
             Assert.Less(Vector3.Angle(forwardInMap, Quaternion.Euler(0f, 100f, 0f) * Vector3.forward), 0.5f);
             localizer.Observe(obs);
             Assert.AreEqual(1, localized, "one attempt, one pose");
+
+            localizer.Localize();
+            localizer.CandidatePoseValidator = _ => false;
+            Assert.AreEqual(IndoorSignPoseStatus.Implausible, localizer.Observe(obs), "e.g. on another floor");
+            Assert.AreEqual(1, localized);
         }
         finally { Object.DestroyImmediate(space.gameObject); }
     }
