@@ -65,7 +65,23 @@ namespace IndoorAr
                 yield break;
             }
             manager.StartSubsystems();
+            LoaderRestarted = true;
+            DriveCameraFromXrInput();
             Debug.Log("[ArSession] entry loader started");
+        }
+
+        /// <summary>This process started a loader after an exit tore one down. Survives scene reloads.</summary>
+        public static bool LoaderRestarted { get; private set; }
+
+        /// <summary>
+        /// After a loader restart the Input System pose driver left the camera frozen on device (2026-11-14 VEC
+        /// re-entry, pathM=0.0 for 166 s), so every AR camera then also reads the XR subsystem directly.
+        /// </summary>
+        public static void DriveCameraFromXrInput()
+        {
+            if (!LoaderRestarted) return;
+            foreach (var driver in UnityEngine.Object.FindObjectsByType<TrackedPoseDriver>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (driver.GetComponent<XrCameraPose>() == null) driver.gameObject.AddComponent<XrCameraPose>();
         }
 
         static XRManagerSettings Manager =>

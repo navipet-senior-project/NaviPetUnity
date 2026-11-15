@@ -81,6 +81,31 @@ public class IndoorWalkGridTests
         var upstairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route);
         Assert.IsTrue(upstairs.WrongFloor);
         Assert.IsFalse(upstairs.FollowingRoute, "a route on this floor's grid is no help from another floor");
+        var toStairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route, "stairs");
+        Assert.IsTrue(toStairs.FollowingRoute, "on the wrong floor a route to the stairs is followed");
+        Assert.AreEqual("stairs", toStairs.FloorChange);
+        Assert.IsFalse(LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, "stairs").FollowingRoute,
+            "on the right floor a route that ends at the stairs is not to the door");
+    }
+
+    // Every mapped door on a floor reaches stairs or an elevator on the scan, so a wrong-floor user gets a route.
+    [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
+    [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
+    public void ScannedHallwayReachesAFloorChangeFromEveryDoor(int floor, string[] rooms)
+    {
+        var grid = IndoorWalkGrid.ForFloor(Scan, floor);
+        var connectors = IndoorRoomIdentityMatcher.FloorConnectors(Directory, floor);
+        Assert.AreEqual(4, connectors.Count, "two stairs and two elevators per floor");
+        var reachable = "";
+        foreach (var (type, at) in connectors)
+            reachable += grid.TryRoute(Door(rooms[0]), at, out _) ? type + " " : "- ";
+        TestContext.WriteLine($"floor {floor} from {rooms[0]}: {reachable}");
+        foreach (var room in rooms)
+        {
+            var any = false;
+            foreach (var (_, at) in connectors) any |= grid.TryRoute(Door(room), at, out _);
+            Assert.IsTrue(any, room);
+        }
     }
 
     // What the scan covers today. A door that stops connecting means the scan or the MapSet alignment changed.

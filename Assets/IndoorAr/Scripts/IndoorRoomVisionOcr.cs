@@ -19,6 +19,7 @@ namespace IndoorAr
         float _recognitionStarted;
 
         public event Action<string, IndoorRoomMatch, float> Result;
+        public string DirectoryJson => directory == null ? null : directory.text;
 
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")]

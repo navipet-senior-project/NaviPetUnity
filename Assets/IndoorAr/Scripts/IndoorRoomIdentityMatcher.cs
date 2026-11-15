@@ -25,6 +25,15 @@ namespace IndoorAr
         public Vector3 DoorPositionInMap { get; }
         /// <summary>Unity yaw of the door marker in the MapSet frame; it points from the hallway into the room.</summary>
         public float DoorHeadingInMapDeg { get; }
+        /// <summary>The number after the last '_' of FloorId ("floor_2" is 2), or 0 when there is none.</summary>
+        public int Floor
+        {
+            get
+            {
+                var at = FloorId?.LastIndexOf('_') ?? -1;
+                return int.TryParse(at < 0 ? FloorId : FloorId.Substring(at + 1), out var floor) ? floor : 0;
+            }
+        }
 
         public IndoorRoomLandmark(string id, string buildingId, string floorId,
             Vector3 doorPositionInMap = default, float doorHeadingInMapDeg = 0f)
@@ -142,6 +151,22 @@ namespace IndoorAr
             return match == null
                 ? new IndoorRoomMatch(IndoorRoomMatchStatus.NoMatch)
                 : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match);
+        }
+
+        /// <summary>
+        /// Stairs and elevators on one floor, as the directory marks them, in the MapSet frame. VEC has two floors,
+        /// so each one leads to the other; which landing it reaches is not in the data.
+        /// </summary>
+        public static List<(string Type, Vector3 PositionInMap)> FloorConnectors(string vecDirectoryJson, int floor)
+        {
+            var found = new List<(string, Vector3)>();
+            if (string.IsNullOrWhiteSpace(vecDirectoryJson)) return found;
+            var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson);
+            foreach (var item in directory?.objects ?? new List<VecObject>())
+                if (item != null && (item.type == "stairs" || item.type == "elevator")
+                    && new IndoorRoomLandmark(item.id, null, item.floorId).Floor == floor)
+                    found.Add((item.type, IndoorMapFrame.ToMapSet(item.position)));
+            return found;
         }
 
         static IndoorRoomLandmark Landmark(VecObject item, string buildingId) =>

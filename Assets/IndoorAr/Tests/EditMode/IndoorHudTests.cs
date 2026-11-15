@@ -432,19 +432,20 @@ namespace IndoorAr.Tests
         {
             var near = SignView("VEC120", "floor_1");
             Assert.AreEqual(IndoorHudState.Scanning, near.State, "a sign never shows the arrow");
-            Assert.AreEqual("Near VEC 120 · Floor 1", near.TitleOverride);
+            Assert.AreEqual("Room VEC 120 detected · Floor 1", near.TitleOverride);
             Assert.AreEqual("From the room sign. Keep scanning for the arrow", near.DetailOverride);
 
             var upstairs = SignView("VEC215", "floor_2");
-            Assert.AreEqual("VEC 119 is on Floor 1", upstairs.TitleOverride);
-            Assert.AreEqual("This sign reads VEC 215 on Floor 2", upstairs.DetailOverride);
+            Assert.AreEqual("Room VEC 215 detected · Floor 2", upstairs.TitleOverride);
+            Assert.AreEqual("VEC 119 is on Floor 1", upstairs.DetailOverride);
+            Assert.IsTrue(upstairs.WrongFloor, "the sign's floor, not the camera height, decides");
 
             var door = SignView("VEC119", "floor_1");
-            Assert.AreEqual("This sign reads VEC 119", door.TitleOverride);
+            Assert.AreEqual("Room VEC 119 detected", door.TitleOverride);
             Assert.AreEqual("Keep scanning so AR can confirm the door", door.DetailOverride);
 
             var localize = SignView("VEC215", "floor_2", localizeOnly: true);
-            Assert.AreEqual("Near VEC 215 · Floor 2", localize.TitleOverride, "localize mode has no wrong floor");
+            Assert.AreEqual("Room VEC 215 detected · Floor 2", localize.TitleOverride, "localize mode has no wrong floor");
             Assert.AreEqual("From the room sign. AR is still aligning", localize.DetailOverride);
         }
 }

@@ -25,14 +25,16 @@ namespace IndoorAr
             && session.ResultJson.Contains("\"errorCode\":\"MULTISET_AUTH\"");
 
         /// <param name="route">Hallway waypoints from the camera to the door in the MapSet frame, or null for none.</param>
+        /// <param name="floorChange">"stairs" or "elevator" when the route ends there instead of at the door.</param>
         public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap,
-            float pinnedForS, Vector3[] route = null)
+            float pinnedForS, Vector3[] route = null, string floorChange = null)
         {
             var request = session.Request;
             var door = request.position;
             var target = door == null ? Vector3.zero : new Vector3(door.x, door.y, door.z);
-            // A route on this floor's grid says nothing about how to change floors.
-            if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || session.IsWrongFloor(cameraInMap)) route = null;
+            var wrongFloor = door != null && session.IsWrongFloor(cameraInMap);
+            // On the wrong floor only a route to stairs or an elevator helps; one to the door would cross floors.
+            if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || wrongFloor != (floorChange != null)) route = null;
             else target = IndoorWalkGrid.NextWaypoint(route, cameraInMap, RouteLookAheadM);
             var authFailed = AuthFailed(session);
             var view = new IndoorHudView
@@ -42,8 +44,9 @@ namespace IndoorAr
                 Floor = int.TryParse(request.floor, out var floor) ? floor : 0,
                 ArrowYaw = door == null ? 0f : GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
                 LocalizeOnly = request.LocalizeOnly,
-                WrongFloor = !request.LocalizeOnly && door != null && session.IsWrongFloor(cameraInMap),
+                WrongFloor = !request.LocalizeOnly && door != null && wrongFloor,
                 FollowingRoute = route != null,
+                FloorChange = route == null ? null : floorChange,
                 DistanceM = route == null ? double.NaN : IndoorWalkGrid.LengthM(route),
                 TitleOverride = authFailed ? "AR sign-in failed" : null,
                 DetailOverride = authFailed ? "The session could not use the AR token." : null,
@@ -52,30 +55,33 @@ namespace IndoorAr
             return view;
         }
 
-        /// <summary>Room-sign copy while the AR pose is still pending. It names a room, never a direction.</summary>
+        /// <summary>Room-sign copy while the AR pose is still pending. It names a room, never a position or direction.</summary>
         static void ShowSign(IndoorHudView view, IndoorRoomLandmark sign)
         {
             var label = RoomLabel(sign.Id);
-            var at = sign.FloorId.LastIndexOf('_');
-            int.TryParse(at < 0 ? sign.FloorId : sign.FloorId.Substring(at + 1), out var signFloor);
+            var signFloor = sign.Floor;
             if (!view.LocalizeOnly && view.Floor > 0 && signFloor != view.Floor)
             {
-                view.TitleOverride = view.Destination + " is on Floor " + view.Floor;
-                view.DetailOverride = "This sign reads " + label + " on Floor " + signFloor;
+                view.TitleOverride = SignDetected(sign);
+                view.DetailOverride = view.Destination + " is on Floor " + view.Floor;
             }
             else if (!view.LocalizeOnly && string.Equals(label, view.Destination, StringComparison.OrdinalIgnoreCase))
             {
-                view.TitleOverride = "This sign reads " + label;
+                view.TitleOverride = "Room " + label + " detected";
                 view.DetailOverride = "Keep scanning so AR can confirm the door";
             }
             else
             {
-                view.TitleOverride = "Near " + label + " · Floor " + signFloor;
+                view.TitleOverride = SignDetected(sign);
                 view.DetailOverride = view.LocalizeOnly
                     ? "From the room sign. AR is still aligning"
                     : "From the room sign. Keep scanning for the arrow";
             }
         }
+
+        /// <summary>"Room VEC 127 detected · Floor 1": the sign that was read, not where the camera is.</summary>
+        public static string SignDetected(IndoorRoomLandmark sign) =>
+            "Room " + RoomLabel(sign.Id) + " detected · Floor " + sign.Floor;
 
         public static string Destination(IndoorArRequest request)
         {

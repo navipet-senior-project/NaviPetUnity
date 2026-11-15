@@ -7,6 +7,15 @@ using UnityEngine.XR.ARFoundation;
 public class ArSessionLifecycleTests
 {
     [Test]
+    public void XrPoseTakesOverOnlyWhenTheXrSubsystemReportsAPose()
+    {
+        // The editor runs no XR loader: no device, so the camera keeps its pose driver and its transform.
+        Assert.IsFalse(XrCameraPose.TryReadPose(new List<UnityEngine.XR.InputDevice>(), out _, out var rotation));
+        Assert.AreEqual(Quaternion.identity, rotation);
+        Assert.IsFalse(ArSessionLifecycle.LoaderRestarted, "no loader restart happens off device");
+    }
+
+    [Test]
     public void ExitStopsAndTearsDownWithoutStartingAnotherLoader()
     {
         var steps = new List<string>();

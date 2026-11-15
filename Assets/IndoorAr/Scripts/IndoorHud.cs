@@ -27,6 +27,8 @@ namespace IndoorAr
         // Outdoor guidance reuses this HUD: no floor, and a distance because the walk is long.
         public bool Outdoor;
         public bool FollowingRoute;
+        // "stairs" or "elevator": the route on a wrong floor ends there, not at the door.
+        public string FloorChange;
         public bool OffRoute;
         public double DistanceM = double.NaN;
     }
@@ -260,7 +262,9 @@ namespace IndoorAr
                         if (view.OffRoute) return distance + "Walk back to the route";
                         return distance + (view.FollowingRoute ? view.Destination : "Direction only, not a route");
                     }
-                    if (view.WrongFloor) return "You are on a different floor";
+                    if (view.WrongFloor)
+                        return view.FloorChange == null ? "You are on a different floor"
+                            : DistanceLabel(view.DistanceM) + " · Take the " + view.FloorChange + " to Floor " + view.Floor;
                     if (view.FollowingRoute) return DistanceLabel(view.DistanceM) + " · Hallway route to " + view.Destination;
                     return "Arrow points to the room";
                 default: return RoomLine(view);

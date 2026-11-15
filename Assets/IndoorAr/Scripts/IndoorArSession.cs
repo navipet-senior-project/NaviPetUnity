@@ -174,8 +174,16 @@ namespace IndoorAr
             return new Vector2(cameraInMap.x - door.x, cameraInMap.z - door.z).magnitude;
         }
 
+        /// <summary>
+        /// A confirmed room sign names the floor the user stands on, so it wins over the AR height, which is only as
+        /// good as the pose (a frozen camera on 2026-11-14 put VEC 119 on the wrong floor). Height decides without one.
+        /// shortcut: the last confirmed sign holds until another is read; age it out if walking between floors
+        /// without passing a sign turns out to matter.
+        /// </summary>
         public bool IsWrongFloor(Vector3 cameraInMap) =>
-            Mathf.Abs(cameraInMap.y - Request.position.y) > WrongFloorM;
+            SignRoom != null && SignRoom.Floor > 0 && int.TryParse(Request.floor, out var floor)
+                ? SignRoom.Floor != floor
+                : Mathf.Abs(cameraInMap.y - Request.position.y) > WrongFloorM;
 
         void StartLocalizing()
         {

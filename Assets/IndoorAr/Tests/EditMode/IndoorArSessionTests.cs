@@ -232,6 +232,20 @@ public class IndoorArSessionTests
     static readonly IndoorRoomLandmark Sign120 = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
 
     [Test]
+    public void AConfirmedSignFloorOverridesTheCameraHeight()
+    {
+        var session = Localizing(out _);
+        var upstairsHeight = new Vector3(0f, 2.5f, 0f);
+        Assert.IsTrue(session.IsWrongFloor(upstairsHeight), "no sign: the height decides");
+        session.OnSignConfirmed(Sign120);
+        Assert.IsFalse(session.IsWrongFloor(upstairsHeight), "a Floor 1 sign keeps a Floor 1 destination");
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsTrue(session.IsWrongFloor(Vector3.zero), "a Floor 2 sign at Floor 1 height is the wrong floor");
+        Assert.AreEqual(2, new IndoorRoomLandmark("VEC215", "VEC", "floor_2").Floor);
+        Assert.AreEqual(0, new IndoorRoomLandmark("VEC1", "VEC", "lobby").Floor);
+    }
+
+    [Test]
     public void ConfirmedSignIsReportedButNeverPins()
     {
         var session = Localizing(out _);

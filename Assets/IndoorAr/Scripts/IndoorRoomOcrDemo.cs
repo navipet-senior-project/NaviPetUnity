@@ -31,6 +31,7 @@ namespace IndoorAr
         }
 
         string _directoryJson;
+        public string DirectoryJson => _directoryJson ?? (directory == null ? null : directory.text);
 
         public void Configure(ARCameraManager cameraManager, TextAsset directory)
         {

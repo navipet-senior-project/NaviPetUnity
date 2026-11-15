@@ -61,6 +61,12 @@ namespace IndoorAr
         Vector3[] _route;
         Vector3 _routeFrom;
         bool _routeTried;
+        // The wrong-floor route ends at stairs or an elevator on the floor the user is on.
+        bool _routeWrongFloor;
+        string _floorChange;
+        int _hereFloor;
+        IndoorWalkGrid _hereGrid;
+        List<(string Type, Vector3 PositionInMap)> _connectors;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -100,6 +106,8 @@ namespace IndoorAr
                 _armingEntry = false;
                 ArSessionLifecycle.RestartArComponents();
             }
+            // A scene reloaded while a restarted loader still runs has a fresh pose driver with the same fault.
+            ArSessionLifecycle.DriveCameraFromXrInput();
             BeginSession(IndoorArBridge.ReadRequestJson());
             if (_session == null || _session.State == IndoorArState.Done) yield break;
             var started = _session;
@@ -149,6 +157,9 @@ namespace IndoorAr
                 ? IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid")?.text, floor) : null;
             _route = null;
             _routeTried = false;
+            _floorChange = null;
+            _hereGrid = null;
+            _hereFloor = 0;
             _baseline = new IndoorArBaseline();
             _baselineLog = null;
             _baseline.NoteSessionOpened(NowMs());
@@ -266,13 +277,12 @@ namespace IndoorAr
             LogBaseline();
         }
 
-        // OCR runs only until the first pose, so it never competes with the pinned view. Sign-first keeps it
-        // running while pinned: every further sign lengthens the trail the map is aligned from.
+        // OCR keeps reading while pinned: each confirmed sign updates the floor the HUD and the route use, and in
+        // sign-first mode it lengthens the trail the map is aligned from.
         void UpdateSignOcr()
         {
             var on = signLocalization && !_delivered && _session != null
-                && (_session.State is IndoorArState.Init or IndoorArState.Auth or IndoorArState.Localizing
-                    || (_signFirst != null && _session.State == IndoorArState.Pinned));
+                && _session.State is IndoorArState.Init or IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned;
             if (_mlKitOcr != null) _mlKitOcr.enabled = on;
             if (_visionOcr != null) _visionOcr.enabled = on;
         }
@@ -347,11 +357,16 @@ namespace IndoorAr
             if (_session.State == IndoorArState.Done
                 && !LiveDoorHud.LocalizationFailed(_session)
                 && !LiveDoorHud.AuthFailed(_session)) return;
-            var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor, Route(CameraInMap()));
+            var route = Route(CameraInMap());
+            var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor, route, _floorChange);
             if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
             var fromSigns = _signFirst != null && _signFirst.FromSigns;
             if (fromSigns && view.State is IndoorHudState.Localized or IndoorHudState.Straight && !view.WrongFloor)
                 view.DetailOverride = "Approximate, from room signs";
+            // Names the sign the camera reads now. It is not the camera's position.
+            if (view.State == IndoorHudState.Straight && !view.FollowingRoute && _session.SignRoom != null
+                && _signs != null && _signs.InView(Time.unscaledTime))
+                view.DetailOverride = LiveDoorHud.SignDetected(_session.SignRoom);
             if (view.State == IndoorHudState.Scanning && _signFirst != null && _session.SignRoom == null)
                 view.DetailOverride ??= "Point the camera at room signs as you walk";
             if (view.State == IndoorHudState.Scanning)
@@ -372,29 +387,64 @@ namespace IndoorAr
             _hud.Show(view);
         }
 
-        /// <summary>The hallway route from the camera to the door, searched again only after the camera moved.</summary>
+        /// <summary>
+        /// The hallway route from the camera to the door, or on the wrong floor to the nearest stairs or elevator,
+        /// searched again only after the camera moved or the floor verdict changed.
+        /// </summary>
         Vector3[] Route(Vector3 cameraInMap)
         {
-            if (_walkGrid == null || _session.State != IndoorArState.Pinned || _session.Request.LocalizeOnly
-                || _session.IsWrongFloor(cameraInMap))
+            if (_walkGrid == null || _session.State != IndoorArState.Pinned || _session.Request.LocalizeOnly)
             {
                 _routeTried = false;
+                _floorChange = null;
                 return _route = null;
             }
+            var wrongFloor = _session.IsWrongFloor(cameraInMap);
+            if (wrongFloor != _routeWrongFloor) _routeTried = false;
             var moved = new Vector2(cameraInMap.x - _routeFrom.x, cameraInMap.z - _routeFrom.z).magnitude;
             if (_routeTried && moved < RerouteM) return _route;
             var had = _route != null;
             var first = !_routeTried;
-            var door = _session.Request.position;
-            if (!_walkGrid.TryRoute(cameraInMap, new Vector3(door.x, door.y, door.z), out _route)) _route = null;
+            _floorChange = null;
+            if (wrongFloor) RouteToFloorChange(cameraInMap);
+            else
+            {
+                var door = _session.Request.position;
+                if (!_walkGrid.TryRoute(cameraInMap, new Vector3(door.x, door.y, door.z), out _route)) _route = null;
+            }
             _routeFrom = cameraInMap;
             _routeTried = true;
-            // Whether the grid connects the camera to the door, and how far: no position, no waypoint.
+            _routeWrongFloor = wrongFloor;
+            // Whether the grid connects the camera to the goal, and how far: no position, no waypoint.
             if (!Application.isEditor && (first || had != (_route != null)))
                 Debug.Log(_route == null
-                    ? "[IndoorAr] route status=none"
-                    : $"[IndoorAr] route status=found waypoints={_route.Length} lengthM={Mathf.Round(IndoorWalkGrid.LengthM(_route))}");
+                    ? $"[IndoorAr] route status=none wrongFloor={wrongFloor}"
+                    : $"[IndoorAr] route status=found waypoints={_route.Length} lengthM={Mathf.Round(IndoorWalkGrid.LengthM(_route))} to={_floorChange ?? "door"}");
             return _route;
+        }
+
+        /// <summary>Shortest route on the user's floor to any stairs or elevator the directory marks there.</summary>
+        void RouteToFloorChange(Vector3 cameraInMap)
+        {
+            _route = null;
+            // A confirmed sign names the floor. shortcut: without one, VEC has two floors, so it is the other one.
+            var here = _session.SignRoom != null && _session.SignRoom.Floor > 0 ? _session.SignRoom.Floor
+                : _session.Request.floor == "1" ? 2 : 1;
+            if (_hereFloor != here)
+            {
+                _hereFloor = here;
+                _hereGrid = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid")?.text, here);
+                _connectors = IndoorRoomIdentityMatcher.FloorConnectors(
+                    _visionOcr != null ? _visionOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null, here);
+            }
+            if (_hereGrid == null) return;
+            foreach (var (type, at) in _connectors)
+                if (_hereGrid.TryRoute(cameraInMap, at, out var route)
+                    && (_route == null || IndoorWalkGrid.LengthM(route) < IndoorWalkGrid.LengthM(_route)))
+                {
+                    _route = route;
+                    _floorChange = type;
+                }
         }
 
         bool SampleScanMotion()

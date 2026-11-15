@@ -78,7 +78,8 @@ namespace IndoorAr
             if (Time.unscaledTime < _nextPoseLog) return;
             _nextPoseLog = Time.unscaledTime + PoseLogIntervalS;
             var driver = FindAnyObjectByType<TrackedPoseDriver>();
-            var line = $"[ArPose] entry={_entry} frames={_frames} pathM={_pathM:0.0} turnDeg={Mathf.Round(_turnDeg)} driver={(driver == null ? "none" : driver.isActiveAndEnabled ? "on" : "off")} notTracking={ARSession.notTrackingReason}";
+            var xr = _camera.GetComponent<XrCameraPose>();
+            var line = $"[ArPose] entry={_entry} frames={_frames} pathM={_pathM:0.0} turnDeg={Mathf.Round(_turnDeg)} driver={(driver == null ? "none" : driver.isActiveAndEnabled ? "on" : "off")} xrPose={(xr == null ? "none" : xr.Applied)} notTracking={ARSession.notTrackingReason}";
             if (line == _lastPose) return;
             _lastPose = line;
             Debug.Log(line);
