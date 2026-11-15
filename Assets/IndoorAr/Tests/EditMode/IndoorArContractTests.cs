@@ -31,6 +31,16 @@ public class IndoorArContractTests
     }
 
     [Test]
+    public void StepFreeIsOptionalAndOffUnlessTheHostAsks()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119, out var plain));
+        Assert.IsFalse(plain.stepFree);
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119.Replace("\"room\":", "\"stepFree\":true,\"room\":"), out var stepFree));
+        Assert.IsTrue(stepFree.stepFree);
+        Assert.AreEqual("VEC119", stepFree.doorKey);
+    }
+
+    [Test]
     public void ParsesAV2RequestWithArToken()
     {
         var json = Vec119.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")

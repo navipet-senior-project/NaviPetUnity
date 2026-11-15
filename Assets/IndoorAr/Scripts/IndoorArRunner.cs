@@ -463,12 +463,12 @@ namespace IndoorAr
             // Whether the grid connects the camera to the goal, and how far: no position, no waypoint.
             if (!Application.isEditor && (first || had != (_route != null)))
                 Debug.Log(_route == null
-                    ? $"[IndoorAr] route status=none wrongFloor={wrongFloor}"
-                    : $"[IndoorAr] route status=found waypoints={_route.Length} lengthM={Mathf.Round(IndoorWalkGrid.LengthM(_route))} to={_floorChange ?? "door"}");
+                    ? $"[IndoorAr] route status=none wrongFloor={wrongFloor} stepFree={_session.Request.stepFree}"
+                    : $"[IndoorAr] route status=found waypoints={_route.Length} lengthM={Mathf.Round(IndoorWalkGrid.LengthM(_route))} to={_floorChange ?? "door"} stepFree={_session.Request.stepFree}");
             return _route;
         }
 
-        /// <summary>Shortest route on the user's floor to any stairs or elevator the directory marks there.</summary>
+        /// <summary>Shortest route on the user's floor to any stairs or elevator the directory marks there; elevators only when step-free.</summary>
         void RouteToFloorChange(Vector3 cameraInMap)
         {
             _route = null;
@@ -480,7 +480,8 @@ namespace IndoorAr
                 _hereFloor = here;
                 _hereGrid = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid")?.text, here);
                 _connectors = IndoorRoomIdentityMatcher.FloorConnectors(
-                    _visionOcr != null ? _visionOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null, here);
+                    _visionOcr != null ? _visionOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null, here,
+                    _session.Request.stepFree);
             }
             if (_hereGrid == null) return;
             foreach (var (type, at) in _connectors)

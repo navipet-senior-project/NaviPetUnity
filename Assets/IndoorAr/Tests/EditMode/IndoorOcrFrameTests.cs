@@ -27,6 +27,8 @@ public class IndoorOcrFrameTests
     {
         var frame = IndoorOcrFrame.Parse(Json);
         Assert.AreEqual("VEC\n119", frame.text);
+        Assert.IsNull(frame.engine, "a recognizer that does not name itself is not guessed");
+        Assert.AreEqual("mlkit", IndoorOcrFrame.Parse(Json.Replace("{\"text\":\"VEC\\n", "{\"engine\":\"mlkit\",\"text\":\"VEC\\n")).engine);
         var corners = frame.CornersOf("VEC119");
         Assert.AreEqual(new Vector2(700f, 900f), corners[0]);
         Assert.AreEqual(new Vector2(699f, 929f), corners[3]);

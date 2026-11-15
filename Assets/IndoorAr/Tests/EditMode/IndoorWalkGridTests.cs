@@ -108,6 +108,23 @@ public class IndoorWalkGridTests
         }
     }
 
+    // A step-free request never ends at stairs, and the scan still reaches an elevator from every mapped door.
+    [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
+    [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
+    public void StepFreeFloorChangeIsAnElevatorFromEveryDoor(int floor, string[] rooms)
+    {
+        var grid = IndoorWalkGrid.ForFloor(Scan, floor);
+        var connectors = IndoorRoomIdentityMatcher.FloorConnectors(Directory, floor, stepFree: true);
+        Assert.AreEqual(2, connectors.Count, "two elevators per floor");
+        foreach (var (type, _) in connectors) Assert.AreEqual("elevator", type);
+        foreach (var room in rooms)
+        {
+            var any = false;
+            foreach (var (_, at) in connectors) any |= grid.TryRoute(Door(room), at, out _);
+            Assert.IsTrue(any, room);
+        }
+    }
+
     // What the scan covers today. A door that stops connecting means the scan or the MapSet alignment changed.
     [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
     [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]

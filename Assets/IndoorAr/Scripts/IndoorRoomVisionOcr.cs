@@ -24,6 +24,8 @@ namespace IndoorAr
         /// <summary>Text, its room match, when the frame was taken, and the sign's corners when the frame has them.</summary>
         public event Action<string, IndoorRoomMatch, float, IndoorSignObservation> Result;
         public string DirectoryJson => directory == null ? null : directory.text;
+        /// <summary>The recognizer behind the last frame: "mlkit", or "vision" when ML Kit is not in the build or could not read it.</summary>
+        public string Engine { get; private set; }
 
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")]
@@ -113,6 +115,11 @@ namespace IndoorAr
         {
             _recognizing = false;
             var frame = IndoorOcrFrame.Parse(message);
+            if (frame.engine != Engine)
+            {
+                Engine = frame.engine;
+                if (!Application.isEditor) Debug.Log($"[IndoorAr] ocr engine={Engine ?? "na"}");
+            }
             var match = IndoorRoomIdentityMatcher.MatchSign(
                 frame.text, directory == null ? null : directory.text);
             Result?.Invoke(frame.text, match, _recognitionStarted,

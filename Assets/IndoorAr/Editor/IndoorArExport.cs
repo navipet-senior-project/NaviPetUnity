@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Google.XR.ARCoreExtensions.Internal;
 using UnityEditor;
 using UnityEditor.Build;
@@ -145,6 +146,25 @@ namespace IndoorAr.Editor
             // that checksum fixed. Remove when ARCore Extensions pins a version that resolves.
             File.WriteAllText(projectPath, project.WriteToString().Replace("version = 1.57.0;", "version = 1.57.1;"));
             Debug.Log("[IndoorAr] linked ARKit, MultipeerConnectivity and Vision into UnityFramework");
+            if (File.ReadAllText(projectPath).Contains("arcore-ios-sdk")) UseArCoreCopiesOfSharedGoogleLibraries();
+        }
+
+        // ARCore's Swift package already links Promises, GoogleDataTransport, GoogleUtilities and nanopb into
+        // UnityFramework. The ML Kit pod brings its own copies, and linking both fails on duplicate symbols, so
+        // the pod's copies come off the link line and ML Kit uses ARCore's. Running "pod install" in the export
+        // again undoes this.
+        // shortcut: ML Kit 6.0.0 was built against the older major versions (GoogleUtilities 7, GoogleDataTransport
+        // 9). Every class and selector it references exists in ARCore's newer copies, but only a device run shows
+        // its usage logging works with them. Remove when the minimum iOS is 15.5 and ML Kit 7+, which declares
+        // ARCore's versions, can replace 6.0.0.
+        static void UseArCoreCopiesOfSharedGoogleLibraries()
+        {
+            var support = Path.Combine(IosExportPath, "Pods/Target Support Files/Pods-UnityFramework");
+            if (!Directory.Exists(support)) return;
+            foreach (var config in Directory.GetFiles(support, "*.xcconfig"))
+                File.WriteAllText(config, Regex.Replace(File.ReadAllText(config),
+                    " -framework \"(FBLPromises|GoogleDataTransport|GoogleUtilities|nanopb)\"", ""));
+            Debug.Log("[IndoorAr] ML Kit pods link against ARCore's Promises, GoogleDataTransport, GoogleUtilities and nanopb");
         }
 #endif
     }

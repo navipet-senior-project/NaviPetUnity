@@ -42,6 +42,13 @@ public class IndoorRoomVisionOcrTests
             Assert.AreEqual("VEC\n119", text);
             Assert.AreEqual(IndoorRoomMatchStatus.Matched, match.Status);
             Assert.AreEqual("VEC119", match.Landmark.Id);
+            Assert.IsNull(ocr.Engine);
+
+            ocr.OnVisionText("{\"engine\":\"mlkit\",\"text\":\"VEC 120\"}");
+            Assert.AreEqual("mlkit", ocr.Engine);
+            Assert.AreEqual("VEC120", match.Landmark.Id);
+            ocr.OnVisionText("{\"engine\":\"vision\",\"text\":\"\"}");
+            Assert.AreEqual("vision", ocr.Engine, "a fallback to Apple Vision shows");
         }
         finally { Object.DestroyImmediate(host); }
     }

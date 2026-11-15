@@ -62,6 +62,11 @@ namespace IndoorAr
         public string mapCode;
         public string frame;
         public string arToken;
+        /// <summary>
+        /// The user needs a route without stairs. Optional; absent means false. It only chooses elevators over stairs
+        /// for a floor change: the hallway scan holds no steps, ramps or door widths to route around.
+        /// </summary>
+        public bool stepFree;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
