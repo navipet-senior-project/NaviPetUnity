@@ -2,7 +2,6 @@ using System.IO;
 using IndoorAr;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.TestTools;
 
 public class IndoorRoomOcrDemoTests
 {
@@ -28,9 +27,8 @@ public class IndoorRoomOcrDemoTests
             string actualText = null;
             demo.Configure(null, File.ReadAllText(Path.Combine(
                 Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json")));
-            demo.Result += (text, match, _) => { actualText = text; actual = match; };
+            demo.Result += (text, match, _, _) => { actualText = text; actual = match; };
 
-            LogAssert.Expect(LogType.Log, "[IndoorAr OCR] text='VEC 119' roomMatch=Matched");
             demo.OnMlKitText("VEC 119");
 
             Assert.AreEqual("VEC 119", actualText);

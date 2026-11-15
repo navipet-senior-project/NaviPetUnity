@@ -2,11 +2,11 @@
 
 `IndoorRoomIdentityMatcher` compares recognizer text with room IDs after checking the selected building and floor against the directory. A match identifies a directory entry; it does not prove that OCR was correct or that the phone is localized.
 
-The Android adapter uses bundled ML Kit Latin text recognition (v2, `com.google.mlkit:text-recognition`) through `IndoorRoomOcrDemo`. It reads the AR Foundation camera's existing CPU image stream, downsizes frames to at most 640x480, submits at most two frames per second, and drops frames while conversion or recognition is in flight. No camera session restart or image upload occurs. Recognized text goes to `IndoorRoomIdentityMatcher.MatchSign`, which accepts a VEC door on either floor from the whole text or any single line; a frame naming two rooms is `Ambiguous`. Its `IndoorRoomMatch` result contains directory identity only.
+The Android adapter uses bundled ML Kit Latin text recognition (v2, `com.google.mlkit:text-recognition`) through `IndoorRoomOcrDemo`. It reads the AR Foundation camera's existing CPU image stream, downsizes frames to at most 1280x720, submits at most two frames per second, and drops frames while conversion or recognition is in flight. No camera session restart or image upload occurs. Recognized text goes to `IndoorRoomIdentityMatcher.MatchSign`, which accepts a VEC door on either floor from the whole text or any single line; a frame naming two rooms is `Ambiguous`. Its `IndoorRoomMatch` result contains directory identity only. The plugin also returns each word's four corner points, which feed the sign fix described below. The 1280x720 size and the corner coordinates have not run on an Android device.
 
 Before accepting recognition as useful, validate on an Android device: build and install the exported Unity AAR in the host app; scan VEC room signs on `floor_1` and `floor_2`; record the returned string and match status; repeat in portrait and landscape, low light, and soft focus; check cold startup offline to confirm the bundled model; and verify repeated scans do not grow memory or block rendering. This repository has no device result yet. OCR identifies a room; it is not a pose.
 
-The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frames to at most 640x480, and submits at most two frames per second while idle. It passes the display orientation to Vision and runs recognition on a background queue. It does not restart the camera session, upload images, log OCR text, call MultiSet, or produce a pose. Device recognition has not been validated. Before accepting it as useful, scan VEC room signs on campus in portrait and landscape, low light, and soft focus; record returned text and match status; and check repeated scans for memory growth or rendering stalls.
+The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frames to at most 1920x1440, and submits a frame at most every 0.3 s while idle. It passes the display orientation to Vision, lowers Vision's minimum text height from the default 1/32 of the image to 1/100 so a room number reads from across a hallway, and runs recognition on a background queue. For each run of digits it returns the four corners Vision reports, in the upright image. It does not restart the camera session, upload images, log OCR text, call MultiSet, or produce a pose by itself. Device recognition has not been validated, and neither has the time or heat cost of the larger frame; the `ocrMs=` value in each `[IndoorAr] sign read` log line is the capture-to-result time to tune it from. Before accepting it as useful, scan VEC room signs on campus in portrait and landscape, low light, and soft focus; record returned text and match status; and check repeated scans for memory growth or rendering stalls.
 
 ## Sign-assisted localization
 
@@ -18,7 +18,7 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 - If MultiSet already answered the open attempt without a pose and the confirmed sign is in view, the one retry is spent at once instead of at the 30 s timeout. The attempt budget does not change.
 - The result JSON gains an optional `signRoom` field with the last confirmed room ID. Hosts that do not know the field ignore it.
 
-One sign read alone never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`; only a solved pose (`SignPose`), a MultiSet answer, or a usable sign trail (`SignFirst`) does. `SignPose` never falls back to MultiSet.
+One sign read alone never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`; only a solved pose (`SignPose`), a MultiSet answer, or a usable sign fix (`SignFirst`) does. `SignPose` never falls back to MultiSet.
 
 The Flutter `google_mlkit_text_recognition` plugin was evaluated and not adopted. Flutter does not own the camera while the Unity AR activity runs, so the plugin would need a second camera session or a frame copy between the engines. The Android adapter already uses the same ML Kit v2 bundled Latin recognizer, and iOS uses Apple Vision, which needs no extra pods.
 
@@ -27,6 +27,22 @@ The Flutter `google_mlkit_text_recognition` plugin was evaluated and not adopted
 `SignFirstLocalizer` wraps the MultiSet localizer. A localization request starts a 15 s hold instead of a MultiSet query. Each confirmed sign is stored in `IndoorSignTrail` with the AR camera position at that moment. One sign names a room, which is an area, so it never produces a fix. Two or more signs give a 2D least-squares yaw and offset for the MapSet origin from the path AR tracked between them. The fix is used only when the doors are at least 8 m apart and the fit residual is at most 1.5 m. If the hold ends without such a fix, MultiSet is asked, and its pose then wins: later sign fixes are logged against it but do not move the map.
 
 What the fix is not: an exact pose. It assumes the reader stands 1.5 m out from the door marker, within 1.5 m of that point, holding the phone 1.4 m above the floor. None of the three was measured. The heading is never claimed tighter than `atan(2 * 1.5 m / baseline)` (21 degrees at 8 m, 17 at 10 m) and the position is no better than about 1.5 m. While the map is posed from signs the HUD says "Approximate, from room signs", the door pin is hidden because it could land on the wrong door, and the `checkDistanceM` in an arrival result is equally coarse. The device log prints `[IndoorAr] sign trail signs= baselineM= residualM= yawBoundDeg= usable= applied=`, plus `vsPoseM=` and `vsPoseDeg=` when a MultiSet pose is in use, which is the paired comparison needed to tune or reject these assumptions. Covered by synthetic tests only.
+
+### One sign, from its corners (not device-verified)
+
+Reading a room number says which door is near, not where the camera is. The camera pose comes from the corners of the number's text box, seen in several frames while AR tracks the phone between them. `IndoorOcrFrame` pairs each frame's corners with the camera intrinsics (`ARCameraManager.TryGetIntrinsics`, scaled to the OCR image and turned with it) and the AR camera pose taken when the image was acquired. `IndoorSignTriangulator` intersects the rays to each corner across up to 12 frames. That gives the text box's position, size and wall direction in the AR world without a measured sign size. It needs sideways motion: at least 3 frames, 6 degrees of parallax, and a ray residual of at most 3 cm. Standing still gives no fix, and the HUD then says "Keep the sign in view and walk past it".
+
+A located sign enters the trail as a point instead of a 1.5 m guess about the reader. With one located sign, `SignFirstLocalizer` poses the map by turning the measured wall direction onto the door's heading from the directory and placing the sign 1.5 m above the door marker, if the estimated heading error is at most 20 degrees. Two located signs replace that with the trail fit. MultiSet is still asked after the 15 s hold when no sign fix arrived, and its pose still wins.
+
+What is assumed, not measured:
+
+- The sign is on the same wall as its door, so the wall direction equals the door heading. A sign mounted on a flag bracket or a side wall breaks this by up to 90 degrees.
+- The text is within 1 m of the door marker along the wall (`SignOffsetM`) and 1.5 m above it (`SignHeightM`). The one-sign position is therefore off by the sign's real offset from its door, about a metre sideways.
+- The heading error estimate assumes at least one pixel of corner noise. It is a formula, not a measured spread.
+- The camera pose is read when the image is acquired; the two clocks are not synchronised beyond that.
+- None of the thresholds were tuned on a device.
+
+The device log prints `[IndoorAr] sign fix room= status= frames= parallaxDeg= residualMm=` when the status changes, and on each solved frame adds `widthM= heightM= yawSigmaDeg= oneSign= usable= applied=`. When a MultiSet pose is in use it also adds `alongM= outM= upM= wallVsDoorDeg=`: where the text sits from its door marker and how the wall faces against the door heading. Those four numbers, collected per sign, are the calibration the precise solver below is missing. No line contains the camera position or the recognized text.
 
 ## Hallway route
 
@@ -41,11 +57,11 @@ Coverage today: all 9 mapped floor-1 doors and all 8 floor-2 doors snap onto the
 It produces no pose today because these inputs do not exist:
 
 1. Per sign, in `Assets/IndoorAr/Resources/IndoorSignCalibration.json` (shipped empty): `widthM` and `heightM` of the rectangle the OCR corners outline, `centerInMap` of that rectangle in the MapSet frame, and `intoWallHeadingDeg`. An entry only counts once `validated` is true.
-2. Sign image corners from the OCR adapters. `IndoorRoomVisionOcr.mm` and `IndoorArOcrPlugin` return text only, and Vision runs on a 640x480 downsample.
-3. Camera intrinsics (`fx`, `fy`, `cx`, `cy`) and distortion at the same device camera mode and resolution as the OCR frame, plus the transform from the OCR image (display orientation) to the AR camera's frame. `Observe` assumes corners already in the AR camera's orientation.
+2. Sign image corners from the OCR adapters. Both adapters now return them, but they outline the digits, not the sign plate, so the calibrated rectangle has to be the digits' box.
+3. Lens distortion at the device camera mode of the OCR frame. Intrinsics and the turn to the upright image now come with each observation (`IndoorOcrFrame.Sighting`); distortion is ignored.
 4. A paired validation of the solved pose against `CameraInMap` captured at the same moment, through a written, measured frame conversion. The solver uses one homography decomposition; check both planar IPPE solutions before trusting oblique views.
 
-Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCorners` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure in `SignPose` mode; `SignFirst` is the default.
+Until all four exist, the device log prints `[IndoorAr] sign pose room=... status=NoCalibration` (or the next missing input), the HUD keeps the approximate "Near VEC 120" copy, and the session ends with `localizationFailed` at its normal timeout. That is the intended honest failure in `SignPose` mode; `SignFirst` is the default.
 
 ## Room identity and door poses (reuse, no second database)
 

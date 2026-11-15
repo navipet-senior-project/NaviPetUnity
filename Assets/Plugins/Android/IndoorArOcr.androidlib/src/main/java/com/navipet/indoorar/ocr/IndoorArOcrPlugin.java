@@ -4,11 +4,15 @@ import android.graphics.Bitmap;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
+import android.graphics.Point;
 import android.view.Surface;
 import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public final class IndoorArOcrPlugin {
     private static final TextRecognizer RECOGNIZER =
@@ -27,12 +31,12 @@ public final class IndoorArOcrPlugin {
         try {
             bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             bitmap.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(rgba));
-            InputImage image = InputImage.fromBitmap(bitmap,
-                    cameraRotationDegrees(unityActivity()));
+            int rotation = cameraRotationDegrees(unityActivity());
+            InputImage image = InputImage.fromBitmap(bitmap, rotation);
             Bitmap submittedBitmap = bitmap;
             RECOGNIZER.process(image)
                     .addOnSuccessListener(result -> sendUnityMessage(
-                            callbackObject, "OnMlKitText", result.getText()))
+                            callbackObject, "OnMlKitText", frameJson(result, width, height, rotation)))
                     .addOnFailureListener(error -> sendUnityMessage(
                             callbackObject, "OnMlKitError", error.getMessage()))
                     .addOnCompleteListener(task -> {
@@ -46,6 +50,28 @@ public final class IndoorArOcrPlugin {
             return false;
         }
         return true;
+    }
+
+    // The text plus each word's four corners (top-left first, clockwise) in the upright image ML Kit read.
+    private static String frameJson(Text result, int width, int height, int rotation) {
+        try {
+            boolean turned = rotation == 90 || rotation == 270;
+            JSONArray tokens = new JSONArray();
+            for (Text.TextBlock block : result.getTextBlocks())
+                for (Text.Line line : block.getLines())
+                    for (Text.Element element : line.getElements()) {
+                        Point[] points = element.getCornerPoints();
+                        if (points == null || points.length != 4) continue;
+                        JSONArray corners = new JSONArray();
+                        for (Point point : points) corners.put(point.x).put(point.y);
+                        tokens.put(new JSONObject().put("text", element.getText()).put("corners", corners));
+                    }
+            return new JSONObject().put("text", result.getText())
+                    .put("width", turned ? height : width).put("height", turned ? width : height)
+                    .put("rotation", rotation).put("tokens", tokens).toString();
+        } catch (org.json.JSONException error) {
+            return result.getText();
+        }
     }
 
     private static android.app.Activity unityActivity() throws Exception {

@@ -63,7 +63,7 @@ namespace IndoorAr
     public sealed class IndoorSignObservation
     {
         public string RoomId;
-        /// <summary>Top-left, top-right, bottom-right, bottom-left in sensor-image pixels, origin top-left, y down.</summary>
+        /// <summary>Top-left, top-right, bottom-right, bottom-left in pixels of the upright image, origin top-left, y down.</summary>
         public Vector2[] CornersPx;
         public float Fx, Fy, Cx, Cy;
         public Vector3 CameraWorldPosition;

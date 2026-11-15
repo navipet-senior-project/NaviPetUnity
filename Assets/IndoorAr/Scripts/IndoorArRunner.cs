@@ -48,6 +48,7 @@ namespace IndoorAr
         float _sessionStarted;
         IndoorArBaseline _baseline;
         string _baselineLog;
+        IndoorSignFixStatus? _signFix;
         Material _pinAmberMaterial;
         Material _pinCoreMaterial;
         IndoorRoomOcrDemo _mlKitOcr;
@@ -136,6 +137,7 @@ namespace IndoorAr
             _scanPoseReady = false;
             _slowHoldLeft = 0f;
             _signs = new IndoorSignTracker();
+            _signFix = null;
             _sessionAttempts.Clear();
             // Localizers outlive a warm launch; nothing they held belongs to this session's AR world.
             _signFirst?.Reset();
@@ -276,7 +278,8 @@ namespace IndoorAr
         {
             var wasPinned = _session.WasPinned;
             _session.OnLocalized(confidence);
-            if (!wasPinned && _session.WasPinned) _baseline?.NotePoseAccepted(NowMs());
+            if (!wasPinned && _session.WasPinned)
+                _baseline?.NotePoseAccepted(NowMs(), _signPose != null || (_signFirst != null && _signFirst.FromSigns));
             LogBaseline();
         }
 
@@ -290,14 +293,14 @@ namespace IndoorAr
             if (_visionOcr != null) _visionOcr.enabled = on;
         }
 
-        void OnSignRead(string text, IndoorRoomMatch match, float recognitionStarted)
+        void OnSignRead(string text, IndoorRoomMatch match, float recognitionStarted, IndoorSignObservation observation)
         {
             if (!signLocalization || _session == null || _delivered || _signs == null
                 || recognitionStarted < _sessionStarted) return;
             var now = Time.unscaledTime;
-            // Status and room id only: the raw recognized text never reaches the log.
+            // Status, room id and timing only: the raw recognized text never reaches the log.
             if (!Application.isEditor)
-                Debug.Log($"[IndoorAr] sign read status={match?.Status} room={match?.Landmark?.Id ?? "none"}");
+                Debug.Log($"[IndoorAr] sign read status={match?.Status} room={match?.Landmark?.Id ?? "none"} ocrMs={(long)((Time.realtimeSinceStartup - recognitionStarted) * 1000)} corners={observation != null}");
             if (_signs.Observe(match, now))
             {
                 if (!Application.isEditor) Debug.Log($"[IndoorAr] sign confirmed room={_signs.Confirmed.Id}");
@@ -305,15 +308,49 @@ namespace IndoorAr
                 _baseline?.NoteSignConfirmed(NowMs());
                 LogBaseline();
                 if (_signFirst != null) ObserveSignTrail();
-                // No adapter returns sign corners yet, so this reports the first missing input on device.
+                // Reports the first missing input on device: today, the sign's measured size and place.
                 if (_signPose != null)
                 {
-                    var status = _signPose.Observe(new IndoorSignObservation { RoomId = _signs.Confirmed.Id });
+                    var status = _signPose.Observe(observation ?? new IndoorSignObservation { RoomId = _signs.Confirmed.Id });
                     if (!Application.isEditor)
                         Debug.Log($"[IndoorAr] sign pose room={_signs.Confirmed.Id} status={status}");
                 }
             }
             if (_signs.InView(now)) _session.OnSignInView();
+            if (_signFirst != null && observation != null && _signs.Confirmed != null
+                && _signs.Confirmed.Id == observation.RoomId)
+                ObserveSignCorners(observation);
+        }
+
+        // Locates the confirmed sign from its corners. Logs the fit and the sign's own geometry, never the camera's.
+        void ObserveSignCorners(IndoorSignObservation observation)
+        {
+            var room = _signs.Confirmed;
+            var sign = _signFirst.ObserveCorners(room, observation, out var fix);
+            var changed = _signFix != sign.Status;
+            _signFix = sign.Status;
+            if (fix.Usable)
+            {
+                _baseline?.NoteSignFix(NowMs());
+                LogBaseline();
+            }
+            if (Application.isEditor || (!changed && sign.Status != IndoorSignFixStatus.Ok)) return;
+            var line = $"[IndoorAr] sign fix room={room.Id} status={sign.Status} frames={sign.Frames} parallaxDeg={Mathf.Round(sign.ParallaxDeg)} residualMm={Mathf.Round(sign.ResidualM * 1000f)}";
+            if (sign.Status == IndoorSignFixStatus.Ok)
+            {
+                line += $" widthM={sign.WidthM:0.00} heightM={sign.HeightM:0.00} yawSigmaDeg={Mathf.Round(sign.YawSigmaDeg)} oneSign={fix.OneSign} usable={fix.Usable} applied={_signFirst.FromSigns}";
+                if (!_signFirst.FromSigns && _session.WasPinned)
+                {
+                    // Under a MultiSet pose: where the sign's text sits from its door marker, and how the wall
+                    // faces against the door heading. These are the measurements the sign calibration lacks.
+                    var map = _localizer.MapSpace;
+                    var fromDoor = Quaternion.Euler(0f, -room.DoorHeadingInMapDeg, 0f)
+                        * (map.InverseTransformPoint(sign.CenterInWorld) - room.DoorPositionInMap);
+                    var wallVsDoor = Mathf.DeltaAngle(room.DoorHeadingInMapDeg, sign.IntoWallYawDeg - map.eulerAngles.y);
+                    line += $" alongM={fromDoor.x:0.00} outM={-fromDoor.z:0.00} upM={fromDoor.y:0.00} wallVsDoorDeg={Mathf.Round(wallVsDoor)}";
+                }
+            }
+            Debug.Log(line);
         }
 
         // Logs how good the trail is and how far it disagrees with the pose in use: sizes only, no position.
@@ -372,6 +409,11 @@ namespace IndoorAr
                 view.DetailOverride = LiveDoorHud.SignDetected(_session.SignRoom);
             if (view.State == IndoorHudState.Scanning && _signFirst != null && _session.SignRoom == null)
                 view.DetailOverride ??= "Point the camera at room signs as you walk";
+            // One spot gives the sign's direction but not its distance, so ask for the sideways view.
+            if (view.State == IndoorHudState.Scanning && _signFix is IndoorSignFixStatus.FewFrames or IndoorSignFixStatus.LowParallax
+                && _signs != null && _signs.InView(Time.unscaledTime)
+                && (view.LocalizeOnly || view.Floor <= 0 || _signs.Confirmed.Floor == view.Floor))
+                view.DetailOverride = "Keep the sign in view and walk past it";
             if (view.State == IndoorHudState.Scanning)
             {
                 view.ScanTooFast = SampleScanMotion();

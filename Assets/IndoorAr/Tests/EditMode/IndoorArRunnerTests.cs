@@ -183,12 +183,12 @@ public class IndoorArRunnerTests
         var match = IndoorRoomIdentityMatcher.MatchSign("119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
         var started = Field<float>(runner, "_sessionStarted");
         var onSignRead = runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic);
-        onSignRead.Invoke(runner, new object[] { "119", match, started });
-        onSignRead.Invoke(runner, new object[] { "119", match, started });
+        onSignRead.Invoke(runner, new object[] { "119", match, started, null });
+        onSignRead.Invoke(runner, new object[] { "119", match, started, null });
         Assert.AreEqual(2, localizer.AttemptCount, "old failure cannot spend current session retry");
 
         localizer.CompleteWithoutPose(currentAttempt);
-        onSignRead.Invoke(runner, new object[] { "119", match, started });
+        onSignRead.Invoke(runner, new object[] { "119", match, started, null });
         Assert.AreEqual(3, localizer.AttemptCount, "current session failure retains early sign retry");
     }
 
@@ -200,7 +200,7 @@ public class IndoorArRunnerTests
         var session = Field<IndoorArSession>(runner, "_session");
         var match = IndoorRoomIdentityMatcher.MatchSign("119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
         runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic)
-            .Invoke(runner, new object[] { "119", match, Field<float>(runner, "_sessionStarted") - 1f });
+            .Invoke(runner, new object[] { "119", match, Field<float>(runner, "_sessionStarted") - 1f, null });
         Assert.IsNull(session.SignRoom);
     }
 

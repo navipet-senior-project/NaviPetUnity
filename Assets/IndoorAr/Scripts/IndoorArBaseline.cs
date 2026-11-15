@@ -15,6 +15,7 @@ namespace IndoorAr
         long? _firstPoseMs;
         long? _arrowShownMs;
         long? _signMs;
+        long? _signFixMs;
         int _unansweredClosed;
 
         public long? ArStartupMs { get; private set; }
@@ -23,6 +24,10 @@ namespace IndoorAr
         public long? ArrowShownMs { get; private set; }
         /// <summary>Session open until OCR first confirms a room sign. Identity only, not a pose.</summary>
         public long? TimeToSignMs { get; private set; }
+        /// <summary>Session open until sign corners first give a usable map pose, whether or not it was the pose used.</summary>
+        public long? TimeToSignFixMs { get; private set; }
+        /// <summary>What gave the first accepted pose: "sign", "multiset", or "na" before one.</summary>
+        public string PoseSource { get; private set; } = "na";
         public bool ArrowAlignmentMeasured => false;
         public int Attempts { get; private set; }
         public int Retries { get; private set; }
@@ -51,10 +56,11 @@ namespace IndoorAr
             if (Attempts > 1) Retries++;
         }
 
-        public void NotePoseAccepted(long nowMs)
+        public void NotePoseAccepted(long nowMs, bool fromSigns = false)
         {
             if (_openedMs == null || _firstPoseMs != null) return;
             _firstPoseMs = nowMs;
+            PoseSource = fromSigns ? "sign" : "multiset";
             TimeToFirstLocalizationMs = nowMs - _openedMs.Value;
             if (_attemptOpenedMs == null) return;
             RequestLatencyMs = nowMs - _attemptOpenedMs.Value;
@@ -75,6 +81,13 @@ namespace IndoorAr
             TimeToSignMs = nowMs - _openedMs.Value;
         }
 
+        public void NoteSignFix(long nowMs)
+        {
+            if (_openedMs == null || _signFixMs != null) return;
+            _signFixMs = nowMs;
+            TimeToSignFixMs = nowMs - _openedMs.Value;
+        }
+
         public void NoteTrackingLost()
         {
             if (_openedMs == null) return;
@@ -92,7 +105,9 @@ namespace IndoorAr
             + " retries=" + Retries.ToString(CultureInfo.InvariantCulture)
             + " trackingLosses=" + TrackingLosses.ToString(CultureInfo.InvariantCulture)
             + " unansweredAttempts=" + UnansweredAttempts.ToString(CultureInfo.InvariantCulture)
-            + " " + Field("timeToSignMs", TimeToSignMs);
+            + " " + Field("timeToSignMs", TimeToSignMs)
+            + " " + Field("timeToSignFixMs", TimeToSignFixMs)
+            + " poseSource=" + PoseSource;
 
         static string Field(string name, long? value) =>
             name + "=" + (value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : "na");

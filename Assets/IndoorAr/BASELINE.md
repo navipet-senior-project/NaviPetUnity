@@ -14,6 +14,8 @@
 | `trackingLosses` | — | Pinned sessions that left `SessionTracking`. |
 | `unansweredAttempts` | — | Starts that have not returned a pose. The open attempt is included until it does. |
 | `timeToSignMs` | session opened | OCR first confirms a room sign. Room identity only, not a pose; it never sets `timeToFirstLocalizationMs`. |
+| `timeToSignFixMs` | session opened | Sign corners first give a usable map pose, whether or not that pose was the one used. Compare with `timeToFirstLocalizationMs` under `poseSource=multiset`. |
+| `poseSource` | — | What gave the first accepted pose: `sign`, `multiset`, or `na` before one. |
 
 Editor play mode does not emit this line. On a phone, filter logcat or the Xcode console for `IndoorArBaseline`. One line is printed each time a field changes.
 

@@ -10,7 +10,7 @@ public class IndoorRoomVisionOcrTests
     {
         Assert.IsTrue(IndoorRoomVisionOcr.IsValidRgbaFrame(640, 360, 640 * 360 * 4));
         Assert.IsFalse(IndoorRoomVisionOcr.IsValidRgbaFrame(0, 360, 0));
-        Assert.IsFalse(IndoorRoomVisionOcr.IsValidRgbaFrame(641, 360, 641 * 360 * 4));
+        Assert.IsFalse(IndoorRoomVisionOcr.IsValidRgbaFrame(1921, 360, 1921 * 360 * 4));
         Assert.IsFalse(IndoorRoomVisionOcr.IsValidRgbaFrame(640, 360, 640 * 360 * 3));
     }
 
@@ -35,7 +35,7 @@ public class IndoorRoomVisionOcrTests
             ocr.Configure(null, directory);
             string text = null;
             IndoorRoomMatch match = null;
-            ocr.Result += (recognizedText, roomMatch, _) => { text = recognizedText; match = roomMatch; };
+            ocr.Result += (recognizedText, roomMatch, _, _) => { text = recognizedText; match = roomMatch; };
 
             ocr.OnVisionText("VEC\n119");
 

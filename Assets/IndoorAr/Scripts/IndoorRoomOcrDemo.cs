@@ -16,8 +16,11 @@ namespace IndoorAr
         bool _converting;
         bool _recognizing;
         float _recognitionStarted;
+        IndoorOcrCapture _capture;
+        byte[] _pixels;
 
-        public event Action<string, IndoorRoomMatch, float> Result;
+        /// <summary>Text, its room match, when the frame was taken, and the sign's corners when the frame has them.</summary>
+        public event Action<string, IndoorRoomMatch, float, IndoorSignObservation> Result;
 
         public static bool IsValidRgbaFrame(int width, int height, int byteCount) =>
             width > 0 && height > 0 && width <= 1280 && height <= 720
@@ -54,9 +57,11 @@ namespace IndoorAr
         {
             if (!cameraManager.TryAcquireLatestCpuImage(out var image)) return;
             _recognitionStarted = Time.realtimeSinceStartup;
-            var scale = Mathf.Min(1f, 640f / image.width, 480f / image.height);
+            // shortcut: 1280x720 is an untested guess at what Android phones sustain; tune from "ocrMs" in the log.
+            var scale = Mathf.Min(1f, 1280f / image.width, 720f / image.height);
             var width = Mathf.Max(1, Mathf.RoundToInt(image.width * scale));
             var height = Mathf.Max(1, Mathf.RoundToInt(image.height * scale));
+            _capture = IndoorOcrCapture.From(cameraManager, width, height);
             var parameters = new XRCpuImage.ConversionParams(image, TextureFormat.RGBA32,
                 XRCpuImage.Transformation.None);
             parameters.outputDimensions = new Vector2Int(width, height);
@@ -70,27 +75,32 @@ namespace IndoorAr
         {
             _converting = false;
             if (status != XRCpuImage.AsyncConversionStatus.Ready) return;
-            var pixels = data.ToArray();
             if (!IsValidRgbaFrame(parameters.outputDimensions.x,
-                    parameters.outputDimensions.y, pixels.Length)) return;
+                    parameters.outputDimensions.y, data.Length)) return;
+            // JNI copies the array into Java on the call, so one buffer serves every frame.
+            if (_pixels == null || _pixels.Length != data.Length) _pixels = new byte[data.Length];
+            data.CopyTo(_pixels);
             _recognizing = true;
 #if UNITY_ANDROID && !UNITY_EDITOR
             using (var plugin = new AndroidJavaClass("com.navipet.indoorar.ocr.IndoorArOcrPlugin"))
             {
-                _recognizing = plugin.CallStatic<bool>("recognize", pixels,
+                _recognizing = plugin.CallStatic<bool>("recognize", _pixels,
                     parameters.outputDimensions.x, parameters.outputDimensions.y,
                     gameObject.name);
             }
 #endif
         }
 
-        public void OnMlKitText(string recognizedText)
+        /// <param name="message">The plugin's JSON (IndoorOcrFrame), or plain recognized text.</param>
+        public void OnMlKitText(string message)
         {
             _recognizing = false;
+            var frame = IndoorOcrFrame.Parse(message);
             var match = IndoorRoomIdentityMatcher.MatchSign(
-                recognizedText, _directoryJson ?? (directory == null ? null : directory.text));
-            Debug.Log($"[IndoorAr OCR] text='{recognizedText}' roomMatch={match.Status}");
-            Result?.Invoke(recognizedText, match, _recognitionStarted);
+                frame.text, _directoryJson ?? (directory == null ? null : directory.text));
+            // The recognized text is never logged; the runner logs the match status.
+            Result?.Invoke(frame.text, match, _recognitionStarted,
+                match.Landmark == null ? null : frame.Sighting(match.Landmark.Id, _capture));
         }
 
         public void OnMlKitError(string message)
