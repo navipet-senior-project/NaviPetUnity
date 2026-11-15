@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace IndoorAr
@@ -95,6 +96,40 @@ namespace IndoorAr
                 match = new IndoorRoomLandmark(item.id, directory.buildingId, item.floorId);
             }
 
+            return match == null
+                ? new IndoorRoomMatch(IndoorRoomMatchStatus.NoMatch)
+                : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match);
+        }
+
+        /// <summary>
+        /// Reads a whole sign frame: the full text or any single line may name a VEC door on
+        /// either floor. Two different rooms in one frame are Ambiguous, never a guess.
+        /// </summary>
+        public static IndoorRoomMatch MatchSign(string recognizedText, string vecDirectoryJson)
+        {
+            if (string.IsNullOrWhiteSpace(recognizedText))
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            var numbers = new HashSet<string>();
+            foreach (Match number in Regex.Matches(recognizedText,
+                         @"(?<![A-Za-z0-9_])(?:(?:ROOM|VEC)[ \t-]*)?([0-9]{3})(?![A-Za-z0-9_])",
+                         RegexOptions.IgnoreCase))
+                numbers.Add(number.Groups[1].Value);
+            if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
+
+            var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson ?? "");
+            if (directory == null || string.IsNullOrWhiteSpace(directory.buildingId))
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.MissingBuilding);
+            IndoorRoomLandmark match = null;
+            foreach (var item in directory.objects ?? new List<VecObject>())
+            {
+                if (item == null || !string.Equals(item.type, "door", StringComparison.OrdinalIgnoreCase)
+                    || string.IsNullOrWhiteSpace(item.floorId)) continue;
+                var number = NormalizeRoomNumber(item.id);
+                if (number == null || !numbers.Contains(number)) continue;
+                if (match != null) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
+                match = new IndoorRoomLandmark(item.id, directory.buildingId, item.floorId);
+            }
             return match == null
                 ? new IndoorRoomMatch(IndoorRoomMatchStatus.NoMatch)
                 : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match);

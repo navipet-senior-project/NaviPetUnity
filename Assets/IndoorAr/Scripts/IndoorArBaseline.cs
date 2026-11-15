@@ -14,12 +14,15 @@ namespace IndoorAr
         long? _attemptOpenedMs;
         long? _firstPoseMs;
         long? _arrowShownMs;
+        long? _signMs;
         int _unansweredClosed;
 
         public long? ArStartupMs { get; private set; }
         public long? RequestLatencyMs { get; private set; }
         public long? TimeToFirstLocalizationMs { get; private set; }
         public long? ArrowShownMs { get; private set; }
+        /// <summary>Session open until OCR first confirms a room sign. Identity only, not a pose.</summary>
+        public long? TimeToSignMs { get; private set; }
         public bool ArrowAlignmentMeasured => false;
         public int Attempts { get; private set; }
         public int Retries { get; private set; }
@@ -65,6 +68,13 @@ namespace IndoorAr
             ArrowShownMs = nowMs - _openedMs.Value;
         }
 
+        public void NoteSignConfirmed(long nowMs)
+        {
+            if (_openedMs == null || _signMs != null) return;
+            _signMs = nowMs;
+            TimeToSignMs = nowMs - _openedMs.Value;
+        }
+
         public void NoteTrackingLost()
         {
             if (_openedMs == null) return;
@@ -81,7 +91,8 @@ namespace IndoorAr
             + " attempts=" + Attempts.ToString(CultureInfo.InvariantCulture)
             + " retries=" + Retries.ToString(CultureInfo.InvariantCulture)
             + " trackingLosses=" + TrackingLosses.ToString(CultureInfo.InvariantCulture)
-            + " unansweredAttempts=" + UnansweredAttempts.ToString(CultureInfo.InvariantCulture);
+            + " unansweredAttempts=" + UnansweredAttempts.ToString(CultureInfo.InvariantCulture)
+            + " " + Field("timeToSignMs", TimeToSignMs);
 
         static string Field(string name, long? value) =>
             name + "=" + (value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : "na");
