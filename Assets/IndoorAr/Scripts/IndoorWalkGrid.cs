@@ -201,8 +201,8 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// The point to steer at: the first waypoint more than lookAhead metres from the camera, so the arrow does not
-        /// flip as the user passes a corner point. The last waypoint when everything is nearer than that.
+        /// Advances nearby waypoints only with grid clearance from the actual camera position, then falls back to
+        /// a reachable earlier waypoint. Returns false when no waypoint has a clear segment from the camera.
         /// </summary>
         public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint)
         {

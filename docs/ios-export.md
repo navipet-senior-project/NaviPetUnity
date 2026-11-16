@@ -23,7 +23,7 @@ tools/build-sign-pnp.sh ios
 
 The menu item is **Indoor AR → Export iOS Xcode Project**. Output is `Builds/IndoorArIos/` (gitignored), an Xcode project whose `UnityFramework` target is the library the Flutter app embeds. The export links `ARKit.framework` and `MultipeerConnectivity.framework` into that target.
 
-3. Open `Builds/IndoorArIos/Unity-iPhone.xcworkspace` if the export wrote one, otherwise `Unity-iPhone.xcodeproj`. An export with the ARCore key writes the workspace. Select the **UnityFramework** scheme and a generic iOS device (`arm64`). Product → Build.
+3. Open `Builds/IndoorArIos/Unity-iPhone.xcworkspace` if the export wrote one, otherwise `Unity-iPhone.xcodeproj`. CocoaPods creates the workspace for ML Kit, including indoor-only exports. Select the **UnityFramework** scheme and a generic iOS device (`arm64`). Product → Build.
 4. Copy the built `UnityFramework.framework` into the Flutter app. The Flutter project gitignores that framework. Build it on a machine that has this Unity editor: the export symlinks editor libraries, so the framework binary is what moves, not the Xcode project alone.
 
 The export can include MultiSet credentials from the Unity project, and the ARCore API key when it had one. Share the framework privately. Do not commit it.
@@ -54,13 +54,9 @@ In a keyed export ARCore's Swift package and the ML Kit pod both bring Promises,
 
 For outdoor AR the host app must declare `NSLocationWhenInUseUsageDescription` and ask for the camera before it starts Unity. Unity starts its location service, which shows the location prompt. A refusal ends the session with `unavailable`.
 
-## Step-free routes
+## Indoor localization and routes
 
-The provisional route grid comes from the VEC scan; it is not a navigation graph. It has no verified step-free attributes for same-floor segments, and the VEC directory does not prove that a floor connector is step-free. An indoor request with `"stepFree": true` therefore shows “A step-free route to this destination cannot be confirmed” and returns `unavailable` with `STEP_FREE_UNVERIFIED`; it never guides users onto an unverified route. Requests without the field keep ordinary routing. Flutter does not send the field yet; adding a saved mobility setting and serializing it in `IndoorArRequest.toJson` is a local Flutter follow-up.
-
-Floor changes use a confirmed room sign on supported floors 1–2, or camera height only when it falls in the plausible eye-height band above exactly one floor elevation from the MapSet-frame scan grid. If neither establishes a floor, Unity shows no route. MultiSet poses that conflict with a confirmed sign or resolve above supported floors are rejected for retry. Successful MultiSet localization logs map codes only.
-
-MultiSet writes to a private proxy transform; before either success callback can copy its pose to the navigation map space, the runner validates the candidate camera height against confirmed sign and supported-floor evidence. A rejected pose completes the SDK request, leaves navigation unchanged, and follows the normal retry path; a current accepted pose alone copies the proxy pose and reports success. A process-wide lock allows at most one SDK request at a time, including across indoor sessions. New requests wait for the prior SDK success or failure callback, which is dropped if its session was abandoned or its app localizer was destroyed; room-sign localization continues during the wait. If the localizer is destroyed while its SDK manager survives, its listener remains only to drain the real completion and quarantine the result. State logs report `multisetFallback=available`, `inFlight`, `waiting`, or `unavailable` (`disabled` in sign-pose mode). After 30 seconds, the waiting session's MultiSet fallback becomes unavailable and logs `[IndoorAr] multiset fallback unavailable: prior request unresolved`. Timeout never releases the process lock. If the SDK or manager exits without delivering success or failure, the lock remains held and MultiSet fallback stays unavailable until the app process restarts; this deliberately fails closed because the SDK exposes no verified cancellation or isolated transform-write generation. The SDK blur check is disabled so it cannot reject or mutate a request outside this callback gate.
+The shared runtime contracts live in [Signs first, MultiSet last](../Assets/IndoorAr/OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified) (authentication, request ownership and transform isolation) and [Hallway route](../Assets/IndoorAr/OCR-POC-prerequisites.md#hallway-route) (floor evidence, clearance and strict step-free policy).
 
 ## Host bridge
 
@@ -86,7 +82,7 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
  "pose":{"source":"sign","position":{"x":0,"y":0,"z":0},"rotation":{"x":0,"y":0,"z":0,"w":1}}}
 ```
 
-`sessionId` is new for each request and `seq` counts up within it. `roomRecognized` and `roomFloor` appear once a room sign is confirmed; that is an identity, not a position. `pose` (camera in the MapSet frame, `source` `sign` or `multiset`) appears only when `localized` is true, and is the pose at the moment of that change, not a stream. Do not log status JSON: it can carry the camera pose. The Flutter side does not decode it yet; adding the handler there and `postStatus` to `UnityHostActivity` is a local Flutter follow-up.
+`sessionId` is new for each request and `seq` counts up within it. `roomRecognized` and `roomFloor` appear once a room sign is confirmed; that is an identity, not a position. The final result also gains optional `signRoom` with the last confirmed room ID; older hosts can ignore it. `pose` (camera in the MapSet frame, `source` `sign` or `multiset`) appears only when `localized` is true, and is the pose at the moment of that change, not a stream. Do not log status JSON: it can carry the camera pose. The Flutter side does not decode it yet; adding the handler there and `postStatus` to `UnityHostActivity` is a local Flutter follow-up.
 
 ## Not verified here
 

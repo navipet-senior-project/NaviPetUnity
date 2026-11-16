@@ -3,7 +3,7 @@ using System.Globalization;
 namespace IndoorAr
 {
     /// <summary>
-    /// Durations and counts for the MultiSet localization baseline.
+    /// Durations and counts for indoor sign and MultiSet localization.
     /// No camera frames, poses, tokens, or user location.
     /// ArrowShownMs is when the HUD first enters the guide-arrow state, which needs a MultiSet pose or a validated
     /// sign pose; it is not a rendered-frame or real-world alignment check.

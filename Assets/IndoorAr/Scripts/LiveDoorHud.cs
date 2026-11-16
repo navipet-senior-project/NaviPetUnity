@@ -5,8 +5,8 @@ namespace IndoorAr
 {
     /// <summary>
     /// Maps the door-verifier session onto IndoorHudView.
-    /// The guide arrow follows the hallway route when the walk grid has one, and otherwise is the horizontal
-    /// yaw from the camera straight to the door, which never turns or avoids walls.
+    /// The guide arrow follows a route only with grid clearance from the camera; an obstructed route hides it.
+    /// Without a route it uses the horizontal yaw straight to the door, which never turns or avoids walls.
     /// </summary>
     public static class LiveDoorHud
     {

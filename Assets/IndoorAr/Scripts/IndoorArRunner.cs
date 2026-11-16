@@ -306,8 +306,7 @@ namespace IndoorAr
             LogBaseline();
         }
 
-        // OCR keeps reading while pinned: each confirmed sign updates the floor the HUD and the route use, and in
-        // sign-first mode it lengthens the trail the map is aligned from.
+        // OCR keeps reading while pinned so a confirmed reread can refresh floor evidence and recover sign alignment.
         void UpdateSignOcr()
         {
             var on = signLocalization && !_delivered && _session != null
