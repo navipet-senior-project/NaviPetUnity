@@ -789,9 +789,16 @@ namespace IndoorAr
             if (_delivered) return;
             _delivered = true;
             _requestJson = null;
+            DropQueuedMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();
             ArSessionLifecycle.StopSessionsAndTearDown();
             IndoorArBridge.Deliver(resultJson);
+        }
+
+        void DropQueuedMultiSetFallback()
+        {
+            if (_localizer is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
+            else if (_localizer is SignFirstLocalizer signFirst) signFirst.DropQueuedFallback();
         }
 
         // Android's back button arrives as Escape.

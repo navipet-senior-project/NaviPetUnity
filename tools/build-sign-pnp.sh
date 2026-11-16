@@ -71,6 +71,8 @@ ios() {
     -o "$work/IndoorSignPnp.o"
   rm -f "$out"
   xcrun -sdk iphoneos ar rcs "$out" "$work/IndoorSignPnp.o"
+  cp "$ROOT/tools/sign-pnp/LICENSE-OpenCV.txt" "$(dirname "$out")/LICENSE-OpenCV.txt"
+  cp "$ROOT/tools/sign-pnp/NOTICE-OpenCV.txt" "$(dirname "$out")/NOTICE-OpenCV.txt"
   rm -rf "$work"
   echo "iOS: $out"
 }
@@ -79,7 +81,8 @@ android() {
   fetch "$ANDROID_ZIP" "$ANDROID_SHA"
   local sdk="$CACHE/opencv-$VERSION-android"
   extract "$ANDROID_ZIP" "$sdk" 'OpenCV-android-sdk/sdk/native/jni/include/*' \
-    'OpenCV-android-sdk/sdk/native/staticlibs/arm64-v8a/*' 'OpenCV-android-sdk/sdk/native/3rdparty/libs/arm64-v8a/*'
+    'OpenCV-android-sdk/sdk/native/staticlibs/arm64-v8a/*' 'OpenCV-android-sdk/sdk/native/3rdparty/libs/arm64-v8a/*' \
+    'OpenCV-android-sdk/sdk/etc/licenses/*'
   local native="$sdk/OpenCV-android-sdk/sdk/native"
   local clang="$EDITOR_DIR/PlaybackEngines/AndroidPlayer/NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++"
   if [[ ! -x "$clang" ]]; then
@@ -101,6 +104,10 @@ android() {
     "${thirdparty[@]}" -Wl,--end-group -static-libstdc++ -llog -lz -ldl -lm \
     -Wl,--no-undefined -Wl,--gc-sections -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384 -s \
     -o "$out/libindoorsignpnp.so"
+  cp "$ROOT/tools/sign-pnp/LICENSE-OpenCV.txt" "$out/LICENSE-OpenCV.txt"
+  cp "$ROOT/tools/sign-pnp/NOTICE-OpenCV.txt" "$out/NOTICE-OpenCV.txt"
+  rm -rf "$out/third-party-licenses"
+  cp -R "$sdk/OpenCV-android-sdk/sdk/etc/licenses" "$out/third-party-licenses"
   echo "Android: $out/libindoorsignpnp.so"
 }
 

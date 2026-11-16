@@ -379,6 +379,53 @@ public class MultiSetLocalizerTests
     }
 
     [Test]
+    public void DeliveredSessionDoesNotStartItsQueuedFallbackAfterAnotherRequestCompletes()
+    {
+        LocalizeWithoutEditorFailure();
+        var otherSdkHost = new GameObject("Queued SDK");
+        otherSdkHost.SetActive(false);
+        var otherSdk = otherSdkHost.AddComponent<IndoorArSdkManager>();
+        var otherManager = otherSdkHost.AddComponent<SingleFrameLocalizationManager>();
+        var otherMap = new GameObject("Queued Navigation Map");
+        var otherHost = new GameObject("Queued Adapter");
+        otherHost.SetActive(false);
+        var other = otherHost.AddComponent<MultiSetLocalizer>();
+        other.Configure(otherSdk, otherManager, otherMap.transform);
+        var otherProxy = other.SdkMapSpace.gameObject;
+        otherHost.SetActive(true);
+        typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
+        var attempts = 0;
+        other.AttemptStarted += _ => attempts++;
+        var runnerHost = new GameObject("Delivered queued session");
+        var runner = runnerHost.AddComponent<IndoorArRunner>();
+        var signFirst = new SignFirstLocalizer(other, new IndoorSignCalibration());
+        typeof(IndoorArRunner).GetField("_localizer", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            .SetValue(runner, signFirst);
+        try
+        {
+            other.Localize();
+            Assert.AreEqual("waiting", other.FallbackStatus);
+            LogAssert.Expect(LogType.Log, "[IndoorAr] result {\"result\":\"cancelled\"}");
+            typeof(IndoorArRunner).GetMethod("Deliver", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .Invoke(runner, new object[] { "{\"result\":\"cancelled\"}" });
+
+            ReportFailureAndStartDeferredRequest(false);
+            other.Tick(0f);
+            Assert.AreEqual(0, attempts, "the delivered session's queued VPS request was removed");
+            Assert.AreEqual("available", other.FallbackStatus);
+        }
+        finally
+        {
+            typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
+            Object.DestroyImmediate(runnerHost);
+            Object.DestroyImmediate(otherHost);
+            Object.DestroyImmediate(otherMap);
+            Object.DestroyImmediate(otherProxy);
+            Object.DestroyImmediate(otherSdkHost);
+        }
+    }
+
+    [Test]
     public void MissingPoseDoesNotPinAndTheSessionRetries()
     {
         if (typeof(SingleFrameLocalizationManager).GetEvent("OnLocalizationWithResponse") == null)

@@ -217,6 +217,11 @@ namespace IndoorAr
             _holdLeft = 0f;
         }
 
+        public void DropQueuedFallback()
+        {
+            if (_inner is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
+        }
+
         public void Tick(float dt)
         {
             if (!_open || _holdLeft <= 0f) return;
