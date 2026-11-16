@@ -378,17 +378,15 @@ namespace IndoorAr
             RemoveQueuedRequest();
             EventManager<EventData>.StopListening("AuthCallBack", OnAuthCallback);
             if (_ownerDestroyed) return;
-            if (manager != null)
+            // The SDK manager may be destroyed first while its request still owes a callback.
+            if (_requestInFlight && s_requestLive && s_requestOwner == this)
             {
-                if (_requestInFlight && s_requestLive && s_requestOwner == this)
-                {
-                    _ownerDestroyed = true;
-                    _generation++;
-                    _ignoreInFlight = true;
-                }
-                else RemoveLocalizationListeners();
-                if (!s_requestLive) manager.StopAllCoroutines();
+                _ownerDestroyed = true;
+                _generation++;
+                _ignoreInFlight = true;
             }
+            else RemoveLocalizationListeners();
+            if (manager != null && !s_requestLive) manager.StopAllCoroutines();
             if (sdk != null && !s_requestLive) sdk.StopAllCoroutines();
         }
     }

@@ -226,9 +226,11 @@ public class MultiSetLocalizerTests
         Assert.IsFalse(_adapter.HasLiveRequest);
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public void DestroyedOwnerKeepsGlobalLockUntilItsRealSdkCompletion(bool sdkFailure)
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(false, true)]
+    [TestCase(true, true)]
+    public void DestroyedOwnerKeepsGlobalLockUntilItsRealSdkCompletion(bool sdkFailure, bool sdkManagerDestroyedFirst)
     {
         var ownerLocalized = 0;
         var ownerRejected = 0;
@@ -251,6 +253,8 @@ public class MultiSetLocalizerTests
         var hudPosition = hud.position;
         var hudRotation = hud.rotation;
         var sdkMapSpace = _adapter.SdkMapSpace;
+        // The retained SDK object can still complete after its component is destroyed.
+        if (sdkManagerDestroyedFirst) Object.DestroyImmediate(_manager);
         typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Object.DestroyImmediate(_adapter);
         var ownerDrained = false;

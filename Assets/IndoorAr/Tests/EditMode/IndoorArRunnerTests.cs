@@ -788,8 +788,11 @@ public class IndoorArRunnerTests
     static void WithoutEditorSimulationFailure(MultiSetLocalizer localizer,
         SingleFrameLocalizationManager manager, Action action)
     {
-        var failure = (UnityAction)Delegate.CreateDelegate(typeof(UnityAction), localizer,
-            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", BindingFlags.Instance | BindingFlags.NonPublic));
+        // The adapter subscribes through its completion relay, not its own method.
+        var listener = typeof(MultiSetLocalizer).GetField("_completionListener", BindingFlags.Instance | BindingFlags.NonPublic)
+            .GetValue(localizer);
+        var failure = (UnityAction)Delegate.CreateDelegate(typeof(UnityAction), listener,
+            listener.GetType().GetMethod("OnNotLocalized"));
         manager.LocalizationFailure.RemoveListener(failure);
         try { action(); }
         finally { manager.LocalizationFailure.AddListener(failure); }
