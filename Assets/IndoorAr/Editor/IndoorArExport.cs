@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Google.XR.ARCoreExtensions.Internal;
 using UnityEditor;
 using UnityEditor.Build;
@@ -16,6 +17,7 @@ namespace IndoorAr.Editor
     public static class IndoorArExport
     {
         public const string ExportPath = "Builds/IndoorArAndroid";
+        public const string OpenCvNoticesPath = "Assets/StreamingAssets/ThirdPartyNotices/OpenCV";
         // The indoor scene is first: it reads every request and loads the outdoor scene for mode "outdoor".
         // An export without the outdoor scene answers outdoor requests with "unavailable".
         static readonly string[] IndoorScenes = { "Assets/IndoorAr/Scenes/IndoorArSpike.unity" };
@@ -28,11 +30,43 @@ namespace IndoorAr.Editor
 
         public static string ReadIosKey(string path) => File.Exists(path) ? File.ReadAllText(path).Trim() : "";
 
+        // tools/build-sign-pnp.sh builds the native sign-pose solver into these gitignored paths.
+        public static string MissingSignPnp(BuildTarget target, string root)
+        {
+            var artifact = target == BuildTarget.iOS ? "Assets/Plugins/iOS/libindoorsignpnp.a"
+                : target == BuildTarget.Android ? "Assets/Plugins/Android/libs/arm64-v8a/libindoorsignpnp.so" : null;
+            return artifact == null || File.Exists(Path.Combine(root, artifact)) ? null : artifact;
+        }
+
+        // Without it an iOS build fails at Xcode link time and an Android one throws when it first sees a sign.
+        class SignPnpCheck : IPreprocessBuildWithReport
+        {
+            public int callbackOrder => 0;
+
+            public void OnPreprocessBuild(BuildReport report)
+            {
+                var target = report.summary.platform;
+                var root = Directory.GetCurrentDirectory();
+                var missing = MissingSignPnp(target, root);
+                if (missing != null)
+                    throw new BuildFailedException(
+                        $"[IndoorAr] {missing} is missing: run tools/build-sign-pnp.sh {(target == BuildTarget.iOS ? "ios" : "android")}");
+                var notices = Path.Combine(root, OpenCvNoticesPath);
+                if (!File.Exists(Path.Combine(notices, "LICENSE-OpenCV.txt"))
+                    || !File.Exists(Path.Combine(notices, "NOTICE-OpenCV.txt"))
+                    || !Directory.Exists(Path.Combine(notices, "third-party"))
+                    || !Directory.GetFiles(Path.Combine(notices, "third-party"), "*", SearchOption.AllDirectories).Any())
+                    throw new BuildFailedException(
+                        $"[IndoorAr] OpenCV runtime notices are missing: run tools/build-sign-pnp.sh {(target == BuildTarget.iOS ? "ios" : "android")}");
+            }
+        }
+
         // ARCore Extensions checks and configures a build from the Build Settings scene list,
         // not from the exported one, and fails an iOS build that lists a Geospatial scene
         // while iOS authorization is off.
         static BuildReport Build(BuildPlayerOptions options)
         {
+            AssetDatabase.Refresh();
             var listed = EditorBuildSettings.scenes;
             EditorBuildSettings.scenes = options.scenes.Select(path => new EditorBuildSettingsScene(path, true)).ToArray();
             try
@@ -139,12 +173,30 @@ namespace IndoorAr.Editor
             var target = project.GetUnityFrameworkTargetGuid();
             project.AddFrameworkToProject(target, "ARKit.framework", false);
             project.AddFrameworkToProject(target, "MultipeerConnectivity.framework", false);
-            project.AddFrameworkToProject(target, "Vision.framework", false);
             // shortcut: ARCore Extensions pins arcore-ios-sdk 1.57.0, which Xcode cannot resolve because
             // its CloudAnchors checksum is wrong (google-ar/arcore-ios-sdk#126). 1.57.1 is the same SDK with
             // that checksum fixed. Remove when ARCore Extensions pins a version that resolves.
             File.WriteAllText(projectPath, project.WriteToString().Replace("version = 1.57.0;", "version = 1.57.1;"));
-            Debug.Log("[IndoorAr] linked ARKit, MultipeerConnectivity and Vision into UnityFramework");
+            Debug.Log("[IndoorAr] linked ARKit and MultipeerConnectivity into UnityFramework");
+            if (File.ReadAllText(projectPath).Contains("arcore-ios-sdk")) UseArCoreCopiesOfSharedGoogleLibraries();
+        }
+
+        // ARCore's Swift package already links Promises, GoogleDataTransport, GoogleUtilities and nanopb into
+        // UnityFramework. The ML Kit pod brings its own copies, and linking both fails on duplicate symbols, so
+        // the pod's copies come off the link line and ML Kit uses ARCore's. Running "pod install" in the export
+        // again undoes this.
+        // shortcut: ML Kit 6.0.0 was built against the older major versions (GoogleUtilities 7, GoogleDataTransport
+        // 9). Every class and selector it references exists in ARCore's newer copies, but only a device run shows
+        // its usage logging works with them. Remove when the minimum iOS is 15.5 and ML Kit 7+, which declares
+        // ARCore's versions, can replace 6.0.0.
+        static void UseArCoreCopiesOfSharedGoogleLibraries()
+        {
+            var support = Path.Combine(IosExportPath, "Pods/Target Support Files/Pods-UnityFramework");
+            if (!Directory.Exists(support)) return;
+            foreach (var config in Directory.GetFiles(support, "*.xcconfig"))
+                File.WriteAllText(config, Regex.Replace(File.ReadAllText(config),
+                    " -framework \"(FBLPromises|GoogleDataTransport|GoogleUtilities|nanopb)\"", ""));
+            Debug.Log("[IndoorAr] ML Kit pods link against ARCore's Promises, GoogleDataTransport, GoogleUtilities and nanopb");
         }
 #endif
     }

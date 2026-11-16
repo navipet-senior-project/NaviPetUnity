@@ -31,6 +31,16 @@ public class IndoorArContractTests
     }
 
     [Test]
+    public void StepFreeIsOptionalAndOffUnlessTheHostAsks()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119, out var plain));
+        Assert.IsFalse(plain.stepFree);
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119.Replace("\"room\":", "\"stepFree\":true,\"room\":"), out var stepFree));
+        Assert.IsTrue(stepFree.stepFree);
+        Assert.AreEqual("VEC119", stepFree.doorKey);
+    }
+
+    [Test]
     public void ParsesAV2RequestWithArToken()
     {
         var json = Vec119.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")
@@ -148,6 +158,15 @@ public class IndoorArContractTests
             IndoorArContract.Unavailable(0, 12));
     }
 
+    [Test]
+    public void BuildsStepFreeUnavailableWithTypedErrorCode()
+    {
+        Assert.AreEqual("STEP_FREE_UNVERIFIED", IndoorArContract.StepFreeUnverified);
+        Assert.AreEqual(
+            "{\"status\":\"unavailable\",\"errorCode\":\"STEP_FREE_UNVERIFIED\",\"localizationQueries\":1,\"durationMs\":12}",
+            IndoorArContract.Unavailable(1, 12, IndoorArContract.StepFreeUnverified));
+    }
+
     [TestCase(null)]
     [TestCase("")]
     [TestCase("not json")]
@@ -195,6 +214,7 @@ public class IndoorArContractTests
         Assert.AreEqual("ARCORE_UNSUPPORTED", IndoorArContract.ArcoreUnsupported);
         Assert.AreEqual("MULTISET_AUTH", IndoorArContract.MultisetAuth);
         Assert.AreEqual("NETWORK", IndoorArContract.Network);
+        Assert.AreEqual("STEP_FREE_UNVERIFIED", IndoorArContract.StepFreeUnverified);
     }
 
     [Test]
@@ -258,5 +278,21 @@ public class IndoorArContractTests
         {
             CultureInfo.CurrentCulture = previous;
         }
+    }
+
+    [Test]
+    public void StatusCarriesAPoseOnlyOnceLocalized()
+    {
+        const string head = "{\"type\":\"status\",\"schemaVersion\":2,\"sessionId\":\"abc\",\"seq\":3," +
+            "\"mapCode\":\"MSET_XTBY7AM7ZK77\",\"frame\":\"multiset-mapset\",";
+        Assert.AreEqual(head + "\"state\":\"localizing\",\"tracking\":true,\"roomRecognized\":\"VEC120\"," +
+            "\"roomFloor\":1,\"localized\":false,\"fallbackAvailable\":true}",
+            IndoorArContract.Status("abc", 3, "MSET_XTBY7AM7ZK77", IndoorArState.Localizing, true, "VEC120", 1,
+                false, true, null, new UnityEngine.Vector3(1f, 2f, 3f), UnityEngine.Quaternion.identity));
+        Assert.AreEqual(head + "\"state\":\"pinned\",\"tracking\":false,\"localized\":true," +
+            "\"fallbackAvailable\":false,\"pose\":{\"source\":\"sign\",\"position\":{\"x\":1.5,\"y\":-2,\"z\":0.25}," +
+            "\"rotation\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1}}}",
+            IndoorArContract.Status("abc", 3, "MSET_XTBY7AM7ZK77", IndoorArState.Pinned, false, null, 0,
+                true, false, "sign", new UnityEngine.Vector3(1.5f, -2f, .25f), UnityEngine.Quaternion.identity));
     }
 }

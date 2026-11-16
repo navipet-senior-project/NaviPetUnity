@@ -57,7 +57,31 @@ public class IndoorArBaselineTests
         baseline.NoteSignConfirmed(5000);
         Assert.AreEqual(1200, baseline.TimeToSignMs);
         Assert.IsNull(baseline.TimeToFirstLocalizationMs, "a sign is not a pose");
-        StringAssert.EndsWith(" timeToSignMs=1200", baseline.LogLine());
+        StringAssert.EndsWith(" timeToSignMs=1200 poseSource=na ocrLatencyMs=na poseEstimateUs=na", baseline.LogLine());
+    }
+
+    [Test]
+    public void PoseSourceIsTheFirstAcceptedPoseOnly()
+    {
+        var baseline = new IndoorArBaseline();
+        baseline.NoteSessionOpened(1000);
+        baseline.NotePoseAccepted(4100, fromSigns: true);
+        baseline.NotePoseAccepted(8000);
+        StringAssert.EndsWith(" timeToSignMs=na poseSource=sign ocrLatencyMs=na poseEstimateUs=na", baseline.LogLine());
+    }
+
+    [Test]
+    public void OcrLatencyAndPoseEstimateAreTheFirstOnly()
+    {
+        var baseline = new IndoorArBaseline();
+        baseline.NoteOcrRead(90);
+        baseline.NotePoseEstimate(40);
+        baseline.NoteSessionOpened(1000);
+        baseline.NoteOcrRead(120);
+        baseline.NoteOcrRead(300);
+        baseline.NotePoseEstimate(850);
+        baseline.NotePoseEstimate(20);
+        StringAssert.EndsWith(" ocrLatencyMs=120 poseEstimateUs=850", baseline.LogLine());
     }
 
     [Test]
@@ -75,7 +99,7 @@ public class IndoorArBaselineTests
         Assert.IsNull(baseline.RequestLatencyMs);
         Assert.AreEqual(1, baseline.TrackingLosses);
         Assert.AreEqual(
-            "[IndoorArBaseline] arStartupMs=na requestLatencyMs=na timeToFirstLocalizationMs=600 arrowShownMs=2100 arrowAlignment=unmeasured attempts=0 retries=0 trackingLosses=1 unansweredAttempts=0 timeToSignMs=na",
+            "[IndoorArBaseline] arStartupMs=na requestLatencyMs=na timeToFirstLocalizationMs=600 arrowShownMs=2100 arrowAlignment=unmeasured attempts=0 retries=0 trackingLosses=1 unansweredAttempts=0 timeToSignMs=na poseSource=multiset ocrLatencyMs=na poseEstimateUs=na",
             baseline.LogLine());
     }
 }

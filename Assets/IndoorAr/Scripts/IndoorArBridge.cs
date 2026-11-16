@@ -6,8 +6,8 @@ namespace IndoorAr
 {
     /// <summary>
     /// Host access. Android reads the launch intent extra and answers through
-    /// UnityHostActivity.deliverResult. iOS reads and answers through IndoorArHost
-    /// in the embedded UnityFramework. Editor and other players use the stand-in.
+    /// UnityHostActivity.deliverResult, and posts progress through its optional postStatus. iOS reads, answers and
+    /// posts through IndoorArHost in the embedded UnityFramework. Editor and other players use the stand-in.
     /// </summary>
     public static class IndoorArBridge
     {
@@ -47,7 +47,41 @@ namespace IndoorAr
 #endif
         }
 
+        /// <summary>Editor stand-in for the host's status handler: the last status posted.</summary>
+        public static string LastStatusJson;
+#if UNITY_ANDROID && !UNITY_EDITOR
+        static bool s_noStatusHost;
+#endif
+
+        /// <summary>
+        /// Sends one IndoorArContract.Status message to the host. It may carry the pose, so it is never logged.
+        /// A host without a status handler drops it.
+        /// </summary>
+        public static void PostStatus(string statusJson)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (s_noStatusHost) return;
+            try
+            {
+                using var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
+                using var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
+                activity.Call("postStatus", statusJson);
+            }
+            catch (AndroidJavaException)
+            {
+                s_noStatusHost = true; // a host activity without postStatus
+            }
+#elif UNITY_IOS && !UNITY_EDITOR
+            IndoorArPostStatus(statusJson);
+#else
+            LastStatusJson = statusJson;
+#endif
+        }
+
 #if UNITY_IOS && !UNITY_EDITOR
+        [DllImport("__Internal")]
+        static extern void IndoorArPostStatus([MarshalAs(UnmanagedType.LPUTF8Str)] string statusJson);
+
         [DllImport("__Internal")]
         static extern IntPtr IndoorArReadRequest();
 

@@ -181,7 +181,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: MultiSetSDK.dll::MultiSet.SingleFrameLocalizationManager
   arCamera: {fileID: 498806817}
-  mapSpace: {fileID: 910155516}
+  mapSpace: {fileID: 998001001}
   localizationType: 0
   mapOrMapsetCode:
   queryMode: 0
@@ -192,7 +192,7 @@ MonoBehaviour:
   confidenceCheck: 0
   _confidenceThreshold: 0.3
   showAlert: 1
-  enableBlurCheck: 1
+  enableBlurCheck: 0
   firstLocalizationUntilSuccess: 1
   LocalizationInit:
     m_PersistentCalls:
@@ -550,6 +550,37 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &998001001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 998001002}
+  m_Layer: 0
+  m_Name: MultiSet VPS Map Space
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &998001002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 998001001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1297928029
 GameObject:
   m_ObjectHideFlags: 0
@@ -810,6 +841,7 @@ MonoBehaviour:
   sdk: {fileID: 1297928030}
   manager: {fileID: 357916413}
   mapSpace: {fileID: 910155517}
+  sdkMapSpace: {fileID: 998001002}
 --- !u!114 &2101039371
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -821,7 +853,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a48f9047d5d647238d32b1b747e49db3, type: 3}
   m_Name:
-  m_EditorClassIdentifier: IndoorAr.Runtime::IndoorAr.IndoorRoomVisionOcr
+  m_EditorClassIdentifier: IndoorAr.Runtime::IndoorAr.IndoorRoomMlKitOcr
   cameraManager: {fileID: 498806820}
   directory: {fileID: 4900000, guid: 0e93af73fa3bdae4283a7f16cc0373c3, type: 3}
 --- !u!114 &2101039372

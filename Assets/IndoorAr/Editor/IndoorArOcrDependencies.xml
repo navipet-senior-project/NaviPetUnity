@@ -1,0 +1,7 @@
+<dependencies>
+    <iosPods>
+        <!-- Google ML Kit text recognition for the room-sign OCR. 6.0.0 is the last release that supports the
+             app's minimum iOS 15.0; 7.0.0 and later need 15.5. -->
+        <iosPod name="GoogleMLKit/TextRecognition" version="6.0.0" minTargetSdk="15.0"/>
+    </iosPods>
+</dependencies>

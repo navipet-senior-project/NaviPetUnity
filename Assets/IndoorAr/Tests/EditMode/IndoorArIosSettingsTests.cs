@@ -52,6 +52,26 @@ public class IndoorArIosSettingsTests
         Assert.AreEqual("", settings.AndroidCloudServicesApiKey);
     }
 
+    [Test]
+    public void DeviceBuildsNeedTheNativeSignSolver()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            Assert.AreEqual("Assets/Plugins/iOS/libindoorsignpnp.a", IndoorArExport.MissingSignPnp(BuildTarget.iOS, root));
+            Assert.AreEqual("Assets/Plugins/Android/libs/arm64-v8a/libindoorsignpnp.so",
+                IndoorArExport.MissingSignPnp(BuildTarget.Android, root));
+            Assert.IsNull(IndoorArExport.MissingSignPnp(BuildTarget.StandaloneOSX, root), "the Editor solve is managed");
+            Directory.CreateDirectory(Path.Combine(root, "Assets/Plugins/iOS"));
+            File.WriteAllText(Path.Combine(root, "Assets/Plugins/iOS/libindoorsignpnp.a"), "");
+            Assert.IsNull(IndoorArExport.MissingSignPnp(BuildTarget.iOS, root));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     [Serializable]
     class ArCoreSettings
     {
@@ -60,11 +80,10 @@ public class IndoorArIosSettingsTests
     }
 
     [Test]
-    public void VisionPluginNamesItsFrameworkTheWayUnityLinksIt()
+    public void IosMlKitPluginHasNoAlternateOcrFrameworkDependency()
     {
-        // Unity appends ".framework" itself: "Vision.framework" made the linker look for Vision.framework.framework.
-        var plugin = (PluginImporter)AssetImporter.GetAtPath("Assets/Plugins/iOS/IndoorRoomVisionOcr.mm");
-        Assert.That(plugin.GetPlatformData(BuildTarget.iOS, "FrameworkDependencies"), Is.EqualTo("Vision;"));
+        var plugin = (PluginImporter)AssetImporter.GetAtPath("Assets/Plugins/iOS/IndoorRoomMlKitOcr.mm");
+        Assert.That(plugin.GetPlatformData(BuildTarget.iOS, "FrameworkDependencies"), Is.Empty);
     }
 
     [Test]
