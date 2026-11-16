@@ -449,6 +449,7 @@ namespace IndoorAr
         {
             if (_session == null || !LiveDoorHud.LocalizationFailed(_session)) return;
             _signFirst?.Reset();
+            if (localizerBehaviour is MultiSetLocalizer multiSet) multiSet.AbandonPending();
             _session.Retry();
         }
 

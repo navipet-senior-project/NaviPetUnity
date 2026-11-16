@@ -419,6 +419,159 @@ public class MultiSetLocalizerTests
     }
 
     [Test]
+    public void AbandonedRequestDoesNotConsumeTheNextSignHoldTimeout()
+    {
+        var attempts = 0;
+        _adapter.AttemptStarted += _ => attempts++;
+        _adapter.CandidatePoseValidator = _ => true;
+        LocalizeWithoutEditorFailure();
+        _adapter.Tick(MultiSetLocalizer.RequestTimeoutS - 1f);
+        _adapter.AbandonPending();
+        var first = new SignFirstLocalizer(_adapter);
+        first.Localize();
+        ((System.Action)typeof(MultiSetLocalizer).GetField("Authenticated", System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic).GetValue(_adapter)).Invoke();
+
+        _adapter.Tick(SignFirstLocalizer.HoldS - 1f);
+        first.Tick(SignFirstLocalizer.HoldS - 1f);
+        Assert.IsTrue(first.FallbackAvailable);
+        Assert.IsTrue(_adapter.HasLiveRequest);
+        Assert.AreEqual(1, attempts);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+        ReportSuccess();
+        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+        var callback = FailureCallback(_adapter);
+        _manager.LocalizationFailure.RemoveListener(callback);
+        try { first.Tick(1f); }
+        finally { _manager.LocalizationFailure.AddListener(callback); }
+        Assert.AreEqual(2, attempts);
+        ReportSuccess();
+        Assert.IsFalse(_adapter.HasLiveRequest);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void NewGenerationQueueHasItsOwnTimeoutWhileOldRequestDrains(bool timeout)
+    {
+        var attempts = 0;
+        var localized = 0;
+        _adapter.AttemptStarted += _ => attempts++;
+        _adapter.Localized += _ => localized++;
+        _adapter.CandidatePoseValidator = _ => true;
+        LocalizeWithoutEditorFailure();
+        _adapter.Tick(MultiSetLocalizer.RequestTimeoutS - 1f);
+        _adapter.AbandonPending();
+        _adapter.Localize();
+        _adapter.Tick(MultiSetLocalizer.RequestTimeoutS - 1f);
+        Assert.IsTrue(_adapter.FallbackAvailable);
+        Assert.IsTrue(_adapter.HasLiveRequest);
+        Assert.AreEqual("waiting", _adapter.FallbackStatus);
+        Assert.AreEqual(1, attempts);
+        if (timeout)
+        {
+            LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+            _adapter.Tick(1f);
+            Assert.IsFalse(_adapter.FallbackAvailable);
+            Assert.IsTrue(_adapter.HasLiveRequest);
+        }
+        LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+        ReportSuccess();
+        Assert.AreEqual(0, localized);
+        if (!timeout) LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+        TickWithoutEditorFailure(0f);
+        Assert.AreEqual(timeout ? 1 : 2, attempts);
+        if (!timeout)
+        {
+            ReportSuccess();
+            Assert.AreEqual(1, localized);
+        }
+        Assert.IsFalse(_adapter.HasLiveRequest);
+    }
+
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public void ManualRetryResetsTimeoutWithoutReleasingOutstandingRequest(bool signsFirst, bool completedBeforeRetry)
+    {
+        var first = signsFirst ? new SignFirstLocalizer(_adapter) : null;
+        var localizer = (IIndoorArLocalizer)first ?? _adapter;
+        var session = new IndoorArSession(new IndoorArRequest
+        {
+            frame = IndoorArContract.Frame, mapCode = _adapter.MapCode,
+            position = new IndoorArVector3()
+        }, _adapter.MapCode);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(_adapter, null, null);
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        typeof(IndoorArRunner).GetField("_session", flags).SetValue(runner, session);
+        typeof(IndoorArRunner).GetField("_signFirst", flags).SetValue(runner, first);
+        localizer.Localized += session.OnLocalized;
+        if (first != null)
+        {
+            session.FallbackStopped += first.StopFallback;
+            ((System.Action)typeof(MultiSetLocalizer).GetField("Authenticated", flags).GetValue(_adapter)).Invoke();
+        }
+        else session.FallbackStopped += _adapter.DropQueuedFallback;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        _adapter.CandidatePoseValidator = _ => true;
+        var attempts = 0;
+        _adapter.AttemptStarted += _ => attempts++;
+        LocalizeWithoutEditorFailure();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        _adapter.Tick(MultiSetLocalizer.RequestTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
+        if (completedBeforeRetry)
+        {
+            LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+            _manager.LocalizationFailure.Invoke();
+        }
+        Assert.IsFalse(_adapter.FallbackAvailable);
+        session.LocalizeRequested += localizer.Localize;
+        var callback = FailureCallback(_adapter);
+        _manager.LocalizationFailure.RemoveListener(callback);
+        try
+        {
+            if (!signsFirst && completedBeforeRetry)
+                LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+            typeof(IndoorArRunner).GetMethod("OnHudRetry", flags).Invoke(runner, null);
+            Assert.IsTrue(_adapter.FallbackAvailable);
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+            Assert.IsNull(session.ResultJson);
+            if (!completedBeforeRetry)
+            {
+                _adapter.Tick(1f);
+                Assert.IsTrue(_adapter.FallbackAvailable);
+                Assert.IsTrue(_adapter.HasLiveRequest);
+                Assert.AreEqual(1, attempts);
+                LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+                ReportSuccess();
+                Assert.AreEqual(IndoorArState.Localizing, session.State);
+            }
+            if (signsFirst)
+            {
+                first.Tick(SignFirstLocalizer.HoldS - 1f);
+                Assert.AreEqual(1, attempts);
+                LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+                first.Tick(1f);
+            }
+            else if (!completedBeforeRetry)
+            {
+                LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+                _adapter.Tick(0f);
+            }
+            Assert.AreEqual(2, attempts);
+            ReportSuccess();
+            Assert.AreEqual(IndoorArState.Pinned, session.State);
+            Assert.IsFalse(_adapter.HasLiveRequest);
+        }
+        finally { _manager.LocalizationFailure.AddListener(callback); }
+    }
+
+    [Test]
     public void SignLocalizationSucceedsWhileOldMultiSetRequestDrains()
     {
         var attempts = 0;

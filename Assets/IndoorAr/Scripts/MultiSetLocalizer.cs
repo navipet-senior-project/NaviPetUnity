@@ -183,10 +183,11 @@ namespace IndoorAr
             if (!s_requestLive) StartNextQueuedRequest();
             if (!FallbackAvailable) return;
             var dt = Mathf.Max(0f, deltaTime);
-            if (_requestInFlight) _requestElapsed += dt;
+            var currentRequest = _requestInFlight && _requestGeneration == _generation;
+            if (currentRequest) _requestElapsed += dt;
             else if (_queuedAttemptId != 0) _queueElapsed += dt;
             else return;
-            if ((_requestInFlight ? _requestElapsed : _queueElapsed) < RequestTimeoutS) return;
+            if ((currentRequest ? _requestElapsed : _queueElapsed) < RequestTimeoutS) return;
             _fallbackUnavailable = true;
             RemoveQueuedRequest();
             Debug.Log("[IndoorAr] multiset fallback unavailable: prior request unresolved");
