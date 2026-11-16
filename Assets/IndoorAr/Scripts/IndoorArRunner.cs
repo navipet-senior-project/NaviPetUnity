@@ -48,7 +48,6 @@ namespace IndoorAr
         float _sessionStarted;
         IndoorArBaseline _baseline;
         string _baselineLog;
-        IndoorSignFixStatus? _signFix;
         IndoorSignPoseStatus? _signPoseStatus;
         IndoorSignCalibration _signCalibration;
         string _statusSessionId;
@@ -151,7 +150,6 @@ namespace IndoorAr
             _scanPoseReady = false;
             _slowHoldLeft = 0f;
             _signs = new IndoorSignTracker();
-            _signFix = null;
             _signPoseStatus = null;
             _statusSessionId = System.Guid.NewGuid().ToString("N");
             _statusSeq = 0;
@@ -335,7 +333,6 @@ namespace IndoorAr
                     _session.OnTrackingLost();
                 _baseline?.NoteSignConfirmed(NowMs());
                 LogBaseline();
-                if (_signFirst != null) ObserveSignTrail();
                 // Reports the first missing input on device: today, the sign's measured size and place.
                 if (_signPose != null)
                 {
@@ -348,7 +345,6 @@ namespace IndoorAr
             if (_signFirst != null && observation != null && _signs.Confirmed != null
                 && _signs.Confirmed.Id == observation.RoomId)
             {
-                ObserveSignCorners(observation);
                 ObserveSignPose(observation);
             }
         }
@@ -388,34 +384,6 @@ namespace IndoorAr
             return !RejectMultiSetFloorConflict(candidateMapSpace.InverseTransformPoint(arCamera.transform.position));
         }
 
-        // Locates the confirmed sign from its corners. Logs the fit and the sign's own geometry, never the camera's.
-        void ObserveSignCorners(IndoorSignObservation observation)
-        {
-            var room = _signs.Confirmed;
-            var sign = _signFirst.ObserveCorners(room, observation, out var fix);
-            var changed = _signFix != sign.Status;
-            _signFix = sign.Status;
-            if (fix.Usable)
-            {
-                _baseline?.NoteSignFix(NowMs());
-                LogBaseline();
-            }
-            if (Application.isEditor || (!changed && sign.Status != IndoorSignFixStatus.Ok)) return;
-            var line = $"[IndoorAr] sign fix room={room.Id} status={sign.Status} frames={sign.Frames} parallaxDeg={Mathf.Round(sign.ParallaxDeg)} residualMm={Mathf.Round(sign.ResidualM * 1000f)}";
-            if (sign.Status == IndoorSignFixStatus.Ok)
-            {
-                line += $" widthM={sign.WidthM:0.00} heightM={sign.HeightM:0.00} yawSigmaDeg={Mathf.Round(sign.YawSigmaDeg)} oneSign={fix.OneSign} usable={fix.Usable} applied={_signFirst.FromSigns}";
-                if (!_signFirst.FromSigns && _session.WasPinned)
-                {
-                    // Under a MultiSet pose, compare the wall direction with the door heading.
-                    var map = _localizer.MapSpace;
-                    var wallVsDoor = Mathf.DeltaAngle(room.DoorHeadingInMapDeg, sign.IntoWallYawDeg - map.eulerAngles.y);
-                    line += $" wallVsDoorDeg={Mathf.Round(wallVsDoor)}";
-                }
-            }
-            Debug.Log(line);
-        }
-
         // Poses the map from a sign validated on this device. Logs the status and solve time, never the pose.
         void ObserveSignPose(IndoorSignObservation observation)
         {
@@ -434,23 +402,6 @@ namespace IndoorAr
             if (Debug.isDebugBuild && status is IndoorSignPoseStatus.NoCalibration or IndoorSignPoseStatus.Unvalidated
                     or IndoorSignPoseStatus.OtherDevice)
                 Debug.Log(IndoorSignSurvey.CaptureLine(observation));
-        }
-
-        // Logs how good the trail is and how far it disagrees with the pose in use: sizes only, no position.
-        void ObserveSignTrail()
-        {
-            var camera = arCamera.transform.position;
-            var inMap = CameraInMap();
-            var fix = _signFirst.Observe(_signs.Confirmed, camera);
-            if (Application.isEditor) return;
-            var line = $"[IndoorAr] sign trail signs={fix.Signs} baselineM={fix.BaselineM:0.0} residualM={fix.ResidualM:0.0} yawBoundDeg={Mathf.Round(fix.YawBoundDeg)} usable={fix.Usable} applied={_signFirst.FromSigns}";
-            if (fix.Signs >= 2 && !_signFirst.FromSigns && _session.WasPinned)
-            {
-                var map = _localizer.MapSpace;
-                var off = fix.Origin + Quaternion.Euler(0f, fix.YawDeg, 0f) * inMap - camera;
-                line += $" vsPoseM={new Vector2(off.x, off.z).magnitude:0.0} vsPoseDeg={Mathf.Round(Mathf.Abs(Mathf.DeltaAngle(fix.YawDeg, map.eulerAngles.y)))}";
-            }
-            Debug.Log(line);
         }
 
         void NoteArReady()

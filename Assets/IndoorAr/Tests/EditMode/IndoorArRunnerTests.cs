@@ -393,7 +393,7 @@ public class IndoorArRunnerTests
     public void EveryExitDeliversOnceThenTheNextLaunchStartsClean(string exit, string status)
     {
         var runner = Runner(IndoorLocalizationMode.SignFirst);
-        runner.SetSignCalibration(IndoorSignTrailTests.ValidatedHere(out _, out _));
+        runner.SetSignCalibration(IndoorSignPoseTests.ValidatedHere(out _, out _));
         Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
         var first = Field<IndoorArSession>(runner, "_session");
         var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
@@ -883,7 +883,7 @@ public class IndoorArRunnerTests
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, _host.AddComponent<Camera>());
-        runner.SetSignCalibration(IndoorSignTrailTests.ValidatedHere(out _, out _));
+        runner.SetSignCalibration(IndoorSignPoseTests.ValidatedHere(out _, out _));
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         Assert.IsInstanceOf<SignFirstLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
         var session = Field<IndoorArSession>(runner, "_session");

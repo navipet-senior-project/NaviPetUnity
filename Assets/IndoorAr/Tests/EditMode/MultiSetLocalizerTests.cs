@@ -422,7 +422,7 @@ public class MultiSetLocalizerTests
         LocalizeWithoutEditorFailure();
         _adapter.AbandonPending();
 
-        var first = new SignFirstLocalizer(_adapter, IndoorSignTrailTests.ValidatedHere(out var sighting, out _));
+        var first = new SignFirstLocalizer(_adapter, IndoorSignPoseTests.ValidatedHere(out var sighting, out _));
         var session = new IndoorArSession(new IndoorArRequest
         {
             frame = IndoorArContract.Frame, mapCode = _adapter.MapCode,

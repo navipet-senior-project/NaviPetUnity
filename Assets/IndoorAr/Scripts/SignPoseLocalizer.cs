@@ -9,7 +9,7 @@ namespace IndoorAr
         SignPose,
         /// <summary>The original MultiSet single-frame VPS flow.</summary>
         MultiSet,
-        /// <summary>Room signs first (SignFirstLocalizer); MultiSet only when no usable sign fix arrives in time.</summary>
+        /// <summary>Room signs first (SignFirstLocalizer); MultiSet only when no calibrated sign pose arrives in time.</summary>
         SignFirst
     }
 

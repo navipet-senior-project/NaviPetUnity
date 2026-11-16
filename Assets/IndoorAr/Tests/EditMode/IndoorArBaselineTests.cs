@@ -57,21 +57,17 @@ public class IndoorArBaselineTests
         baseline.NoteSignConfirmed(5000);
         Assert.AreEqual(1200, baseline.TimeToSignMs);
         Assert.IsNull(baseline.TimeToFirstLocalizationMs, "a sign is not a pose");
-        StringAssert.EndsWith(" timeToSignMs=1200 timeToSignFixMs=na poseSource=na ocrLatencyMs=na poseEstimateUs=na", baseline.LogLine());
+        StringAssert.EndsWith(" timeToSignMs=1200 poseSource=na ocrLatencyMs=na poseEstimateUs=na", baseline.LogLine());
     }
 
     [Test]
-    public void SignFixTimeAndPoseSourceAreTheFirstOnly()
+    public void PoseSourceIsTheFirstAcceptedPoseOnly()
     {
         var baseline = new IndoorArBaseline();
         baseline.NoteSessionOpened(1000);
-        baseline.NoteSignFix(4000);
-        baseline.NoteSignFix(9000);
-        Assert.AreEqual(3000, baseline.TimeToSignFixMs);
-        Assert.IsNull(baseline.TimeToFirstLocalizationMs, "a sign fix that was not applied is not the pose");
         baseline.NotePoseAccepted(4100, fromSigns: true);
         baseline.NotePoseAccepted(8000);
-        StringAssert.EndsWith(" timeToSignFixMs=3000 poseSource=sign ocrLatencyMs=na poseEstimateUs=na", baseline.LogLine());
+        StringAssert.EndsWith(" timeToSignMs=na poseSource=sign ocrLatencyMs=na poseEstimateUs=na", baseline.LogLine());
     }
 
     [Test]
@@ -103,7 +99,7 @@ public class IndoorArBaselineTests
         Assert.IsNull(baseline.RequestLatencyMs);
         Assert.AreEqual(1, baseline.TrackingLosses);
         Assert.AreEqual(
-            "[IndoorArBaseline] arStartupMs=na requestLatencyMs=na timeToFirstLocalizationMs=600 arrowShownMs=2100 arrowAlignment=unmeasured attempts=0 retries=0 trackingLosses=1 unansweredAttempts=0 timeToSignMs=na timeToSignFixMs=na poseSource=multiset ocrLatencyMs=na poseEstimateUs=na",
+            "[IndoorArBaseline] arStartupMs=na requestLatencyMs=na timeToFirstLocalizationMs=600 arrowShownMs=2100 arrowAlignment=unmeasured attempts=0 retries=0 trackingLosses=1 unansweredAttempts=0 timeToSignMs=na poseSource=multiset ocrLatencyMs=na poseEstimateUs=na",
             baseline.LogLine());
     }
 }

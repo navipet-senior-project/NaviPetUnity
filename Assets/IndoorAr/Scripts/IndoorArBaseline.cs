@@ -16,7 +16,6 @@ namespace IndoorAr
         long? _firstPoseMs;
         long? _arrowShownMs;
         long? _signMs;
-        long? _signFixMs;
         int _unansweredClosed;
 
         public long? ArStartupMs { get; private set; }
@@ -25,8 +24,6 @@ namespace IndoorAr
         public long? ArrowShownMs { get; private set; }
         /// <summary>Session open until OCR first confirms a room sign. Identity only, not a pose.</summary>
         public long? TimeToSignMs { get; private set; }
-        /// <summary>Session open until sign corners first give a usable coarse fix. Logged only; it never poses the map.</summary>
-        public long? TimeToSignFixMs { get; private set; }
         /// <summary>Recognition time of the session's first OCR read, whatever it read.</summary>
         public long? OcrLatencyMs { get; private set; }
         /// <summary>Solve time of the session's first sign pose that came back Ok.</summary>
@@ -86,13 +83,6 @@ namespace IndoorAr
             TimeToSignMs = nowMs - _openedMs.Value;
         }
 
-        public void NoteSignFix(long nowMs)
-        {
-            if (_openedMs == null || _signFixMs != null) return;
-            _signFixMs = nowMs;
-            TimeToSignFixMs = nowMs - _openedMs.Value;
-        }
-
         public void NoteOcrRead(long latencyMs)
         {
             if (_openedMs == null || OcrLatencyMs != null) return;
@@ -123,7 +113,6 @@ namespace IndoorAr
             + " trackingLosses=" + TrackingLosses.ToString(CultureInfo.InvariantCulture)
             + " unansweredAttempts=" + UnansweredAttempts.ToString(CultureInfo.InvariantCulture)
             + " " + Field("timeToSignMs", TimeToSignMs)
-            + " " + Field("timeToSignFixMs", TimeToSignFixMs)
             + " poseSource=" + PoseSource
             + " " + Field("ocrLatencyMs", OcrLatencyMs)
             + " " + Field("poseEstimateUs", PoseEstimateUs);

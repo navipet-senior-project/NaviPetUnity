@@ -34,6 +34,14 @@ public class IndoorSignPoseTests
         };
     }
 
+    internal static IndoorSignCalibration ValidatedHere(out IndoorSignObservation sighting, out Vector3 camera)
+    {
+        var sign = Sign(device: SystemInfo.deviceModel);
+        camera = sign.centerInMap + new Vector3(-1.2f, 0f, 0.2f);
+        sighting = Observe(sign, camera, Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
+        return new IndoorSignCalibration { signs = new[] { sign } };
+    }
+
     [TestCase(0f, 0f, 1.6f, 0f)]
     [TestCase(15f, -5f, 1.4f, 0.3f)]
     [TestCase(-20f, 8f, 1.8f, -0.4f)]
