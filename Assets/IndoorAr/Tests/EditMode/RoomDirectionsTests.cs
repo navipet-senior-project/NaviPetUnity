@@ -74,10 +74,10 @@ public class RoomDirectionsTests
     public void OtherFloorRoomIsSentToAStairsOrElevatorFirst()
     {
         var text = Directions("215", To("119"));
-        StringAssert.IsMatch(@" to the (stairs|elevator), then go to Floor 1\. ", text);
+        StringAssert.IsMatch(@" to the (stairs|elevator), then go to Floor 1 for VEC 119\. ", text);
         AssertHeadingFree(text);
         text = Directions("127", To("215"));
-        StringAssert.IsMatch(@" to the (stairs|elevator), then go to Floor 2\. ", text);
+        StringAssert.IsMatch(@" to the (stairs|elevator), then go to Floor 2 for VEC 215\. ", text);
     }
 
     [Test]
@@ -131,6 +131,41 @@ public class RoomDirectionsTests
     public void StepFreeRequestGetsNoUnverifiedRoute()
     {
         Assert.AreEqual("A step-free route can't be confirmed from this room.", Directions("127", To("119", stepFree: true)));
+    }
+
+    [Test]
+    public void LocalizationFailureCardKeepsTheRoomDirectionsAndStillNeverDrawsAnArrow()
+    {
+        var request = To("119");
+        request.frame = IndoorArContract.Frame;
+        request.mapCode = "MSET_XTBY7AM7ZK77";
+        var session = new IndoorArSession(request, request.mapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnSignConfirmed(Sign("127"));
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
+        var directions = Directions("127", request);
+        var view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f, null, roomDirections: directions);
+        Assert.AreEqual(IndoorHudState.NotFound, view.State);
+        Assert.AreEqual(directions, view.DetailOverride);
+        Assert.IsNull(view.TitleOverride, "the card still says it could not find the user");
+        Assert.IsFalse(view.FollowingRoute);
+
+        // Retry returns to scanning with the directions, still no arrow.
+        session.Retry();
+        view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f, null, roomDirections: directions);
+        Assert.AreEqual(IndoorHudState.Scanning, view.State);
+        Assert.AreEqual(directions, view.DetailOverride);
+
+        var noRoom = new IndoorArSession(request, request.mapCode);
+        noRoom.OnArSupport(true);
+        noRoom.OnAuthenticated();
+        noRoom.Tick(IndoorArSession.LocalizeTimeoutS);
+        noRoom.Tick(IndoorArSession.LocalizeTimeoutS);
+        view = LiveDoorHud.Compose(noRoom, Vector3.zero, Vector3.forward, 0f, null, roomDirections: directions);
+        Assert.IsNull(view.DetailOverride, "no room sign, no directions");
     }
 
     [Test]

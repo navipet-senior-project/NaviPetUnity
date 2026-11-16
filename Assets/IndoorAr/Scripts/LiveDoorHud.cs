@@ -72,6 +72,10 @@ namespace IndoorAr
                     : authFailed ? "The session could not use the AR token." : null,
             };
             if (view.State == IndoorHudState.Scanning && session.SignRoom != null) ShowSign(view, session.SignRoom, roomDirections);
+            // The 60 s localization failure is about position only; the room-sign directions stay readable on its card.
+            else if (view.State == IndoorHudState.NotFound && LocalizationFailed(session) && !request.LocalizeOnly
+                && session.SignRoom != null && roomDirections != null)
+                view.DetailOverride = roomDirections;
             return view;
         }
 
@@ -147,7 +151,7 @@ namespace IndoorAr
             var length = IndoorHud.DistanceLabel(IndoorWalkGrid.LengthM(route));
             var toward = FirstDoorPassed(route, markers, RoomLabel(sign.Id), destination);
             var walk = toward == null ? "Walk about " + length : "Walk toward " + RoomLabel(toward) + ", about " + length;
-            return walk + (via == null ? " to " + destination : " to the " + via + ", then go to Floor " + floor)
+            return walk + (via == null ? " to " + destination : " to the " + via + ", then go to Floor " + floor + " for " + destination)
                 + ". " + HeadingUnknown;
         }
 
