@@ -57,7 +57,7 @@ namespace IndoorAr
         Material _pinAmberMaterial;
         Material _pinCoreMaterial;
         IndoorRoomOcrDemo _mlKitOcr;
-        IndoorRoomVisionOcr _visionOcr;
+        IndoorRoomMlKitOcr _iosOcr;
         IndoorSignTracker _signs;
         SignPoseLocalizer _signPose;
         SignFirstLocalizer _signFirst;
@@ -105,9 +105,9 @@ namespace IndoorAr
                     { CandidatePoseValidator = IsCandidateSignPoseAllowed };
             ArCameraDiagnostics.Attach();
             _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();
-            _visionOcr = GetComponent<IndoorRoomVisionOcr>();
+            _iosOcr = GetComponent<IndoorRoomMlKitOcr>();
             if (_mlKitOcr != null) _mlKitOcr.Result += OnSignRead;
-            if (_visionOcr != null) _visionOcr.Result += OnSignRead;
+            if (_iosOcr != null) _iosOcr.Result += OnSignRead;
             UpdateSignOcr();
             if (!Application.isEditor)
                 Debug.Log($"[IndoorAr] mode={localizationMode} signLocalization={signLocalization}");
@@ -314,7 +314,7 @@ namespace IndoorAr
             var on = signLocalization && !_delivered && _session != null
                 && _session.State is IndoorArState.Init or IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned;
             if (_mlKitOcr != null) _mlKitOcr.enabled = on;
-            if (_visionOcr != null) _visionOcr.enabled = on;
+            if (_iosOcr != null) _iosOcr.enabled = on;
         }
 
         void OnSignRead(string text, IndoorRoomMatch match, float recognitionStarted, IndoorSignObservation observation)
@@ -605,7 +605,7 @@ namespace IndoorAr
                 _hereFloor = here;
                 _hereGrid = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid")?.text, here);
                 _connectors = IndoorRoomIdentityMatcher.FloorConnectors(
-                    _visionOcr != null ? _visionOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null, here);
+                    _iosOcr != null ? _iosOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null, here);
             }
             if (_hereGrid == null) return;
             foreach (var (type, at) in _connectors)
@@ -726,7 +726,7 @@ namespace IndoorAr
         void OnDestroy()
         {
             if (_mlKitOcr != null) _mlKitOcr.Result -= OnSignRead;
-            if (_visionOcr != null) _visionOcr.Result -= OnSignRead;
+            if (_iosOcr != null) _iosOcr.Result -= OnSignRead;
             ReleaseSession();
         }
 

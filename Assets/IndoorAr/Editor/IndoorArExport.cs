@@ -173,12 +173,11 @@ namespace IndoorAr.Editor
             var target = project.GetUnityFrameworkTargetGuid();
             project.AddFrameworkToProject(target, "ARKit.framework", false);
             project.AddFrameworkToProject(target, "MultipeerConnectivity.framework", false);
-            project.AddFrameworkToProject(target, "Vision.framework", false);
             // shortcut: ARCore Extensions pins arcore-ios-sdk 1.57.0, which Xcode cannot resolve because
             // its CloudAnchors checksum is wrong (google-ar/arcore-ios-sdk#126). 1.57.1 is the same SDK with
             // that checksum fixed. Remove when ARCore Extensions pins a version that resolves.
             File.WriteAllText(projectPath, project.WriteToString().Replace("version = 1.57.0;", "version = 1.57.1;"));
-            Debug.Log("[IndoorAr] linked ARKit, MultipeerConnectivity and Vision into UnityFramework");
+            Debug.Log("[IndoorAr] linked ARKit and MultipeerConnectivity into UnityFramework");
             if (File.ReadAllText(projectPath).Contains("arcore-ios-sdk")) UseArCoreCopiesOfSharedGoogleLibraries();
         }
 

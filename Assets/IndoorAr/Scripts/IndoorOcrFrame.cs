@@ -48,8 +48,6 @@ namespace IndoorAr
     public sealed class IndoorOcrFrame
     {
         public string text;
-        /// <summary>Which recognizer read the frame: "mlkit" or "vision". Null when the native side does not say.</summary>
-        public string engine;
         /// <summary>Size of the upright image the corners are in.</summary>
         public int width, height;
         /// <summary>Clockwise degrees the camera image was turned to stand upright.</summary>

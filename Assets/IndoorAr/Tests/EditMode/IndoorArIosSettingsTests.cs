@@ -80,11 +80,10 @@ public class IndoorArIosSettingsTests
     }
 
     [Test]
-    public void VisionPluginNamesItsFrameworkTheWayUnityLinksIt()
+    public void IosMlKitPluginHasNoAlternateOcrFrameworkDependency()
     {
-        // Unity appends ".framework" itself: "Vision.framework" made the linker look for Vision.framework.framework.
-        var plugin = (PluginImporter)AssetImporter.GetAtPath("Assets/Plugins/iOS/IndoorRoomVisionOcr.mm");
-        Assert.That(plugin.GetPlatformData(BuildTarget.iOS, "FrameworkDependencies"), Is.EqualTo("Vision;"));
+        var plugin = (PluginImporter)AssetImporter.GetAtPath("Assets/Plugins/iOS/IndoorRoomMlKitOcr.mm");
+        Assert.That(plugin.GetPlatformData(BuildTarget.iOS, "FrameworkDependencies"), Is.Empty);
     }
 
     [Test]

@@ -27,8 +27,6 @@ public class IndoorOcrFrameTests
     {
         var frame = IndoorOcrFrame.Parse(Json);
         Assert.AreEqual("VEC\n119", frame.text);
-        Assert.IsNull(frame.engine, "a recognizer that does not name itself is not guessed");
-        Assert.AreEqual("mlkit", IndoorOcrFrame.Parse(Json.Replace("{\"text\":\"VEC\\n", "{\"engine\":\"mlkit\",\"text\":\"VEC\\n")).engine);
         var corners = frame.CornersOf("VEC119");
         Assert.AreEqual(new Vector2(700f, 900f), corners[0]);
         Assert.AreEqual(new Vector2(699f, 929f), corners[3]);
@@ -92,14 +90,14 @@ public class IndoorOcrFrameTests
         var host = new GameObject("OCR adapter test");
         try
         {
-            var ocr = host.AddComponent<IndoorRoomVisionOcr>();
+            var ocr = host.AddComponent<IndoorRoomMlKitOcr>();
             ocr.Configure(null, new TextAsset(File.ReadAllText(Path.Combine(
                 Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"))));
             IndoorRoomMatch match = null;
             var sighting = new IndoorSignObservation();
             ocr.Result += (_, roomMatch, _, observation) => { match = roomMatch; sighting = observation; };
 
-            ocr.OnVisionText(Json);
+            ocr.OnMlKitText(Json);
 
             Assert.AreEqual("VEC119", match.Landmark.Id);
             Assert.IsNull(sighting, "the editor has no camera intrinsics, so the corners are not a sighting");

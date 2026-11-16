@@ -37,4 +37,5 @@ public class IndoorRoomOcrDemoTests
         }
         finally { Object.DestroyImmediate(host); }
     }
+
 }

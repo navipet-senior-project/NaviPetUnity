@@ -171,7 +171,7 @@ namespace IndoorAr.Editor
             runner.AddComponent<IndoorRoomOcrDemo>().Configure(
                 camera.GetComponent<ARCameraManager>(),
                 AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/IndoorNavigation/Data/vec_floors1and2.json"));
-            runner.AddComponent<IndoorRoomVisionOcr>().Configure(
+            runner.AddComponent<IndoorRoomMlKitOcr>().Configure(
                 camera.GetComponent<ARCameraManager>(),
                 AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/IndoorNavigation/Data/vec_floors1and2.json"));
             Debug.Log("[IndoorAr] scene roots: " + string.Join(", ", scene.GetRootGameObjects().Select(g => g.name)));

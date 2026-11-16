@@ -66,28 +66,45 @@ namespace IndoorAr
                 XRCpuImage.Transformation.None);
             parameters.outputDimensions = new Vector2Int(width, height);
             _converting = true;
-            image.ConvertAsync(parameters, OnFrameConverted);
-            image.Dispose();
+            try { image.ConvertAsync(parameters, OnFrameConverted); }
+            catch
+            {
+                _converting = false;
+                OnMlKitError("frame_conversion_failed");
+            }
+            finally { image.Dispose(); }
         }
 
         void OnFrameConverted(XRCpuImage.AsyncConversionStatus status,
             XRCpuImage.ConversionParams parameters, NativeArray<byte> data)
         {
             _converting = false;
-            if (status != XRCpuImage.AsyncConversionStatus.Ready) return;
+            if (status != XRCpuImage.AsyncConversionStatus.Ready)
+            {
+                OnMlKitError("frame_conversion_failed");
+                return;
+            }
             if (!IsValidRgbaFrame(parameters.outputDimensions.x,
-                    parameters.outputDimensions.y, data.Length)) return;
+                    parameters.outputDimensions.y, data.Length))
+            {
+                OnMlKitError("invalid_frame");
+                return;
+            }
             // JNI copies the array into Java on the call, so one buffer serves every frame.
             if (_pixels == null || _pixels.Length != data.Length) _pixels = new byte[data.Length];
             data.CopyTo(_pixels);
             _recognizing = true;
 #if UNITY_ANDROID && !UNITY_EDITOR
-            using (var plugin = new AndroidJavaClass("com.navipet.indoorar.ocr.IndoorArOcrPlugin"))
+            try
             {
-                _recognizing = plugin.CallStatic<bool>("recognize", _pixels,
-                    parameters.outputDimensions.x, parameters.outputDimensions.y,
-                    gameObject.name);
+                using (var plugin = new AndroidJavaClass("com.navipet.indoorar.ocr.IndoorArOcrPlugin"))
+                {
+                    _recognizing = plugin.CallStatic<bool>("recognize", _pixels,
+                        parameters.outputDimensions.x, parameters.outputDimensions.y,
+                        gameObject.name);
+                }
             }
+            catch (AndroidJavaException) { OnMlKitError("recognizer_unavailable"); }
 #endif
         }
 
@@ -96,8 +113,9 @@ namespace IndoorAr
         {
             _recognizing = false;
             var frame = IndoorOcrFrame.Parse(message);
-            var match = IndoorRoomIdentityMatcher.MatchSign(
-                frame.text, _directoryJson ?? (directory == null ? null : directory.text));
+            var match = string.IsNullOrWhiteSpace(frame.text)
+                ? new IndoorRoomMatch(IndoorRoomMatchStatus.NoText)
+                : IndoorRoomIdentityMatcher.MatchSign(frame.text, _directoryJson ?? (directory == null ? null : directory.text));
             // The recognized text is never logged; the runner logs the match status.
             Result?.Invoke(frame.text, match, _recognitionStarted,
                 match.Landmark == null ? null : frame.Sighting(match.Landmark.Id, _capture));
@@ -107,6 +125,8 @@ namespace IndoorAr
         {
             _recognizing = false;
             Debug.LogWarning($"[IndoorAr OCR] recognition failed: {message}");
+            Result?.Invoke("", new IndoorRoomMatch(IndoorRoomMatchStatus.RecognizerUnavailable),
+                _recognitionStarted, null);
         }
     }
 }

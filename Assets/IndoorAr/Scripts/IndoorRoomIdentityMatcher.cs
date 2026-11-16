@@ -12,6 +12,8 @@ namespace IndoorAr
         BuildingMismatch,
         MissingFloor,
         InvalidRoomNumber,
+        NoText,
+        RecognizerUnavailable,
         NoMatch,
         Ambiguous
     }
