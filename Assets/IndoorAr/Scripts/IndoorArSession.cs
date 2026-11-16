@@ -96,9 +96,9 @@ namespace IndoorAr
         public bool PoseConflictsWithSign(float cameraY, float floor1Y, float floor2Y)
         {
             var poseFloor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
-            if (poseFloor == -1) return true;
+            if (poseFloor <= 0) return true;
             return SignRoom != null && SignRoom.Floor > 0
-                && poseFloor > 0 && poseFloor != SignRoom.Floor;
+                && poseFloor != SignRoom.Floor;
         }
 
         public int PoseFloor(float cameraY, float floor1Y, float floor2Y) =>

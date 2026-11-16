@@ -356,4 +356,15 @@ public class IndoorArSessionTests
         session.Cancel();
         StringAssert.DoesNotContain("signRoom", session.ResultJson);
     }
+
+    [Test]
+    public void UnknownGapPoseIsRejectedWithOrWithoutSignEvidence()
+    {
+        var session = Localizing(out _);
+        Assert.AreEqual(0, session.PoseFloor(1f, -2f, 2.3f));
+        Assert.IsTrue(session.PoseConflictsWithSign(1f, -2f, 2.3f), "gap remains unsupported without a sign");
+        session.OnSignConfirmed(Sign120);
+        Assert.IsTrue(session.PoseConflictsWithSign(1f, -2f, 2.3f), "a sign cannot make an unknown pose acceptable");
+        Assert.IsFalse(session.PoseConflictsWithSign(-0.5f, -2f, 2.3f), "a supported floor-1 pose remains acceptable");
+    }
 }

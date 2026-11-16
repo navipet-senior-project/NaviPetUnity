@@ -548,6 +548,59 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void SignPoseRejectsUnknownGapThenAcceptsSupportedFloor()
+    {
+        var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+        var floor1Y = IndoorWalkGrid.ForFloor(gridJson, 1).FloorY;
+        var floor2Y = IndoorWalkGrid.ForFloor(gridJson, 2).FloorY;
+        var sign = IndoorSignPoseTests.Sign(device: SystemInfo.deviceModel);
+        var fake = _host.AddComponent<RunnerFakeLocalizer>();
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(fake, _pinPrefab, _host.AddComponent<Camera>());
+        runner.SetLocalizationMode(IndoorLocalizationMode.SignPose);
+        runner.SetSignCalibration(new IndoorSignCalibration { signs = new[] { sign } });
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        Field<IIndoorArLocalizer>(runner, "_localizer").Authenticate();
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC120", "VEC", "floor_1"));
+        session.OnLocalized();
+        Call(runner, "UpdatePin");
+        var localizer = Field<SignPoseLocalizer>(runner, "_signPose");
+        localizer.Localize();
+        var root = localizer.MapSpace;
+        var pin = Field<Transform>(runner, "_pin");
+        var hud = Field<IndoorHud>(runner, "_hud").transform;
+        var beforePosition = root.position;
+        var beforeRotation = root.rotation;
+        var beforePinPosition = pin.position;
+        var beforePinRotation = pin.rotation;
+        var beforeHudPosition = hud.position;
+        var beforeHudRotation = hud.rotation;
+
+        var gapY = (floor1Y + IndoorArSession.MaxEyeHeightM + floor2Y + IndoorArSession.MinEyeHeightM) / 2f;
+        sign.centerInMap = new Vector3(2f, gapY, 8f);
+        var rejected = IndoorSignPoseTests.Observe(sign, new Vector3(0f, gapY, 5f),
+            Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
+        Assert.AreEqual(IndoorSignPoseStatus.Implausible, localizer.Observe(rejected));
+        Assert.AreEqual(beforePosition, root.position);
+        Assert.AreEqual(beforeRotation, root.rotation);
+        Assert.AreEqual(beforePinPosition, pin.position);
+        Assert.AreEqual(beforePinRotation, pin.rotation);
+        Assert.AreEqual(beforeHudPosition, hud.position);
+        Assert.AreEqual(beforeHudRotation, hud.rotation);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+
+        var supportedY = floor1Y + 1.5f;
+        sign.centerInMap = new Vector3(2f, supportedY, 8f);
+        var accepted = IndoorSignPoseTests.Observe(sign, new Vector3(0f, supportedY, 5f),
+            Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
+        Assert.AreEqual(IndoorSignPoseStatus.Ok, localizer.Observe(accepted));
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        Assert.AreNotEqual(beforePosition, root.position);
+    }
+
+    [Test]
     public void MultiSetModeKeepsTheOriginalLocalizer()
     {
         var runner = Runner(IndoorLocalizationMode.MultiSet);
@@ -588,6 +641,7 @@ public class IndoorArRunnerTests
     [TestCase("signConflict")]
     [TestCase("below")]
     [TestCase("above")]
+    [TestCase("gap")]
     public void MultiSetCandidateMustPassFloorEvidenceBeforeChangingNavigation(string candidateKind)
     {
         var sdkObject = new GameObject("MultiSet SDK");
@@ -657,7 +711,9 @@ public class IndoorArRunnerTests
             var beforeHudPosition = hud.position;
             var beforeHudRotation = hud.rotation;
             var rejectedPoseY = candidateKind == "signConflict" ? floor1Y + 1.5f
-                : candidateKind == "below" ? floor1Y - 3f : floor2Y + 3f;
+                : candidateKind == "below" ? floor1Y - 3f
+                : candidateKind == "above" ? floor2Y + 3f
+                : floor1Y + IndoorArSession.MaxEyeHeightM + .05f;
             LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
             TickSignFallbackWithoutEditorFailure(signFirst, localizer, manager);
@@ -665,7 +721,8 @@ public class IndoorArRunnerTests
             Assert.IsFalse(mapRoot.IsChildOf(localizer.SdkMapSpace));
             localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(-12f, 8f, 19f), Quaternion.Euler(0f, 80f, 0f));
             camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, rejectedPoseY, 0f);
-            var expectedEvidence = candidateKind == "signConflict" ? "sign=2 pose=1" : "sign=none pose=unsupported";
+            var expectedEvidence = candidateKind == "signConflict" ? "sign=2 pose=1"
+                : candidateKind == "gap" ? "sign=none pose=unknown" : "sign=none pose=unsupported";
             LogAssert.Expect(LogType.Log, $"[IndoorAr] floor conflict {expectedEvidence}");
             LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportLocalized(manager, true);
