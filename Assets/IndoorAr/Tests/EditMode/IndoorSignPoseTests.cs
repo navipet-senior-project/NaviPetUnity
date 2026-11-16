@@ -253,41 +253,23 @@ public class IndoorSignPoseTests
         foreach (var sign in IndoorSignCalibration.Parse(shipped.text).signs) Assert.IsFalse(sign.validated);
     }
 
-    [Test]
-    public void LocalizerNeedsAnOpenAttemptAndAPoseThenMovesTheMapSoTheCameraLandsOnTheSolvedPose()
+    [TestCase(-170f)]
+    [TestCase(40f)]
+    [TestCase(170f)]
+    public void PlacementPreservesTheSolvedCameraPositionAndHeading(float worldYaw)
     {
-        var sign = Sign();
         var space = new GameObject("MapSpace").transform;
         try
         {
-            var localizer = new SignPoseLocalizer(space, "MSET", new IndoorSignCalibration { signs = new[] { sign } });
-            var authenticated = 0;
-            var localized = 0;
-            localizer.Authenticated += () => authenticated++;
-            localizer.Localized += _ => localized++;
-            localizer.Authenticate();
-            Assert.AreEqual(1, authenticated, "no network round trip");
-
-            var camera = sign.centerInMap + new Vector3(-1.2f, 0f, 0.2f);
-            var obs = Observe(sign, camera, Quaternion.Euler(0f, 100f, 0f));
-            Assert.AreEqual(IndoorSignPoseStatus.Ok, localizer.Observe(obs));
-            Assert.AreEqual(0, localized, "no localization attempt is open yet");
-
-            localizer.Localize();
-            Assert.AreEqual(IndoorSignPoseStatus.NoCorners, localizer.Observe(new IndoorSignObservation { RoomId = "VEC120" }));
-            Assert.AreEqual(0, localized);
-            localizer.Observe(obs);
-            Assert.AreEqual(1, localized);
-            Assert.Less(Vector3.Distance(obs.CameraWorldPosition, space.TransformPoint(camera)), 0.01f);
-            var forwardInMap = space.InverseTransformDirection(obs.CameraWorldRotation * Vector3.forward);
-            Assert.Less(Vector3.Angle(forwardInMap, Quaternion.Euler(0f, 100f, 0f) * Vector3.forward), 0.5f);
-            localizer.Observe(obs);
-            Assert.AreEqual(1, localized, "one attempt, one pose");
-
-            localizer.Localize();
-            localizer.CandidatePoseValidator = _ => false;
-            Assert.AreEqual(IndoorSignPoseStatus.Implausible, localizer.Observe(obs), "e.g. on another floor");
-            Assert.AreEqual(1, localized);
+            var cameraInMap = new Vector3(-1.2f, 1.5f, .2f);
+            var cameraWorld = new Vector3(10f, 0f, 3f);
+            var rotationInMap = Quaternion.Euler(0f, 100f, 0f);
+            var rotationWorld = Quaternion.Euler(0f, worldYaw, 0f);
+            IndoorSignPose.Place(space, cameraWorld, rotationWorld, cameraInMap, rotationInMap);
+            Assert.Less(Vector3.Distance(cameraWorld, space.TransformPoint(cameraInMap)), .01f);
+            Assert.Less(Vector3.Angle(space.InverseTransformDirection(rotationWorld * Vector3.forward),
+                rotationInMap * Vector3.forward), .01f);
+            Assert.Less(Vector3.Angle(space.up, Vector3.up), .01f);
         }
         finally { Object.DestroyImmediate(space.gameObject); }
     }

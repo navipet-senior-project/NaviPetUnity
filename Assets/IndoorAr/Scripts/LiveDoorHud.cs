@@ -32,7 +32,7 @@ namespace IndoorAr
         /// <param name="floorChange">"stairs" or "elevator" when the route ends there instead of at the door.</param>
         public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap,
             float pinnedForS, Vector3[] route = null, string floorChange = null, bool floorUnknown = false,
-            bool wrongFloorEvidence = false)
+            bool wrongFloorEvidence = false, IndoorWalkGrid routeGrid = null)
         {
             var request = session.Request;
             var door = request.position;
@@ -42,7 +42,7 @@ namespace IndoorAr
             // On the wrong floor only a route to stairs or an elevator helps; one to the door would cross floors.
             if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || floorUnknown
                 || wrongFloor != (floorChange != null)) route = null;
-            else target = IndoorWalkGrid.NextWaypoint(route, cameraInMap, RouteLookAheadM);
+            else target = routeGrid != null ? routeGrid.NextWaypoint(route, cameraInMap, RouteLookAheadM) : route[1];
             var authFailed = AuthFailed(session);
             var stepFreeUnavailable = StepFreeUnavailable(session);
             var view = new IndoorHudView

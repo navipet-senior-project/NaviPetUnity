@@ -134,6 +134,18 @@ namespace IndoorAr
         public const float MaxValidationErrorM = 0.3f;
         public const float MaxValidationYawDeg = 5f;
 
+        /// <summary>
+        /// Moves the MapSet origin so the AR camera, at its world pose, sits at the solved map pose. Yaw only:
+        /// the AR world is gravity aligned, so the sign's pitch and roll estimate must not tilt the map.
+        /// </summary>
+        public static void Place(Transform mapSpace, Vector3 cameraWorldPosition, Quaternion cameraWorldRotation,
+            Vector3 cameraPositionInMap, Quaternion cameraRotationInMap)
+        {
+            var yaw = Yaw(cameraWorldRotation) - Yaw(cameraRotationInMap);
+            var rotation = Quaternion.Euler(0f, yaw, 0f);
+            mapSpace.SetPositionAndRotation(cameraWorldPosition - rotation * cameraPositionInMap, rotation);
+        }
+
         /// <summary>A pose only from a sign validated on this device model.</summary>
         public static IndoorSignPoseResult Solve(IndoorSignObservation obs, IndoorSignCalibrationEntry sign)
         {

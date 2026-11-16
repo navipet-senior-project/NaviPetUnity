@@ -25,7 +25,7 @@ namespace IndoorAr
         // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
         [SerializeField] bool signLocalization = true;
         // SignFirst names the room from signs, poses the map only from a sign validated on this device, and keeps
-        // MultiSet as the fallback; no sign is validated yet. SignPose never calls MultiSet.
+        // MultiSet as the fallback; no sign is validated yet.
         [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.SignFirst;
 
         IIndoorArLocalizer _localizer;
@@ -58,7 +58,6 @@ namespace IndoorAr
         IndoorRoomOcrDemo _mlKitOcr;
         IndoorRoomMlKitOcr _iosOcr;
         IndoorSignTracker _signs;
-        SignPoseLocalizer _signPose;
         SignFirstLocalizer _signFirst;
         readonly HashSet<int> _sessionAttempts = new HashSet<int>();
         const float RerouteM = .5f;
@@ -95,13 +94,7 @@ namespace IndoorAr
             if (localizerBehaviour is MultiSetLocalizer multiSet)
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
             _signCalibration ??= IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text);
-            if (localizationMode == IndoorLocalizationMode.SignPose)
-            {
-                _signPose = new SignPoseLocalizer(_localizer.MapSpace, _localizer.MapCode, _signCalibration)
-                    { CandidatePoseValidator = IsCandidateSignPoseAllowed };
-                _localizer = _signPose;
-            }
-            else if (localizationMode == IndoorLocalizationMode.SignFirst)
+            if (localizationMode == IndoorLocalizationMode.SignFirst)
                 _localizer = _signFirst = new SignFirstLocalizer(_localizer, _signCalibration, signLocalization)
                     { CandidatePoseValidator = IsCandidateSignPoseAllowed };
             ArCameraDiagnostics.Attach();
@@ -280,6 +273,7 @@ namespace IndoorAr
         {
             _failureRelease = true;
             _session?.Cancel();
+            DropQueuedMultiSetFallback();
         }
 
         void RequestLocalization()
@@ -308,7 +302,7 @@ namespace IndoorAr
             var wasPinned = _session.WasPinned;
             _session.OnLocalized(confidence);
             if (!wasPinned && _session.WasPinned)
-                _baseline?.NotePoseAccepted(NowMs(), _signPose != null || (_signFirst != null && _signFirst.FromSigns));
+                _baseline?.NotePoseAccepted(NowMs(), _signFirst != null && _signFirst.FromSigns);
             LogBaseline();
         }
 
@@ -335,24 +329,18 @@ namespace IndoorAr
             if (_signs.Observe(match, now))
             {
                 if (!Application.isEditor) Debug.Log($"[IndoorAr] sign confirmed room={_signs.Confirmed.Id}");
+                _baseline?.NoteSignConfirmed(NowMs());
+                LogBaseline();
+            }
+            if (match?.Status == IndoorRoomMatchStatus.Matched && _signs.InView(now)
+                && match.Landmark.Id == _signs.Confirmed.Id)
+            {
                 _session.OnSignConfirmed(_signs.Confirmed);
                 if (_session.State == IndoorArState.Pinned && RejectMultiSetFloorConflict(CameraInMap()))
                     _session.OnTrackingLost();
-                _baseline?.NoteSignConfirmed(NowMs());
-                LogBaseline();
-                // Reports the first missing input on device: today, the sign's measured size and place.
-                if (_signPose != null)
-                {
-                    var status = _signPose.Observe(observation ?? new IndoorSignObservation { RoomId = _signs.Confirmed.Id });
-                    if (!Application.isEditor)
-                        Debug.Log($"[IndoorAr] sign pose room={_signs.Confirmed.Id} status={status}");
-                }
-            }
-            if (_signs.InView(now)) _session.OnSignInView();
-            if (_signFirst != null && observation != null && _signs.Confirmed != null
-                && _signs.Confirmed.Id == observation.RoomId)
-            {
-                ObserveSignPose(observation);
+                _session.OnSignInView();
+                if (_signFirst != null && observation != null && observation.RoomId == _signs.Confirmed.Id)
+                    ObserveSignPose(observation);
             }
         }
 
@@ -423,7 +411,6 @@ namespace IndoorAr
 
         string MultiSetFallbackStatus()
         {
-            if (localizationMode == IndoorLocalizationMode.SignPose) return "disabled";
             if (_signFirst != null) return _signFirst.FallbackStatus;
             return localizerBehaviour is MultiSetLocalizer multiSet ? multiSet.FallbackStatus : "unavailable";
         }
@@ -434,15 +421,15 @@ namespace IndoorAr
             if (_session == null || _delivered) return;
             var localized = _session.State is IndoorArState.Pinned or IndoorArState.Arrived;
             var tracking = ARSession.state == ARSessionState.SessionTracking;
-            var fallback = localizationMode != IndoorLocalizationMode.SignPose && (_signFirst != null
-                ? _signFirst.FallbackAvailable : localizerBehaviour is MultiSetLocalizer multiSet && multiSet.FallbackAvailable);
+            var fallback = _signFirst != null
+                ? _signFirst.FallbackAvailable : localizerBehaviour is MultiSetLocalizer multiSet && multiSet.FallbackAvailable;
             var room = _session.SignRoom;
             var key = $"{_session.State}|{tracking}|{room?.Id}|{localized}|{fallback}";
             if (key == _statusSent) return;
             _statusSent = key;
             var map = _localizer.MapSpace;
             var source = !localized ? null
-                : _signPose != null || (_signFirst != null && _signFirst.FromSigns) ? "sign" : "multiset";
+                : _signFirst != null && _signFirst.FromSigns ? "sign" : "multiset";
             IndoorArBridge.PostStatus(IndoorArContract.Status(_statusSessionId, ++_statusSeq, _localizer.MapCode,
                 _session.State, tracking, room?.Id, room?.Floor ?? 0, localized, fallback, source,
                 CameraInMap(), Quaternion.Inverse(map.rotation) * arCamera.transform.rotation));
@@ -463,7 +450,7 @@ namespace IndoorAr
                 && !LiveDoorHud.StepFreeUnavailable(_session)) return;
             var route = Route(CameraInMap());
             var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor, route,
-                _floorChange, _floorUnknown, _routeWrongFloor);
+                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor));
             if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.FollowingRoute && _session.SignRoom != null

@@ -59,9 +59,9 @@ public class IndoorWalkGridTests
         var hall = Hall();
         var camera = new Vector3(.5f, 0f, .5f);
         hall.TryRoute(camera, new Vector3(4.5f, 0f, 4.5f), out var route);
-        Assert.AreEqual(route[1], IndoorWalkGrid.NextWaypoint(route, camera, 1f));
+        Assert.AreEqual(route[1], hall.NextWaypoint(route, camera, 1f));
         // Past the corner the same route steers at the goal, and never back at a point already reached.
-        Assert.AreEqual(route[2], IndoorWalkGrid.NextWaypoint(route, new Vector3(4.4f, 0f, .6f), 1f));
+        Assert.AreEqual(route[2], hall.NextWaypoint(route, new Vector3(4.4f, 0f, .6f), 1f));
 
         IndoorArContract.TryParseRequest(
             "{\"schemaVersion\":1,\"room\":\"119\",\"doorKey\":\"VEC119\",\"floor\":\"1\"," +
@@ -74,7 +74,7 @@ public class IndoorWalkGridTests
         var straight = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f);
         Assert.IsFalse(straight.FollowingRoute);
         Assert.AreEqual(45f, straight.ArrowYaw, 1e-3f, "no route: straight at the door, through the wall");
-        var routed = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route);
+        var routed = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, routeGrid: hall);
         Assert.IsTrue(routed.FollowingRoute);
         Assert.AreEqual(90f, routed.ArrowYaw, 1e-3f, "route: along the hallway to the corner");
         Assert.AreEqual(8.0, routed.DistanceM, 1e-4);
@@ -92,6 +92,98 @@ public class IndoorWalkGridTests
         Assert.AreEqual("stairs", toStairs.FloorChange);
         Assert.IsFalse(LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, "stairs").FollowingRoute,
             "on the right floor a route that ends at the stairs is not to the door");
+    }
+
+    [TestCase(false, false, false)]
+    [TestCase(false, false, true)]
+    [TestCase(false, true, false)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, false)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, false)]
+    [TestCase(true, true, true)]
+    public void SmoothingKeepsBlockedDiagonalNeighbors(bool reverseX, bool reverseZ, bool otherNeighbor)
+    {
+        var sx = reverseX ? 1 : 0;
+        var sz = reverseZ ? 1 : 0;
+        var gx = 1 - sx;
+        var gz = 1 - sz;
+        var rows = new[] { new[] { '1', '1' }, new[] { '1', '1' } };
+        rows[otherNeighbor ? sz : gz][otherNeighbor ? gx : sx] = '0';
+        var grid = Corner(new string(rows[0]), new string(rows[1]));
+        Assert.IsTrue(grid.TryRoute(grid.CenterOf(sx, sz), grid.CenterOf(gx, gz), out var route));
+        Assert.AreEqual(3, route.Length);
+        Assert.AreEqual(2f, IndoorWalkGrid.LengthM(route), 1e-4f);
+    }
+
+    [TestCase(false, false, false)]
+    [TestCase(false, false, true)]
+    [TestCase(false, true, false)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, false)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, false)]
+    [TestCase(true, true, true)]
+    public void SmoothingChecksEveryCrossedCell(bool reverseX, bool reverseZ, bool transpose)
+    {
+        var width = transpose ? 3 : 6;
+        var height = transpose ? 6 : 3;
+        Vector2Int Cell(int x, int z)
+        {
+            if (reverseX) x = 5 - x;
+            if (reverseZ) z = 2 - z;
+            return transpose ? new Vector2Int(z, x) : new Vector2Int(x, z);
+        }
+        var blocked = Cell(1, 1);
+        var rows = new string[height];
+        for (var z = 0; z < height; z++)
+        {
+            var row = new string('1', width).ToCharArray();
+            if (z == blocked.y) row[blocked.x] = '0';
+            rows[z] = new string(row);
+        }
+        var grid = Corner(rows);
+        var start = Cell(0, 0);
+        var goal = Cell(5, 2);
+        Assert.IsTrue(grid.TryRoute(grid.CenterOf(start.x, start.y), grid.CenterOf(goal.x, goal.y), out var route));
+        for (var i = 1; i < route.Length; i++)
+            for (var sample = 0; sample <= 1000; sample++)
+            {
+                var point = Vector3.Lerp(route[i - 1], route[i], sample / 1000f);
+                Assert.IsTrue(grid.IsWalkable(grid.ColumnOf(point.x), grid.RowOf(point.z)), point.ToString());
+            }
+    }
+
+    [TestCase(false, false, false)]
+    [TestCase(false, false, true)]
+    [TestCase(false, true, false)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, false)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, false)]
+    [TestCase(true, true, true)]
+    public void LookAheadKeepsTheCornerUntilTheNextLegIsClear(bool reverseX, bool reverseZ, bool transpose)
+    {
+        Vector3 Point(float x, float z)
+        {
+            if (reverseX) x = 5f - x;
+            if (reverseZ) z = 5f - z;
+            return transpose ? new Vector3(z, 0f, x) : new Vector3(x, 0f, z);
+        }
+        var cells = new char[5][];
+        for (var z = 0; z < 5; z++) cells[z] = new char[5];
+        for (var z = 0; z < 5; z++)
+            for (var x = 0; x < 5; x++)
+            {
+                var point = Point(x + .5f, z + .5f);
+                cells[Mathf.FloorToInt(point.z)][Mathf.FloorToInt(point.x)] = z == 0 || x == 4 ? '1' : '0';
+            }
+        var rows = new string[5];
+        for (var z = 0; z < 5; z++) rows[z] = new string(cells[z]);
+        var grid = Corner(rows);
+        var route = new[] { Point(.5f, .5f), Point(4.5f, .5f), Point(4.5f, 4.5f) };
+        Assert.AreEqual(route[1], grid.NextWaypoint(route, Point(3.7f, .5f), 1f));
+        Assert.AreEqual(route[2], grid.NextWaypoint(route, Point(4.4f, .6f), 1f));
     }
 
     // Every mapped door on a floor reaches stairs or an elevator on the scan, so a wrong-floor user gets a route.

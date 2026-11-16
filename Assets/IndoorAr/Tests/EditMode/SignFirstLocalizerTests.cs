@@ -186,6 +186,37 @@ public class SignFirstLocalizerTests
         finally { Object.DestroyImmediate(host); }
     }
 
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public void DroppedFallbackCannotDispatchAfterDelayedAuthentication(bool calibrated, bool duringHold)
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            inner.DeferAuth = true;
+            inner.DeferAnswer = true;
+            var first = new SignFirstLocalizer(inner,
+                calibrated ? IndoorSignPoseTests.ValidatedHere(out _, out _) : null);
+            first.Authenticate();
+            first.Localize();
+            if (!duringHold) first.Tick(SignFirstLocalizer.HoldS);
+            first.DropQueuedFallback();
+            inner.CompleteAuth();
+            first.Tick(SignFirstLocalizer.HoldS * 2f);
+            Assert.AreEqual(0, inner.AttemptCount);
+
+            first.Reset();
+            first.Authenticate();
+            first.Localize();
+            first.Tick(SignFirstLocalizer.HoldS);
+            inner.CompleteAuth();
+            Assert.AreEqual(1, inner.AttemptCount);
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
     [Test]
     public void SessionRetryDuringHoldDoesNotQueryMultiSetEarly()
     {

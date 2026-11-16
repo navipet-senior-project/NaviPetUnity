@@ -92,7 +92,7 @@ namespace IndoorAr
             var anchor = 0;
             for (var i = 2; i < cells.Count; i++)
             {
-                if (LineIsClear(cells[anchor], cells[i])) continue;
+                if (LineIsClear(CenterOf(cells[anchor].x, cells[anchor].y), CenterOf(cells[i].x, cells[i].y))) continue;
                 anchor = i - 1;
                 kept.Add(CenterOf(cells[anchor].x, cells[anchor].y));
             }
@@ -150,14 +150,44 @@ namespace IndoorAr
             return path;
         }
 
-        bool LineIsClear(Vector2Int a, Vector2Int b)
+        bool LineIsClear(Vector3 a, Vector3 b)
         {
-            var steps = Mathf.Max(Mathf.Abs(b.x - a.x), Mathf.Abs(b.y - a.y)) * 2;
-            for (var i = 1; i < steps; i++)
+            var x = ColumnOf(a.x);
+            var z = RowOf(a.z);
+            var gx = ColumnOf(b.x);
+            var gz = RowOf(b.z);
+            if (!IsWalkable(x, z) || !IsWalkable(gx, gz)) return false;
+            var dx = (double)b.x - a.x;
+            var dz = (double)b.z - a.z;
+            var stepX = Math.Sign(dx);
+            var stepZ = Math.Sign(dz);
+            var deltaX = stepX == 0 ? double.PositiveInfinity : _floor.cell / Math.Abs(dx);
+            var deltaZ = stepZ == 0 ? double.PositiveInfinity : _floor.cell / Math.Abs(dz);
+            var nextX = stepX == 0 ? double.PositiveInfinity
+                : (_floor.originX + (x + (stepX > 0 ? 1 : 0)) * (double)_floor.cell - a.x) / dx;
+            var nextZ = stepZ == 0 ? double.PositiveInfinity
+                : (_floor.originZ + (z + (stepZ > 0 ? 1 : 0)) * (double)_floor.cell - a.z) / dz;
+            while (x != gx || z != gz)
             {
-                var t = i / (float)steps;
-                if (!IsWalkable(Mathf.RoundToInt(Mathf.Lerp(a.x, b.x, t)), Mathf.RoundToInt(Mathf.Lerp(a.y, b.y, t))))
-                    return false;
+                if (Math.Abs(nextX - nextZ) < 1e-10)
+                {
+                    if (!IsWalkable(x + stepX, z) || !IsWalkable(x, z + stepZ)) return false;
+                    x += stepX;
+                    z += stepZ;
+                    nextX += deltaX;
+                    nextZ += deltaZ;
+                }
+                else if (nextX < nextZ)
+                {
+                    x += stepX;
+                    nextX += deltaX;
+                }
+                else
+                {
+                    z += stepZ;
+                    nextZ += deltaZ;
+                }
+                if (!IsWalkable(x, z)) return false;
             }
             return true;
         }
@@ -174,10 +204,11 @@ namespace IndoorAr
         /// The point to steer at: the first waypoint more than lookAhead metres from the camera, so the arrow does not
         /// flip as the user passes a corner point. The last waypoint when everything is nearer than that.
         /// </summary>
-        public static Vector3 NextWaypoint(Vector3[] route, Vector3 camera, float lookAhead)
+        public Vector3 NextWaypoint(Vector3[] route, Vector3 camera, float lookAhead)
         {
-            for (var i = 1; i < route.Length; i++)
-                if (new Vector2(route[i].x - camera.x, route[i].z - camera.z).magnitude > lookAhead) return route[i];
+            for (var i = 1; i < route.Length - 1; i++)
+                if (new Vector2(route[i].x - camera.x, route[i].z - camera.z).magnitude > lookAhead
+                    || !LineIsClear(camera, route[i + 1])) return route[i];
             return route[route.Length - 1];
         }
     }

@@ -81,6 +81,8 @@ namespace IndoorAr
 
         public void DropQueuedFallback()
         {
+            _innerWanted = false;
+            _holdLeft = 0f;
             if (_inner is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
         }
 
@@ -99,9 +101,8 @@ namespace IndoorAr
             if (pose.Status != IndoorSignPoseStatus.Ok || _innerPosed) return pose.Status;
             if (CandidatePoseValidator != null && !CandidatePoseValidator(pose.CameraPositionInMap))
                 return IndoorSignPoseStatus.Implausible;
-            if (_inner is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
-            _innerWanted = false;
-            SignPoseLocalizer.Place(MapSpace, observation.CameraWorldPosition, observation.CameraWorldRotation,
+            DropQueuedFallback();
+            IndoorSignPose.Place(MapSpace, observation.CameraWorldPosition, observation.CameraWorldRotation,
                 pose.CameraPositionInMap, pose.CameraRotationInMap);
             FromSigns = true;
             if (!_open) return pose.Status;

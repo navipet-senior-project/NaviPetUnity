@@ -121,7 +121,7 @@ namespace IndoorAr
             if (State != IndoorArState.Pinned) return;
             var floor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
             if (floor <= 0) return;
-            if (_trackedFloor > 0 && floor != _trackedFloor) _signSuperseded = true;
+            if (_trackedFloor > 0 && floor != _trackedFloor && FloorSign?.Floor != floor) _signSuperseded = true;
             _trackedFloor = floor;
         }
 

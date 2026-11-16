@@ -10,7 +10,7 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 
 ## Sign-assisted localization
 
-`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default). In `MultiSet` and `SignPose` modes OCR runs only while the session is starting or localizing and stops at the first pose; in `SignFirst` it keeps running while pinned. Turning the flag off disables both adapters. The runner's `localizationMode` (default `SignFirst`) decides who answers the pose: `SignFirst` poses the camera from a sign validated on this device model and asks MultiSet only as a fallback (next section); `MultiSet` is the original VPS flow; `SignPose` never authenticates or calls MultiSet (see below) and cannot localize until the measurements there exist. Switch it on the `IndoorArRunner` component.
+`IndoorArRunner` subscribes to both adapters when `signLocalization` is on (the default), including while pinned. Turning the flag off disables both adapters. The runner’s `localizationMode` defaults to `SignFirst`, which poses the camera from a sign validated on this device model and asks MultiSet as a fallback. `MultiSet` keeps the original VPS flow. Switch it on the `IndoorArRunner` component.
 
 `IndoorSignTracker` confirms a room after two reads within four seconds. A frame naming two rooms resets the count; text with no room number is ignored. A confirmed sign does three things:
 
@@ -18,7 +18,7 @@ The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frame
 - If MultiSet already answered the open attempt without a pose and the confirmed sign is in view, the one retry is spent at once instead of at the 30 s timeout. The attempt budget does not change.
 - The result JSON gains an optional `signRoom` field with the last confirmed room ID. Hosts that do not know the field ignore it.
 
-One sign read alone never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`; only a solved pose from a validated sign (`SignPose` or `SignFirst`) or a MultiSet answer does. `SignPose` never falls back to MultiSet.
+One sign read alone never pins the door, shows the arrow, or sets `timeToFirstLocalizationMs`; only a solved pose from a validated sign (`SignFirst`) or a MultiSet answer does.
 
 The Flutter `google_mlkit_text_recognition` plugin was evaluated and not adopted. Flutter does not own the camera while the Unity AR activity runs, so the plugin would need a second camera session or a frame copy between the engines. Both native adapters use ML Kit's bundled Latin recognizer on the AR camera's own frames instead.
 
@@ -52,7 +52,7 @@ Coverage today: all 9 mapped floor-1 doors and all 8 floor-2 doors snap onto the
 
 ## Precise pose from a sign (inert until surveyed and validated)
 
-`IndoorSignPose` solves the camera pose in the MapSet frame from the four image corners of one calibrated sign, with a 3 px reprojection gate and two checks. The camera must be in front of the sign and 0.3 to 5 m from it (`Implausible` otherwise), and no other candidate pose may also reproject within 3 px while moving the camera more than 5 degrees in yaw or 0.25 m in plan (`Ambiguous` otherwise). `SignFirst` and `SignPose` both use it; on success the MapSet origin is moved (yaw only) so the AR camera sits at the solved pose, with no MultiSet call.
+`IndoorSignPose` solves the camera pose in the MapSet frame from the four image corners of one calibrated sign, with a 3 px reprojection gate and two checks. The camera must be in front of the sign and 0.3 to 5 m from it (`Implausible` otherwise), and no other candidate pose may also reproject within 3 px while moving the camera more than 5 degrees in yaw or 0.25 m in plan (`Ambiguous` otherwise). `SignFirst` uses it; on success the MapSet origin is moved (yaw only) so the AR camera sits at the solved pose, with no MultiSet call.
 
 On iOS and Android the solve is OpenCV 4.14.0 `solvePnPGeneric` with `SOLVEPNP_IPPE`, each of its two solutions refined by `solvePnPRefineLM` (`tools/sign-pnp/IndoorSignPnp.cpp`). The pose is the better-fitting refinement; the two raw solutions and the other refinement are the candidates for the ambiguity check. Both are needed: near a frontal view raw IPPE can return a pose centimetres off that still passes the gate, which refinement corrects, and far away refinement can pull both flips into one pose, which only the raw pair shows. Raw IPPE also fails outright on some exactly symmetric views; those are rejected by the gate, not solved. The Editor and EditMode tests have no OpenCV build and use a managed planar homography plus its mirrored candidate instead, so survey validation (`IndoorSignPose.Validate`, run by the importer in the Editor) checks the managed solve, not the phone's. shortcut: build OpenCV for the Editor too if real captures show the two disagree. There is no lens distortion model, the thresholds are untuned, and OCR gives text-box rectangles rather than perspective corners, which limits accuracy at oblique views.
 
@@ -67,7 +67,7 @@ A sign poses the camera only when its entry in `Assets/IndoorAr/Resources/Indoor
 3. Write the survey JSON: `signs` holds the measured entries (`doorKey`, `widthM`, `heightM`, `centerInMap`, `intoWallHeadingDeg`), and `samples` holds one object per capture with the surveyed `cameraInMap`, the surveyed `headingDeg`, and the `capture` log line verbatim.
 4. Run **Indoor AR > Import Sign Survey** in the editor. It writes the calibration and logs `<doorKey>: samples=N validated=True|False` per sign. A sign is validated, for the captures' device model, only if every capture in the survey parses, the sign has at least 3 captures, all from one device model, and every one of them solves to within 0.3 m and 5 degrees of its surveyed pose. Anything the survey file claims about validation is ignored.
 
-The device log prints `[IndoorAr] sign pose room= status= solveUs=` when the status changes, never the pose. `poseEstimateUs` and `ocrLatencyMs` in the baseline line are the first solve time and the first OCR capture-to-result time of the session. In `SignPose` mode, until a sign is validated on the phone, the HUD keeps the room-recognized copy and the session ends with `localizationFailed` at its normal timeout; that is the intended honest failure.
+The device log prints `[IndoorAr] sign pose room= status= solveUs=` when the status changes, never the pose. `poseEstimateUs` and `ocrLatencyMs` in the baseline line are the first solve time and the first OCR capture-to-result time of the session.
 
 ## Room identity and door poses (reuse, no second database)
 

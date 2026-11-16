@@ -279,6 +279,24 @@ public class IndoorArSessionTests
         Assert.AreSame(Sign120, session.FloorSign, "a jump across a tracking gap is not a tracked walk");
     }
 
+    [TestCase(1, 2)]
+    [TestCase(2, 1)]
+    public void FreshMatchingSignSurvivesTheNextTrackedFloorSample(int from, int to)
+    {
+        var session = Localizing(out _);
+        var original = new IndoorRoomLandmark("original", "VEC", "floor_" + from);
+        var fresh = new IndoorRoomLandmark("fresh", "VEC", "floor_" + to);
+        session.OnSignConfirmed(original);
+        session.OnLocalized();
+        session.OnTrackedPose(from == 1 ? 0f : 4f, -2f, 2.2f);
+        session.OnSignConfirmed(fresh);
+        session.OnTrackedPose(to == 1 ? 0f : 4f, -2f, 2.2f);
+        Assert.AreSame(fresh, session.FloorSign);
+        session.OnTrackingLost();
+        Assert.IsTrue(session.PoseConflictsWithSign(from == 1 ? 0f : 4f, -2f, 2.2f));
+        Assert.IsFalse(session.PoseConflictsWithSign(to == 1 ? 0f : 4f, -2f, 2.2f));
+    }
+
     [Test]
     public void MultiSetPoseConflictRetriesAndAgreeingPoseIsAccepted()
     {

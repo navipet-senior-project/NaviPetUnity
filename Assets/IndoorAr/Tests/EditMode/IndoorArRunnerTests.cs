@@ -532,23 +532,7 @@ public class IndoorArRunnerTests
     }
 
     [Test]
-    public void SignPoseModeLocalizesWithoutTouchingMultiSet()
-    {
-        var runner = Runner(IndoorLocalizationMode.SignPose);
-        ((IEnumerator)Call(runner, "Start")).MoveNext();
-        var session = Field<IndoorArSession>(runner, "_session");
-        var fake = _host.GetComponent<RunnerFakeLocalizer>();
-        Assert.IsInstanceOf<SignPoseLocalizer>(Field<IIndoorArLocalizer>(runner, "_localizer"));
-        session.OnArSupport(true);
-        Field<IIndoorArLocalizer>(runner, "_localizer").Authenticate();
-        Assert.AreEqual(IndoorArState.Localizing, session.State);
-        Assert.AreEqual(0, fake.AuthenticationCalls);
-        Assert.AreEqual(0, fake.AttemptCount);
-        Assert.AreEqual(0, session.Queries, "no VPS attempt is counted");
-    }
-
-    [Test]
-    public void SignPoseRejectsUnknownGapThenAcceptsSupportedFloor()
+    public void SignFirstRejectsUnknownGapThenAcceptsSupportedFloor()
     {
         var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
         var floor1Y = IndoorWalkGrid.ForFloor(gridJson, 1).FloorY;
@@ -557,7 +541,7 @@ public class IndoorArRunnerTests
         var fake = _host.AddComponent<RunnerFakeLocalizer>();
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(fake, _pinPrefab, _host.AddComponent<Camera>());
-        runner.SetLocalizationMode(IndoorLocalizationMode.SignPose);
+        runner.SetLocalizationMode(IndoorLocalizationMode.SignFirst);
         runner.SetSignCalibration(new IndoorSignCalibration { signs = new[] { sign } });
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         var session = Field<IndoorArSession>(runner, "_session");
@@ -566,7 +550,7 @@ public class IndoorArRunnerTests
         session.OnSignConfirmed(new IndoorRoomLandmark("VEC120", "VEC", "floor_1"));
         session.OnLocalized();
         Call(runner, "UpdatePin");
-        var localizer = Field<SignPoseLocalizer>(runner, "_signPose");
+        var localizer = Field<SignFirstLocalizer>(runner, "_signFirst");
         localizer.Localize();
         var root = localizer.MapSpace;
         var pin = Field<Transform>(runner, "_pin");
@@ -582,7 +566,7 @@ public class IndoorArRunnerTests
         sign.centerInMap = new Vector3(2f, gapY, 8f);
         var rejected = IndoorSignPoseTests.Observe(sign, new Vector3(0f, gapY, 5f),
             Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
-        Assert.AreEqual(IndoorSignPoseStatus.Implausible, localizer.Observe(rejected));
+        Assert.AreEqual(IndoorSignPoseStatus.Implausible, localizer.ObservePose(rejected));
         Assert.AreEqual(beforePosition, root.position);
         Assert.AreEqual(beforeRotation, root.rotation);
         Assert.AreEqual(beforePinPosition, pin.position);
@@ -595,9 +579,71 @@ public class IndoorArRunnerTests
         sign.centerInMap = new Vector3(2f, supportedY, 8f);
         var accepted = IndoorSignPoseTests.Observe(sign, new Vector3(0f, supportedY, 5f),
             Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
-        Assert.AreEqual(IndoorSignPoseStatus.Ok, localizer.Observe(accepted));
+        Assert.AreEqual(IndoorSignPoseStatus.Ok, localizer.ObservePose(accepted));
         Assert.AreEqual(IndoorArState.Pinned, session.State);
         Assert.AreNotEqual(beforePosition, root.position);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void CancelledSessionCannotDispatchFallbackWhenAuthenticationArrivesLate(bool beforeDelivery)
+    {
+        var runner = Runner(IndoorLocalizationMode.SignFirst);
+        var inner = _host.GetComponent<RunnerFakeLocalizer>();
+        inner.DeferAuth = true;
+        inner.DeferAnswer = true;
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        var localizer = Field<SignFirstLocalizer>(runner, "_signFirst");
+        session.OnArSupport(true);
+        localizer.Authenticate();
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Call(runner, "OnHudExit");
+        if (beforeDelivery) inner.CompleteAuth();
+        Assert.AreEqual(0, inner.AttemptCount);
+        LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*\"status\":\"cancelled\""));
+        Call(runner, "Update");
+        Assert.IsTrue(Field<bool>(runner, "_delivered"));
+        if (!beforeDelivery) inner.CompleteAuth();
+        Assert.AreEqual(0, inner.AttemptCount);
+    }
+
+    [Test]
+    public void SameSignRecoversAfterRejectedPoseAndTrackingLoss()
+    {
+        var runner = Runner(IndoorLocalizationMode.SignFirst);
+        var sign = IndoorSignPoseTests.Sign(device: SystemInfo.deviceModel);
+        var floorY = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid").text, 1).FloorY;
+        sign.centerInMap.y = floorY + 1.5f;
+        runner.SetSignCalibration(new IndoorSignCalibration { signs = new[] { sign } });
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        Field<SignFirstLocalizer>(runner, "_signFirst").Authenticate();
+        var match = IndoorRoomIdentityMatcher.MatchSign("VEC120",
+            "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
+        var camera = sign.centerInMap + new Vector3(-1.2f, 0f, .2f);
+        var observation = IndoorSignPoseTests.Observe(sign, camera, Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
+        var started = Field<float>(runner, "_sessionStarted");
+        Call(runner, "OnSignRead", "VEC120", match, started, null);
+        Call(runner, "OnSignRead", "VEC120", match, started, new IndoorSignObservation { RoomId = "VEC120" });
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Call(runner, "OnSignRead", "VEC120", match, started, observation);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        Assert.Less(Vector3.Distance(observation.CameraWorldPosition, _host.transform.TransformPoint(camera)), .01f);
+
+        session.OnTrackedPose(floorY + 1.5f, floorY, floorY + 4f);
+        session.OnTrackedPose(floorY + 5.5f, floorY, floorY + 4f);
+        Assert.IsNull(session.FloorSign);
+        session.OnTrackingLost();
+        _host.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        Call(runner, "OnSignRead", "VEC120", match, started, observation);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        Assert.AreEqual("VEC120", session.FloorSign.Id);
+        Assert.Less(Vector3.Distance(observation.CameraWorldPosition, _host.transform.TransformPoint(camera)), .01f);
+        session.OnTrackingLost();
+        Assert.IsTrue(session.PoseConflictsWithSign(floorY + 5.5f, floorY, floorY + 4f));
+        Assert.AreEqual(0, _host.GetComponent<RunnerFakeLocalizer>().AttemptCount);
     }
 
     [Test]
