@@ -878,6 +878,56 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void TrackedClimbAfterAFloorOneSignLetsAFloorTwoVpsPoseThroughUntilASignIsReadAgain()
+    {
+        var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        try
+        {
+            var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+            localizer.DeferAnswer = true;
+            var camera = new GameObject("AR camera").AddComponent<Camera>();
+            camera.transform.SetParent(_host.transform, false);
+            var runner = _host.AddComponent<IndoorArRunner>();
+            runner.Configure(localizer, _pinPrefab, camera);
+            runner.SetLocalizationMode(IndoorLocalizationMode.MultiSet);
+            Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+            var grid = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+            var floor1 = new Vector3(-5.7651f, IndoorWalkGrid.ForFloor(grid, 1).FloorY + 1.5f, 20f);
+            var floor2 = new Vector3(-5.7651f, IndoorWalkGrid.ForFloor(grid, 2).FloorY + 1.5f, 20f);
+            var session = Field<IndoorArSession>(runner, "_session");
+            var sign = new IndoorRoomLandmark("VEC119", "VEC", "floor_1");
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            session.OnSignConfirmed(sign);
+            camera.transform.localPosition = floor1;
+            localizer.CompleteLocalized(0.73f);
+            Assert.AreEqual(IndoorArState.Pinned, session.State);
+            Call(runner, "Update");
+            camera.transform.localPosition = floor2;
+            Call(runner, "Update");
+            Assert.IsNull(session.FloorSign, "the tracked climb outranks the floor-1 sign");
+            Assert.IsTrue(session.IsWrongFloor(session.CurrentFloor(floor2.y, -2.0022f, 2.0786f)),
+                "floor-1 destination from floor 2 needs the stairs or elevator");
+
+            state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionInitializing });
+            Call(runner, "Update");
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+            var candidate = new GameObject("VPS candidate").transform;
+            candidate.SetParent(_host.transform, false);
+            Assert.IsTrue((bool)Call(runner, "IsCandidateMultiSetPoseAllowed", candidate),
+                "a floor-2 VPS pose after the climb is not a conflict");
+
+            session.OnSignConfirmed(sign);
+            LogAssert.Expect(LogType.Log, "[IndoorAr] floor conflict sign=1 pose=2");
+            Assert.IsFalse((bool)Call(runner, "IsCandidateMultiSetPoseAllowed", candidate),
+                "a sign read after the climb is fresh floor evidence");
+        }
+        finally { state.Invoke(null, new object[] { previous }); }
+    }
+
+    [Test]
     public void LocalizationModeDefaultsToSignsFirstWithMultiSetBehindIt()
     {
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();

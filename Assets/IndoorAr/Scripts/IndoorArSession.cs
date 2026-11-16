@@ -24,6 +24,9 @@ namespace IndoorAr
         bool _noPose;
         float? _confidence;
         float _arrivalDistance;
+        // Supported floor of the accepted pose while tracking stays continuous; 0 until sampled.
+        int _trackedFloor;
+        bool _signSuperseded;
 
         public IndoorArSession(IndoorArRequest request, string buildMapCode)
         {
@@ -42,6 +45,11 @@ namespace IndoorAr
         public string ResultJson { get; private set; }
         /// <summary>Last room sign confirmed by OCR. Approximate location only: never a pose.</summary>
         public IndoorRoomLandmark SignRoom { get; private set; }
+        /// <summary>
+        /// SignRoom while it is still evidence of the user's floor: null once continuously tracked motion from an
+        /// accepted pose reached another supported floor, until a sign is confirmed again.
+        /// </summary>
+        public IndoorRoomLandmark FloorSign => _signSuperseded ? null : SignRoom;
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 
@@ -84,7 +92,7 @@ namespace IndoorAr
 
         public int CurrentFloor(float cameraY, float floor1Y, float floor2Y)
         {
-            if (SignRoom != null) return SignRoom.Floor is 1 or 2 ? SignRoom.Floor : 0;
+            if (FloorSign != null) return FloorSign.Floor is 1 or 2 ? FloorSign.Floor : 0;
             if (!ValidFloorHeights(floor1Y, floor2Y)) return 0;
             var floor1 = cameraY - floor1Y;
             var floor2 = cameraY - floor2Y;
@@ -97,12 +105,25 @@ namespace IndoorAr
         {
             var poseFloor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
             if (poseFloor <= 0) return true;
-            return SignRoom != null && SignRoom.Floor > 0
-                && poseFloor != SignRoom.Floor;
+            return FloorSign != null && FloorSign.Floor > 0
+                && poseFloor != FloorSign.Floor;
         }
 
         public int PoseFloor(float cameraY, float floor1Y, float floor2Y) =>
             CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+
+        /// <summary>
+        /// Camera height under the accepted pose while tracking holds. Walking it to another supported floor supersedes
+        /// the last sign's floor; between floors, outside them or across a tracking gap nothing changes.
+        /// </summary>
+        public void OnTrackedPose(float cameraY, float floor1Y, float floor2Y)
+        {
+            if (State != IndoorArState.Pinned) return;
+            var floor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+            if (floor <= 0) return;
+            if (_trackedFloor > 0 && floor != _trackedFloor) _signSuperseded = true;
+            _trackedFloor = floor;
+        }
 
         int CurrentPoseFloor(float cameraY, float floor1Y, float floor2Y)
         {
@@ -129,7 +150,9 @@ namespace IndoorAr
 
         public void OnSignConfirmed(IndoorRoomLandmark room)
         {
-            if (State != IndoorArState.Done && room != null) SignRoom = room;
+            if (State == IndoorArState.Done || room == null) return;
+            SignRoom = room;
+            _signSuperseded = false;
         }
 
         /// <summary>
@@ -221,6 +244,7 @@ namespace IndoorAr
         void StartLocalizing()
         {
             State = IndoorArState.Localizing;
+            _trackedFloor = 0;
             _localizingS = 0f;
             _retried = false;
             _noPose = false;

@@ -37,8 +37,8 @@ namespace IndoorAr
             var request = session.Request;
             var door = request.position;
             var target = door == null ? Vector3.zero : new Vector3(door.x, door.y, door.z);
-            var wrongFloor = wrongFloorEvidence || session.SignRoom != null && session.SignRoom.Floor is (1 or 2)
-                && int.TryParse(request.floor, out var requestedFloor) && session.SignRoom.Floor != requestedFloor;
+            var wrongFloor = wrongFloorEvidence || session.FloorSign != null && session.FloorSign.Floor is (1 or 2)
+                && int.TryParse(request.floor, out var requestedFloor) && session.FloorSign.Floor != requestedFloor;
             // On the wrong floor only a route to stairs or an elevator helps; one to the door would cross floors.
             if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || floorUnknown
                 || wrongFloor != (floorChange != null)) route = null;

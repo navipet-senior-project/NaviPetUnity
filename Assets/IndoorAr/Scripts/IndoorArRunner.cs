@@ -72,7 +72,9 @@ namespace IndoorAr
         string _floorChange;
         bool _floorUnknown;
         int _hereFloor;
-        IndoorWalkGrid _hereGrid;
+        // Supported floors, parsed once per session: routing and both pose gates read them every frame.
+        IndoorWalkGrid _floor1Grid;
+        IndoorWalkGrid _floor2Grid;
         List<(string Type, Vector3 PositionInMap)> _connectors;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
@@ -174,15 +176,16 @@ namespace IndoorAr
             }
             _session = new IndoorArSession(request, _localizer.MapCode);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
-            _walkGrid = int.TryParse(request.floor, out var floor)
-                ? IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid")?.text, floor) : null;
+            var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid")?.text;
+            _floor1Grid = IndoorWalkGrid.ForFloor(gridJson, 1);
+            _floor2Grid = IndoorWalkGrid.ForFloor(gridJson, 2);
+            _walkGrid = int.TryParse(request.floor, out var floor) ? Grid(floor) : null;
             _route = null;
             _routeTried = false;
             _floorChange = null;
             _routeFloor = 0;
             _routeWrongFloor = false;
             _floorUnknown = false;
-            _hereGrid = null;
             _hereFloor = 0;
             _baseline = new IndoorArBaseline();
             _baselineLog = null;
@@ -229,7 +232,11 @@ namespace IndoorAr
                 _baseline?.NoteTrackingLost();
                 LogBaseline();
             }
-            if (_session.State == IndoorArState.Pinned) _pinnedFor += Time.unscaledDeltaTime;
+            if (_session.State == IndoorArState.Pinned)
+            {
+                _pinnedFor += Time.unscaledDeltaTime;
+                _session.OnTrackedPose(CameraInMap().y, Floor1Y, Floor2Y);
+            }
             else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
             _signFirst?.Tick(Time.unscaledDeltaTime);
@@ -354,15 +361,10 @@ namespace IndoorAr
             var fromMultiSet = localizationMode == IndoorLocalizationMode.MultiSet
                 || _signFirst != null && !_signFirst.FromSigns;
             if (!fromMultiSet) return false;
-            var json = Resources.Load<TextAsset>("IndoorWalkGrid")?.text;
-            var floor1 = IndoorWalkGrid.ForFloor(json, 1);
-            var floor2 = IndoorWalkGrid.ForFloor(json, 2);
-            if (!_session.PoseConflictsWithSign(cameraInMap.y,
-                    floor1 != null ? floor1.FloorY : float.NaN, floor2 != null ? floor2.FloorY : float.NaN)) return false;
-            var poseFloor = _session.PoseFloor(cameraInMap.y,
-                floor1 != null ? floor1.FloorY : float.NaN, floor2 != null ? floor2.FloorY : float.NaN);
+            if (!_session.PoseConflictsWithSign(cameraInMap.y, Floor1Y, Floor2Y)) return false;
+            var poseFloor = _session.PoseFloor(cameraInMap.y, Floor1Y, Floor2Y);
             var pose = poseFloor == -1 ? "unsupported" : poseFloor == 0 ? "unknown" : poseFloor.ToString();
-            Debug.Log($"[IndoorAr] floor conflict sign={(_session.SignRoom == null ? "none" : _session.SignRoom.Floor.ToString())} pose={pose}");
+            Debug.Log($"[IndoorAr] floor conflict sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose={pose}");
             if (_session.State == IndoorArState.Localizing) _session.OnNotLocalized();
             return true;
         }
@@ -371,12 +373,12 @@ namespace IndoorAr
         bool IsCandidateSignPoseAllowed(Vector3 cameraInMap)
         {
             if (_session == null || _session.State is not (IndoorArState.Localizing or IndoorArState.Pinned)) return false;
-            var json = Resources.Load<TextAsset>("IndoorWalkGrid")?.text;
-            var floor1 = IndoorWalkGrid.ForFloor(json, 1);
-            var floor2 = IndoorWalkGrid.ForFloor(json, 2);
-            return !_session.PoseConflictsWithSign(cameraInMap.y,
-                floor1 != null ? floor1.FloorY : float.NaN, floor2 != null ? floor2.FloorY : float.NaN);
+            return !_session.PoseConflictsWithSign(cameraInMap.y, Floor1Y, Floor2Y);
         }
+
+        IndoorWalkGrid Grid(int floor) => floor == 1 ? _floor1Grid : floor == 2 ? _floor2Grid : null;
+        float Floor1Y => _floor1Grid != null ? _floor1Grid.FloorY : float.NaN;
+        float Floor2Y => _floor2Grid != null ? _floor2Grid.FloorY : float.NaN;
 
         bool IsCandidateMultiSetPoseAllowed(Transform candidateMapSpace)
         {
@@ -508,11 +510,7 @@ namespace IndoorAr
                 _routeWrongFloor = false;
                 return _route = null;
             }
-            var json = Resources.Load<TextAsset>("IndoorWalkGrid")?.text;
-            var floor1 = IndoorWalkGrid.ForFloor(json, 1);
-            var floor2 = IndoorWalkGrid.ForFloor(json, 2);
-            var currentFloor = _session.CurrentFloor(cameraInMap.y,
-                floor1 != null ? floor1.FloorY : float.NaN, floor2 != null ? floor2.FloorY : float.NaN);
+            var currentFloor = _session.CurrentFloor(cameraInMap.y, Floor1Y, Floor2Y);
             var wrongFloor = _session.IsWrongFloor(currentFloor);
             if (currentFloor != _routeFloor) _routeTried = false;
             var moved = new Vector2(cameraInMap.x - _routeFrom.x, cameraInMap.z - _routeFrom.z).magnitude;
@@ -526,7 +524,7 @@ namespace IndoorAr
                 _route = null;
                 _floorUnknown = true;
                 if (!Application.isEditor && first)
-                    Debug.Log($"[IndoorAr] floor unknown sign={(_session.SignRoom == null ? "none" : _session.SignRoom.Floor.ToString())} pose=unknown destination={_session.Request.floor}");
+                    Debug.Log($"[IndoorAr] floor unknown sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose=unknown destination={_session.Request.floor}");
             }
             else if (wrongFloor) RouteToFloorChange(cameraInMap, currentFloor);
             else
@@ -554,13 +552,13 @@ namespace IndoorAr
             if (_hereFloor != here)
             {
                 _hereFloor = here;
-                _hereGrid = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid")?.text, here);
                 _connectors = IndoorRoomIdentityMatcher.FloorConnectors(
                     _iosOcr != null ? _iosOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null, here);
             }
-            if (_hereGrid == null) return;
+            var hereGrid = Grid(here);
+            if (hereGrid == null) return;
             foreach (var (type, at) in _connectors)
-                if (_hereGrid.TryRoute(cameraInMap, at, out var route)
+                if (hereGrid.TryRoute(cameraInMap, at, out var route)
                     && (_route == null || IndoorWalkGrid.LengthM(route) < IndoorWalkGrid.LengthM(_route)))
                 {
                     _route = route;

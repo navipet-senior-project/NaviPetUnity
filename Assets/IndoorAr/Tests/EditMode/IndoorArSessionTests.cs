@@ -248,6 +248,38 @@ public class IndoorArSessionTests
     }
 
     [Test]
+    public void TrackedWalkToAnotherFloorSupersedesTheLastSignUntilASignIsReadAgain()
+    {
+        const float floor1 = 0f, floor2 = 4f, between = 2f;
+        var session = Localizing(out _);
+        session.OnSignConfirmed(Sign120);
+        session.OnTrackedPose(floor2, -2f, 2.2f);
+        Assert.AreSame(Sign120, session.FloorSign, "no accepted pose yet: height is not tracked motion");
+
+        session.OnLocalized();
+        session.OnTrackedPose(floor1, -2f, 2.2f);
+        session.OnTrackedPose(between, -2f, 2.2f);
+        session.OnTrackedPose(20f, -2f, 2.2f);
+        Assert.AreSame(Sign120, session.FloorSign, "between or outside floors changes nothing");
+        session.OnTrackedPose(floor2, -2f, 2.2f);
+        Assert.IsNull(session.FloorSign, "tracked ascent supersedes the floor-1 sign");
+        Assert.AreSame(Sign120, session.SignRoom, "the sign that was read is still shown");
+        Assert.AreEqual(2, session.CurrentFloor(floor2, -2f, 2.2f));
+        Assert.IsFalse(session.PoseConflictsWithSign(floor2, -2f, 2.2f));
+
+        session.OnSignConfirmed(Sign120);
+        Assert.AreEqual(1, session.CurrentFloor(floor2, -2f, 2.2f), "a fresh sign wins again");
+        Assert.IsTrue(session.PoseConflictsWithSign(floor2, -2f, 2.2f));
+
+        // Tracked floor is 2. Tracking loss breaks continuity: the first height after the next pose is a new baseline.
+        session.OnTrackingLost();
+        session.OnTrackedPose(floor1, -2f, 2.2f);
+        session.OnLocalized();
+        session.OnTrackedPose(floor1, -2f, 2.2f);
+        Assert.AreSame(Sign120, session.FloorSign, "a jump across a tracking gap is not a tracked walk");
+    }
+
+    [Test]
     public void MultiSetPoseConflictRetriesAndAgreeingPoseIsAccepted()
     {
         var session = Localizing(out _);
