@@ -62,6 +62,11 @@ namespace IndoorAr
         public string mapCode;
         public string frame;
         public string arToken;
+        /// <summary>
+        /// The user needs a route without stairs. Optional; absent means false. Current route data cannot verify
+        /// step-free segments, so a true navigation request returns unavailable; localize-only requests need no route.
+        /// </summary>
+        public bool stepFree;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
@@ -83,6 +88,7 @@ namespace IndoorAr
         public const string ArcoreUnsupported = "ARCORE_UNSUPPORTED";
         public const string MultisetAuth = "MULTISET_AUTH";
         public const string Network = "NETWORK";
+        public const string StepFreeUnverified = "STEP_FREE_UNVERIFIED";
         public const string OutdoorScene = "OutdoorGeospatialDemo";
 
         /// <summary>
@@ -187,12 +193,51 @@ namespace IndoorAr
         public static string LocalizationFailed(int localizationQueries, long durationMs) =>
             Build("localizationFailed", null, null, localizationQueries, durationMs);
 
-        /// <summary>The session cannot run here: device, permission, authorization or a build without the scene.</summary>
-        public static string Unavailable(int localizationQueries, long durationMs) =>
-            Build("unavailable", null, null, localizationQueries, durationMs);
+        /// <summary>The requested route cannot be verified, or the session cannot run here.</summary>
+        public static string Unavailable(int localizationQueries, long durationMs, string errorCode = null) =>
+            Build("unavailable", null, errorCode, localizationQueries, durationMs);
 
         public static string Error(string errorCode, int localizationQueries, long durationMs) =>
             Build("error", null, errorCode, localizationQueries, durationMs);
+
+        /// <summary>Adds the optional signRoom field. Older hosts ignore unknown fields.</summary>
+        public static string WithSignRoom(string resultJson, string signRoom) =>
+            // Room ids come from the bundled VEC directory (VEC + digits), so they need no escaping.
+            string.IsNullOrEmpty(signRoom) || string.IsNullOrEmpty(resultJson)
+                ? resultJson
+                : resultJson.Insert(resultJson.Length - 1, ",\"signRoom\":\"" + signRoom + "\"");
+
+        /// <summary>
+        /// A progress message for the host while the session runs; the result still comes once through Deliver.
+        /// seq counts up within one sessionId. roomRecognized names the room a sign was read from: identity only,
+        /// not a position. The pose, the camera in the map frame when localized, is present only when localized and
+        /// must never be logged. Room ids are VEC plus digits and the map code is the build's, so nothing needs escaping.
+        /// </summary>
+        public static string Status(string sessionId, int seq, string mapCode, IndoorArState state, bool tracking,
+            string roomRecognized, int roomFloor, bool localized, bool fallbackAvailable, string poseSource,
+            Vector3 position, Quaternion rotation)
+        {
+            var json = new StringBuilder("{\"type\":\"status\",\"schemaVersion\":")
+                .Append(SchemaVersionV2.ToString(CultureInfo.InvariantCulture))
+                .Append(",\"sessionId\":\"").Append(sessionId)
+                .Append("\",\"seq\":").Append(seq.ToString(CultureInfo.InvariantCulture))
+                .Append(",\"mapCode\":\"").Append(mapCode).Append("\",\"frame\":\"").Append(Frame)
+                .Append("\",\"state\":\"").Append(state.ToString().ToLowerInvariant())
+                .Append("\",\"tracking\":").Append(tracking ? "true" : "false");
+            if (!string.IsNullOrEmpty(roomRecognized))
+                json.Append(",\"roomRecognized\":\"").Append(roomRecognized).Append("\",\"roomFloor\":")
+                    .Append(roomFloor.ToString(CultureInfo.InvariantCulture));
+            json.Append(",\"localized\":").Append(localized ? "true" : "false")
+                .Append(",\"fallbackAvailable\":").Append(fallbackAvailable ? "true" : "false");
+            if (localized)
+                json.Append(",\"pose\":{\"source\":\"").Append(poseSource)
+                    .Append("\",\"position\":{").Append(Xyz(position.x, position.y, position.z))
+                    .Append("},\"rotation\":{").Append(Xyz(rotation.x, rotation.y, rotation.z))
+                    .Append(",\"w\":").Append(rotation.w.ToString("R", CultureInfo.InvariantCulture)).Append("}}");
+            return json.Append('}').ToString();
+        }
+
+        static string Xyz(float x, float y, float z) => FormattableString.Invariant($"\"x\":{x:R},\"y\":{y:R},\"z\":{z:R}");
 
         // Written by hand: JsonUtility cannot omit fields. Status and error codes
         // are constants from this file, so they need no escaping.

@@ -14,6 +14,10 @@ NS_ASSUME_NONNULL_BEGIN
 @interface IndoorArHost : NSObject
 + (void)setRequest:(NSString *)json;
 + (void)setResultHandler:(void (^ _Nullable)(NSString *json))handler;
+/// Optional. Receives each progress status JSON (`type: "status"`) on the main
+/// queue while a session runs; without a handler, status is dropped. Stays set
+/// across sessions. A localized status carries the camera pose: do not log it.
++ (void)setStatusHandler:(void (^ _Nullable)(NSString *json))handler;
 @end
 
 NS_ASSUME_NONNULL_END

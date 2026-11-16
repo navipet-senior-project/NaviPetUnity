@@ -4,6 +4,7 @@
         "IndoorAr.Runtime",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
+        "Unity.InputSystem",
         "Unity.XR.ARFoundation",
         "Unity.XR.ARKit",
         "Unity.XR.ARKit.Editor",

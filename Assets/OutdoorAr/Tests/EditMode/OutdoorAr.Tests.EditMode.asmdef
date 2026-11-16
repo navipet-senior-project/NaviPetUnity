@@ -4,6 +4,7 @@
         "OutdoorAr.Runtime",
         "IndoorAr.Runtime",
         "Google.XR.ARCoreExtensions",
+        "Unity.XR.ARFoundation",
         "Unity.XR.ARSubsystems",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"

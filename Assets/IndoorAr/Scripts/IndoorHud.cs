@@ -27,6 +27,9 @@ namespace IndoorAr
         // Outdoor guidance reuses this HUD: no floor, and a distance because the walk is long.
         public bool Outdoor;
         public bool FollowingRoute;
+        public bool RouteBlocked;
+        // "stairs" or "elevator": the route on a wrong floor ends there, not at the door.
+        public string FloorChange;
         public bool OffRoute;
         public double DistanceM = double.NaN;
     }
@@ -113,7 +116,7 @@ namespace IndoorAr
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             FitSafeArea();
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
             if (_chrome != chrome)
             {
                 Build(view);
@@ -174,10 +177,13 @@ namespace IndoorAr
             float right = 56f;
             if (view.State == IndoorHudState.Straight)
             {
-                _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
-                _arrow.GetComponent<Image>().type = Image.Type.Simple;
-                _lookLeft = Pill("Look left", "‹  Look this way", 34, new Vector2(0f, .5f), new Vector2(24f, 190f), 84f);
-                _lookRight = Pill("Look right", "Look this way  ›", 34, new Vector2(1f, .5f), new Vector2(-24f, 190f), 84f);
+                if (!view.RouteBlocked)
+                {
+                    _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
+                    _arrow.GetComponent<Image>().type = Image.Type.Simple;
+                    _lookLeft = Pill("Look left", "‹  Look this way", 34, new Vector2(0f, .5f), new Vector2(24f, 190f), 84f);
+                    _lookRight = Pill("Look right", "Look this way  ›", 34, new Vector2(1f, .5f), new Vector2(-24f, 190f), 84f);
+                }
                 var here = Pill("Here", "I'm here", 36, new Vector2(1f, 0f), new Vector2(-48f, 72f), 100f);
                 OnTap(here, () => HereRequested?.Invoke());
                 right = 48f + here.sizeDelta.x + 28f;
@@ -225,7 +231,7 @@ namespace IndoorAr
                 case IndoorHudState.NotFound: return view.Outdoor ? "Couldn't check outdoor coverage" : "Couldn't find you";
                 case IndoorHudState.Localized: return "Location found";
                 case IndoorHudState.Straight:
-                    if (view.Outdoor && view.FollowingRoute) return RouteTitle(view);
+                    if (view.FollowingRoute) return RouteTitle(view);
                     if (view.WrongFloor) return view.Destination + " is on Floor " + view.Floor;
                     if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return view.Destination + " is ahead";
                     float yaw = Mathf.DeltaAngle(0f, view.ArrowYaw);
@@ -252,7 +258,7 @@ namespace IndoorAr
             {
                 case IndoorHudState.Scanning: return view.Outdoor ? "Point the camera at the buildings around you" : view.ScanTooFast ? "Move your phone more slowly" : "Move your phone slowly across the hallway";
                 case IndoorHudState.NotFound: return view.Outdoor ? "Check your connection and try again." : "Step into a hallway and scan the walls and signs.";
-                case IndoorHudState.Localized: return view.LocalizeOnly ? "Your location was found" : (view.Outdoor && view.FollowingRoute ? "Route to " : "Direction to ") + view.Destination + " is ready";
+                case IndoorHudState.Localized: return view.LocalizeOnly ? "Your location was found" : (view.FollowingRoute ? "Route to " : "Direction to ") + view.Destination + " is ready";
                 case IndoorHudState.Straight:
                     if (view.Outdoor)
                     {
@@ -260,7 +266,11 @@ namespace IndoorAr
                         if (view.OffRoute) return distance + "Walk back to the route";
                         return distance + (view.FollowingRoute ? view.Destination : "Direction only, not a route");
                     }
-                    return view.WrongFloor ? "You are on a different floor" : "Arrow points to the room";
+                    if (view.WrongFloor)
+                        return view.FloorChange == null ? "You are on a different floor"
+                            : DistanceLabel(view.DistanceM) + " · Take the " + view.FloorChange + " to Floor " + view.Floor;
+                    if (view.FollowingRoute) return DistanceLabel(view.DistanceM) + " · Hallway route to " + view.Destination;
+                    return "Arrow points to the room";
                 default: return RoomLine(view);
             }
         }

@@ -116,6 +116,72 @@ public class IndoorArSessionTests
     }
 
     [Test]
+    public void SignRecoveryOutlivesVpsBudgetWithoutRetryingFallback()
+    {
+        var session = new IndoorArSession(Vec119(), MapCode, allowSignRecovery: true);
+        var requests = 0;
+        var stopped = 0;
+        session.LocalizeRequested += () => requests++;
+        session.FallbackStopped += () => stopped++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.IsTrue(session.FallbackExpired);
+        Assert.AreEqual(1, stopped);
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.IsNull(session.ResultJson);
+        session.OnNotLocalized();
+        session.OnSignConfirmed(Sign120);
+        session.OnSignInView();
+        session.Tick(300f);
+        Assert.AreEqual(2, requests);
+        Assert.AreEqual(1, stopped);
+        Assert.AreSame(Sign120, session.SignRoom);
+        session.OnLocalized();
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        session.Cancel();
+        Assert.AreEqual(2, stopped);
+        StringAssert.Contains("\"status\":\"cancelled\"", session.ResultJson);
+        session.OnLocalized();
+        Assert.AreEqual(IndoorArState.Done, session.State);
+    }
+
+    [TestCase("timeout")]
+    [TestCase("auth")]
+    [TestCase("cancel")]
+    [TestCase("arrival")]
+    [TestCase("unavailable")]
+    public void EveryTerminalTransitionStopsFallback(string terminal)
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        var stopped = 0;
+        session.FallbackStopped += () => stopped++;
+        session.OnArSupport(true);
+        if (terminal == "auth") session.OnAuthFailed(false);
+        else
+        {
+            session.OnAuthenticated();
+            switch (terminal)
+            {
+                case "timeout":
+                    session.Tick(IndoorArSession.LocalizeTimeoutS);
+                    session.Tick(IndoorArSession.LocalizeTimeoutS);
+                    break;
+                case "cancel": session.Cancel(); break;
+                case "arrival":
+                    session.OnLocalized();
+                    session.ImHere(Vector3.zero);
+                    session.ConfirmArrival();
+                    break;
+                case "unavailable": session.OnStepFreeUnverified(); break;
+            }
+        }
+        Assert.AreEqual(IndoorArState.Done, session.State);
+        Assert.AreEqual(1, stopped);
+    }
+
+    [Test]
     public void TrackingLossGoesBackToLocalizingWithAFreshRetry()
     {
         var session = new IndoorArSession(Vec119(), MapCode);
@@ -207,12 +273,14 @@ public class IndoorArSessionTests
         Assert.AreEqual(0f, session.HorizontalDistance(new Vector3(-5.7651f, 50f, 22.6689f)), 1e-4f);
     }
 
-    [TestCase(-0.4f, false)]
-    [TestCase(3.7f, true)]
-    public void WrongFloorUsesTheDoorHeight(float cameraY, bool wrong)
+    [Test]
+    public void FloorEvidenceNeverUsesDestinationOrUnknownHeight()
     {
         var session = new IndoorArSession(Vec119(), MapCode);
-        Assert.AreEqual(wrong, session.IsWrongFloor(new Vector3(0f, cameraY, 0f)));
+        Assert.AreEqual(0, session.CurrentFloor(2.2f, -2f, 2.2f), "destination floor 1 is not inferred from height");
+        Assert.AreEqual(0, session.CurrentFloor(20f, -2f, 2.2f), "out-of-range height is unknown");
+        Assert.IsFalse(session.IsWrongFloor(0));
+        Assert.IsTrue(session.IsWrongFloor(2));
     }
 
     [Test]
@@ -227,5 +295,192 @@ public class IndoorArSessionTests
         Assert.AreEqual(
             "{\"status\":\"cancelled\",\"localizationQueries\":0,\"durationMs\":250}",
             session.ResultJson);
+    }
+
+    static readonly IndoorRoomLandmark Sign120 = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+
+    [Test]
+    public void AConfirmedSignFloorOverridesTheCameraHeight()
+    {
+        var session = Localizing(out _);
+        var upstairsHeight = 4f;
+        Assert.AreEqual(2, session.CurrentFloor(upstairsHeight, -2f, 2.2f));
+        session.OnSignConfirmed(Sign120);
+        Assert.AreEqual(1, session.CurrentFloor(upstairsHeight, -2f, 2.2f), "confirmed sign wins over height");
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsTrue(session.IsWrongFloor(session.CurrentFloor(0f, -2f, 2.2f)), "sign floor is current-floor evidence");
+        Assert.AreEqual(2, new IndoorRoomLandmark("VEC215", "VEC", "floor_2").Floor);
+        Assert.AreEqual(0, new IndoorRoomLandmark("VEC1", "VEC", "lobby").Floor);
+    }
+
+    [Test]
+    public void TrackedWalkToAnotherFloorSupersedesTheLastSignUntilASignIsReadAgain()
+    {
+        const float floor1 = 0f, floor2 = 4f, between = 2f;
+        var session = Localizing(out _);
+        session.OnSignConfirmed(Sign120);
+        session.OnTrackedPose(floor2, -2f, 2.2f);
+        Assert.AreSame(Sign120, session.FloorSign, "no accepted pose yet: height is not tracked motion");
+
+        session.OnLocalized();
+        session.OnTrackedPose(floor1, -2f, 2.2f);
+        session.OnTrackedPose(between, -2f, 2.2f);
+        session.OnTrackedPose(20f, -2f, 2.2f);
+        Assert.AreSame(Sign120, session.FloorSign, "between or outside floors changes nothing");
+        session.OnTrackedPose(floor2, -2f, 2.2f);
+        Assert.IsNull(session.FloorSign, "tracked ascent supersedes the floor-1 sign");
+        Assert.AreSame(Sign120, session.SignRoom, "the sign that was read is still shown");
+        Assert.AreEqual(2, session.CurrentFloor(floor2, -2f, 2.2f));
+        Assert.IsFalse(session.PoseConflictsWithSign(floor2, -2f, 2.2f));
+
+        session.OnSignConfirmed(Sign120);
+        Assert.AreEqual(1, session.CurrentFloor(floor2, -2f, 2.2f), "a fresh sign wins again");
+        Assert.IsTrue(session.PoseConflictsWithSign(floor2, -2f, 2.2f));
+
+        // Tracked floor is 2. Tracking loss breaks continuity: the first height after the next pose is a new baseline.
+        session.OnTrackingLost();
+        session.OnTrackedPose(floor1, -2f, 2.2f);
+        session.OnLocalized();
+        session.OnTrackedPose(floor1, -2f, 2.2f);
+        Assert.AreSame(Sign120, session.FloorSign, "a jump across a tracking gap is not a tracked walk");
+    }
+
+    [TestCase(1, 2)]
+    [TestCase(2, 1)]
+    public void FreshMatchingSignSurvivesTheNextTrackedFloorSample(int from, int to)
+    {
+        var session = Localizing(out _);
+        var original = new IndoorRoomLandmark("original", "VEC", "floor_" + from);
+        var fresh = new IndoorRoomLandmark("fresh", "VEC", "floor_" + to);
+        session.OnSignConfirmed(original);
+        session.OnLocalized();
+        session.OnTrackedPose(from == 1 ? 0f : 4f, -2f, 2.2f);
+        session.OnSignConfirmed(fresh);
+        session.OnTrackedPose(to == 1 ? 0f : 4f, -2f, 2.2f);
+        Assert.AreSame(fresh, session.FloorSign);
+        session.OnTrackingLost();
+        Assert.IsTrue(session.PoseConflictsWithSign(from == 1 ? 0f : 4f, -2f, 2.2f));
+        Assert.IsFalse(session.PoseConflictsWithSign(to == 1 ? 0f : 4f, -2f, 2.2f));
+    }
+
+    [Test]
+    public void MultiSetPoseConflictRetriesAndAgreeingPoseIsAccepted()
+    {
+        var session = Localizing(out _);
+        var retries = 0;
+        session.LocalizeRequested += () => retries++;
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, -2f, 2.2f), "floor-3-height pose conflicts with floor-2 sign");
+        session.OnNotLocalized();
+        session.OnSignInView();
+        Assert.AreEqual(1, retries);
+        Assert.IsFalse(session.WasPinned);
+
+        var agreeing = Localizing(out _);
+        agreeing.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+        Assert.IsFalse(agreeing.PoseConflictsWithSign(4f, -2f, 2.2f));
+        agreeing.OnLocalized();
+        Assert.IsTrue(agreeing.WasPinned);
+    }
+
+    [Test]
+    public void UnsupportedSignAndUnmappedPoseCannotEstablishRouteFloor()
+    {
+        var session = Localizing(out _);
+        Assert.AreEqual(0, session.CurrentFloor(6.5f, -2f, 2.2f));
+        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, -2f, 2.2f), "a pose resolving above supported floors is rejected even without a sign");
+        Assert.AreEqual(0, session.CurrentFloor(-5f, -2f, 2.2f));
+        Assert.IsTrue(session.PoseConflictsWithSign(-5f, -2f, 2.2f), "a pose below Floor 1 is rejected");
+        var inBand = Localizing(out _);
+        Assert.IsFalse(inBand.PoseConflictsWithSign(-0.4f, -2f, 2.2f), "a pose in Floor 1's eye-height band is accepted");
+        inBand.OnLocalized();
+        Assert.IsTrue(inBand.WasPinned);
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC999", "VEC", "floor_3"));
+        Assert.AreEqual(0, session.CurrentFloor(0f, -2f, 2.2f));
+        Assert.IsTrue(session.PoseConflictsWithSign(0f, -2f, 2.2f));
+    }
+
+    [Test]
+    public void StepFreeWithoutEvidenceReturnsUnavailableAndNoHudRoute()
+    {
+        var request = Vec119();
+        request.stepFree = true;
+        request.floor = "2";
+        var session = new IndoorArSession(request, MapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized();
+        session.OnSignConfirmed(Sign120);
+        session.OnStepFreeUnverified();
+        StringAssert.Contains("\"status\":\"unavailable\"", session.ResultJson);
+        StringAssert.Contains("\"errorCode\":\"STEP_FREE_UNVERIFIED\"", session.ResultJson);
+        var view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 2f);
+        Assert.IsFalse(view.FollowingRoute);
+        Assert.AreEqual(IndoorHudState.NotFound, view.State);
+        Assert.AreEqual("A step-free route to this destination cannot be confirmed.", view.DetailOverride);
+    }
+
+
+    [Test]
+    public void ConfirmedSignIsReportedButNeverPins()
+    {
+        var session = Localizing(out _);
+        session.OnSignConfirmed(Sign120);
+        session.OnSignInView();
+        Assert.AreEqual(IndoorArState.Localizing, session.State, "room identity is not a pose");
+        Assert.IsFalse(session.WasPinned);
+        session.Cancel();
+        Assert.AreEqual(
+            "{\"status\":\"cancelled\",\"localizationQueries\":0,\"durationMs\":0,\"signRoom\":\"VEC120\"}",
+            session.ResultJson);
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC119", "VEC", "floor_1"));
+        StringAssert.Contains("VEC120", session.ResultJson, "a finished result does not change");
+    }
+
+    [Test]
+    public void SignInViewSpendsTheRetryEarlyOnlyAfterANoPoseAnswer()
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        var requests = 0;
+        session.LocalizeRequested += () => requests++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnAttemptStarted();
+        session.OnSignConfirmed(Sign120);
+        session.OnSignInView();
+        Assert.AreEqual(1, requests, "no early retry while the attempt is still open");
+
+        session.OnNotLocalized();
+        session.OnSignInView();
+        Assert.AreEqual(2, requests);
+        session.OnNotLocalized();
+        session.OnSignInView();
+        Assert.AreEqual(2, requests, "one retry per localizing pass");
+
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(IndoorArState.Done, session.State, "the attempt budget is unchanged");
+        StringAssert.StartsWith("{\"status\":\"localizationFailed\"", session.ResultJson);
+        StringAssert.EndsWith(",\"signRoom\":\"VEC120\"}", session.ResultJson);
+    }
+
+    [Test]
+    public void ResultHasNoSignRoomWithoutASign()
+    {
+        var session = Localizing(out _);
+        session.OnNotLocalized();
+        session.OnSignInView();
+        session.Cancel();
+        StringAssert.DoesNotContain("signRoom", session.ResultJson);
+    }
+
+    [Test]
+    public void UnknownGapPoseIsRejectedWithOrWithoutSignEvidence()
+    {
+        var session = Localizing(out _);
+        Assert.AreEqual(0, session.PoseFloor(1f, -2f, 2.3f));
+        Assert.IsTrue(session.PoseConflictsWithSign(1f, -2f, 2.3f), "gap remains unsupported without a sign");
+        session.OnSignConfirmed(Sign120);
+        Assert.IsTrue(session.PoseConflictsWithSign(1f, -2f, 2.3f), "a sign cannot make an unknown pose acceptable");
+        Assert.IsFalse(session.PoseConflictsWithSign(-0.5f, -2f, 2.3f), "a supported floor-1 pose remains acceptable");
     }
 }

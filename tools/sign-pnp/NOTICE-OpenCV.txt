@@ -1,0 +1,6 @@
+This product includes OpenCV 4.14.0, an open-source computer vision library.
+The OpenCV source and Android SDK are available from https://github.com/opencv/opencv.
+See LICENSE-OpenCV.txt for the Apache License, Version 2.0 terms.
+
+The official OpenCV Android SDK's bundled third-party license files ship beside
+this notice under third-party/.

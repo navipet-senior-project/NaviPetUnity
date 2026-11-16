@@ -37,6 +37,7 @@ PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 EXPORT="$PROJECT/Builds/IndoorArAndroid"
 mkdir -p "$PROJECT/Logs"
 
+"$PROJECT/tools/build-sign-pnp.sh" android
 rm -rf "$EXPORT"
 "$UNITY" -batchmode -nographics -quit -projectPath "$PROJECT" -buildTarget Android \
   -executeMethod IndoorAr.Editor.IndoorArExport.ExportAndroid \

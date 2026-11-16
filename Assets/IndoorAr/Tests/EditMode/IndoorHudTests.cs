@@ -389,7 +389,7 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void LiveViewScansThenPointsAtTheDoorAndFailsClosed()
+        public void LiveViewScansThenBlocksMissingRouteAndFailsClosed()
         {
             var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
             var session = new IndoorArSession(request, request.mapCode);
@@ -407,13 +407,48 @@ namespace IndoorAr.Tests
 
             var guiding = LiveDoorHud.Compose(session, camera, Vector3.forward, LiveDoorHud.LocationFoundHoldS);
             Assert.AreEqual(IndoorHudState.Straight, guiding.State);
-            var door = new Vector3(request.position.x, request.position.y, request.position.z);
-            Assert.AreEqual(GuidanceCue.ArrowYawDegrees(Vector3.forward, camera, door), guiding.ArrowYaw, 1e-3f);
+            Assert.IsTrue(guiding.RouteBlocked);
+            Assert.IsFalse(guiding.FollowingRoute);
+            Assert.AreEqual("Route unavailable", guiding.TitleOverride);
+            Assert.AreEqual(0f, guiding.ArrowYaw);
 
             session.OnTrackingLost();
             session.Tick(IndoorArSession.LocalizeTimeoutS);
             session.Tick(IndoorArSession.LocalizeTimeoutS);
             Assert.AreEqual(IndoorHudState.NotFound, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
         }
-    }
+
+        static IndoorHudView SignView(string id, string floor, bool localizeOnly = false)
+        {
+            var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
+            request.mode = localizeOnly ? "localize" : request.mode;
+            var session = new IndoorArSession(request, request.mapCode);
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            session.OnSignConfirmed(new IndoorRoomLandmark(id, "VEC", floor));
+            return LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f);
+        }
+
+        [Test]
+        public void RoomSignCopyIsApproximateAndCatchesTheWrongFloor()
+        {
+            var near = SignView("VEC120", "floor_1");
+            Assert.AreEqual(IndoorHudState.Scanning, near.State, "a sign never shows the arrow");
+            Assert.AreEqual("Room VEC 120 detected · Floor 1", near.TitleOverride);
+            Assert.AreEqual("From the room sign. Keep scanning for the arrow", near.DetailOverride);
+
+            var upstairs = SignView("VEC215", "floor_2");
+            Assert.AreEqual("Room VEC 215 detected · Floor 2", upstairs.TitleOverride);
+            Assert.AreEqual("VEC 119 is on Floor 1", upstairs.DetailOverride);
+            Assert.IsTrue(upstairs.WrongFloor, "the sign's floor, not the camera height, decides");
+
+            var door = SignView("VEC119", "floor_1");
+            Assert.AreEqual("Room VEC 119 detected", door.TitleOverride);
+            Assert.AreEqual("Keep scanning so AR can confirm the door", door.DetailOverride);
+
+            var localize = SignView("VEC215", "floor_2", localizeOnly: true);
+            Assert.AreEqual("Room VEC 215 detected · Floor 2", localize.TitleOverride, "localize mode has no wrong floor");
+            Assert.AreEqual("From the room sign. AR is still aligning", localize.DetailOverride);
+        }
+}
 }
