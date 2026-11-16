@@ -15,9 +15,11 @@ extern "C" void UnitySendMessage(const char *object, const char *method, const c
 
 static std::atomic<bool> sBusy(false);
 
-static void SendMlKitMessage(NSString *object, NSString *method, NSString *message) {
+// Every reply is "captureId|message" so Unity can drop a reply to a frame it no longer waits for.
+static void SendMlKitMessage(NSString *object, NSString *method, int captureId, NSString *message) {
+    NSString *reply = [NSString stringWithFormat:@"%d|%@", captureId, message ?: @""];
     dispatch_async(dispatch_get_main_queue(), ^{
-        UnitySendMessage(object.UTF8String, method.UTF8String, message.UTF8String);
+        UnitySendMessage(object.UTF8String, method.UTF8String, reply.UTF8String);
     });
 }
 
@@ -103,8 +105,9 @@ static NSDictionary *RecognizeWithMlKit(NSData *pixels, int width, int height, i
 }
 #endif
 
+// 1 when exactly one reply will follow; 0 (busy or bad frame) when none will.
 extern "C" int IndoorArRecognizeMlKitText(const uint8_t *rgba, int width, int height,
-                                            int orientation, const char *callbackObject) {
+                                            int orientation, const char *callbackObject, int captureId) {
     if (rgba == nullptr || callbackObject == nullptr || width < 1 || height < 1
         || width > 1920 || height > 1440 || (uint64_t)width * height * 4 > SIZE_MAX) return 0;
     bool expected = false;
@@ -121,11 +124,11 @@ extern "C" int IndoorArRecognizeMlKitText(const uint8_t *rgba, int width, int he
             NSDictionary *frame = RecognizeWithMlKit(pixels, width, height, rotation, &failure);
             NSData *json = frame == nil ? nil : [NSJSONSerialization dataWithJSONObject:frame options:0 error:nil];
             if (json != nil)
-                SendMlKitMessage(object, @"OnMlKitText", [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]);
+                SendMlKitMessage(object, @"OnMlKitText", captureId, [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]);
             else
-                SendMlKitMessage(object, @"OnMlKitError", failure);
+                SendMlKitMessage(object, @"OnMlKitError", captureId, failure);
 #else
-            SendMlKitMessage(object, @"OnMlKitError", failure);
+            SendMlKitMessage(object, @"OnMlKitError", captureId, failure);
 #endif
         }
         sBusy.store(false);

@@ -29,7 +29,7 @@ public class IndoorRoomOcrDemoTests
                 Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json")));
             demo.Result += (text, match, _, _) => { actualText = text; actual = match; };
 
-            demo.OnMlKitText("VEC 119");
+            demo.OnMlKitText(IndoorRoomMlKitOcrTests.Reply(demo, "VEC 119"));
 
             Assert.AreEqual("VEC 119", actualText);
             Assert.AreEqual(IndoorRoomMatchStatus.Matched, actual.Status);

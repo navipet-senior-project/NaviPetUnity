@@ -97,7 +97,7 @@ public class IndoorOcrFrameTests
             var sighting = new IndoorSignObservation();
             ocr.Result += (_, roomMatch, _, observation) => { match = roomMatch; sighting = observation; };
 
-            ocr.OnMlKitText(Json);
+            ocr.OnMlKitText(IndoorRoomMlKitOcrTests.Reply(ocr, Json));
 
             Assert.AreEqual("VEC119", match.Landmark.Id);
             Assert.IsNull(sighting, "the editor has no camera intrinsics, so the corners are not a sighting");

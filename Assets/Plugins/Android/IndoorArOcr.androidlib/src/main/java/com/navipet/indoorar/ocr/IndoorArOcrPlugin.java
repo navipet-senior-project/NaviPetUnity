@@ -21,8 +21,9 @@ public final class IndoorArOcrPlugin {
 
     private IndoorArOcrPlugin() {}
 
+    /** True when exactly one "captureId|..." reply will follow; false (busy or bad frame) when none will. */
     public static synchronized boolean recognize(byte[] rgba, int width, int height,
-            String callbackObject) {
+            String callbackObject, int captureId) {
         if (busy || rgba == null || width < 1 || height < 1
                 || width > 1280 || height > 720
                 || (long) width * height * 4 != rgba.length) return false;
@@ -36,9 +37,9 @@ public final class IndoorArOcrPlugin {
             Bitmap submittedBitmap = bitmap;
             RECOGNIZER.process(image)
                     .addOnSuccessListener(result -> sendUnityMessage(
-                            callbackObject, "OnMlKitText", frameJson(result, width, height, rotation)))
+                            callbackObject, "OnMlKitText", captureId, frameJson(result, width, height, rotation)))
                     .addOnFailureListener(error -> sendUnityMessage(
-                            callbackObject, "OnMlKitError", error.getMessage()))
+                            callbackObject, "OnMlKitError", captureId, error.getMessage()))
                     .addOnCompleteListener(task -> {
                         submittedBitmap.recycle();
                         synchronized (IndoorArOcrPlugin.class) { busy = false; }
@@ -46,8 +47,7 @@ public final class IndoorArOcrPlugin {
         } catch (Exception error) {
             if (bitmap != null) bitmap.recycle();
             busy = false;
-            sendUnityMessage(callbackObject, "OnMlKitError", error.getMessage());
-            return false;
+            sendUnityMessage(callbackObject, "OnMlKitError", captureId, error.getMessage());
         }
         return true;
     }
@@ -79,11 +79,11 @@ public final class IndoorArOcrPlugin {
         return (android.app.Activity) unityPlayer.getField("currentActivity").get(null);
     }
 
-    private static void sendUnityMessage(String object, String method, String value) {
+    private static void sendUnityMessage(String object, String method, int captureId, String value) {
         try {
             Class<?> unityPlayer = Class.forName("com.unity3d.player.UnityPlayer");
             unityPlayer.getMethod("UnitySendMessage", String.class, String.class, String.class)
-                    .invoke(null, object, method, value == null ? "" : value);
+                    .invoke(null, object, method, captureId + "|" + (value == null ? "" : value));
         } catch (Exception ignored) { }
     }
 

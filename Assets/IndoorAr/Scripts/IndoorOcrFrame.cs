@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
@@ -37,6 +38,45 @@ namespace IndoorAr
             capture.Cx = k.principalPoint.x * sx;
             capture.Cy = k.principalPoint.y * sy;
             return capture;
+        }
+    }
+
+    /// <summary>
+    /// The one OCR frame an adapter has in flight. Every native reply is "id|payload" with the id the frame was
+    /// submitted with, so a reply to an earlier frame, a disabled session or a replaced adapter of the same
+    /// GameObject name is dropped instead of being paired with the current frame's camera pose.
+    /// </summary>
+    public sealed class IndoorOcrJob
+    {
+        // Process-wide: a new adapter after a scene reload never reuses an id an old native job still carries.
+        static int s_lastId;
+
+        public int Id { get; private set; }
+        public bool Busy => Id != 0;
+        public float StartedAt { get; private set; }
+        public IndoorOcrCapture Capture { get; private set; }
+
+        public int Start(float startedAt, IndoorOcrCapture capture)
+        {
+            StartedAt = startedAt;
+            Capture = capture;
+            return Id = ++s_lastId;
+        }
+
+        public bool IsCurrent(int id) => id != 0 && id == Id;
+
+        public void Cancel() => Id = 0;
+
+        /// <summary>True, ending the job, only for a reply to the frame in flight.</summary>
+        public bool TryFinish(string reply, out string payload)
+        {
+            payload = null;
+            var bar = reply == null ? -1 : reply.IndexOf('|');
+            if (bar < 1 || !int.TryParse(reply.Substring(0, bar), NumberStyles.None, CultureInfo.InvariantCulture,
+                    out var id) || !IsCurrent(id)) return false;
+            Id = 0;
+            payload = reply.Substring(bar + 1);
+            return true;
         }
     }
 
