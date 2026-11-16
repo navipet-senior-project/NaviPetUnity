@@ -9,9 +9,10 @@ This editor install has no iOS Build Support module (`PlaybackEngines` contains 
 ## Export the Xcode project
 
 1. In Unity Hub, add **iOS Build Support** to editor `6000.3.26f1`.
-2. From the Unity project root:
+2. From the Unity project root, build the native sign-pose solver, then export. The first run of `build-sign-pnp.sh` downloads and checksums the OpenCV release and caches it in `.cache/opencv`; the export fails without its output (see [Precise pose from a sign](../Assets/IndoorAr/OCR-POC-prerequisites.md#precise-pose-from-a-sign-inert-until-surveyed-and-validated)).
 
 ```bash
+tools/build-sign-pnp.sh ios
 /Applications/Unity/Hub/Editor/6000.3.26f1/Unity.app/Contents/MacOS/Unity \
   -batchmode -nographics -quit \
   -projectPath "$PWD" \

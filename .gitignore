@@ -129,3 +129,9 @@ InitTestScene*.unity*
 /[Aa]ssets/Plugins/Android/mainTemplate.gradle*
 /[Aa]ssets/Plugins/Android/settingsTemplate.gradle*
 /[Aa]ssets/Plugins/Android/proguard-user.txt*
+
+# Native sign-pose solver built by tools/build-sign-pnp.sh, and its verified OpenCV download cache.
+/.cache/
+/[Aa]ssets/Plugins/iOS/libindoorsignpnp.a*
+/[Aa]ssets/Plugins/Android/libs/
+/[Aa]ssets/Plugins/Android/libs.meta

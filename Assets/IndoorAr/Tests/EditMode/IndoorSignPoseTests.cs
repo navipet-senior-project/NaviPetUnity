@@ -103,6 +103,60 @@ public class IndoorSignPoseTests
         Assert.AreEqual(IndoorSignPoseStatus.Ambiguous, IndoorSignPose.Solve(obs, sign).Status);
     }
 
+    // What the phone's OpenCV solver (tools/sign-pnp) returns for the poses above: camera in the sign frame, yaw and
+    // pitch relative to the sign, the corners it was given, its solution count and output. Printed by
+    // tools/sign-pnp/ippe-fixtures.py; the first three have exact corners, the last two whole-pixel ones.
+    static readonly (Vector3 Camera, float Yaw, float Pitch, float[] Corners, int Count, double[] Solutions)[] Ippe =
+    {
+        (new Vector3(0f, 0.1f, -1.2f), 0f, 0f,
+            new[] { 772.5f, 571.25f, 1147.5f, 571.25f, 1147.5f, 758.75f, 772.5f, 758.75f }, 2, new[]
+            { 1, -3.7320422e-17, -3.19510016e-16, 1.60787589e-17, -0.986206897, 0.165517241, 0, 0.0992241379, 1.2, 0.999608537, -0.0256213086, 0.0112392614, 0.0256213086, 0.676918918, -0.735611533, 0, 0.1, 1.2, 1, -1.7515646e-16, -1.25283986e-16, -1.7515646e-16, -1, -6.09478426e-15, 8.4013986e-18, 0.1, 1.2, 1, -9.56103782e-17, -1.3398312e-15, -9.56103782e-17, -1, -8.57252759e-16, -3.69345461e-17, 0.1, 1.2 }),
+        (new Vector3(-0.3f, -0.1f, -1.2f), 15f, -5f,
+            new[] { 754.361f, 453.215f, 1104.73f, 466.328f, 1106.22f, 641.66f, 752.112f, 639.747f }, 2, new[]
+            { 0.965927195, 0.022556319, 0.257829142, 2.55931624e-06, -0.996195802, 0.0871431292, -0.0208052709, 0.00817091362, 1.24076698, 0.974032972, 0.0193729317, -0.225575838, 0.00270412132, -0.997256788, -0.0739701755, -0.0292628122, 0.00869878918, 1.23793955, 0.96592728, 0.0225564012, 0.257828817, 2.26697825e-06, -0.996195669, 0.0871446401, -0.0208052774, 0.00817090793, 1.24076702, 0.96592728, 0.0225564012, 0.257828817, 2.26697966e-06, -0.996195669, 0.0871446401, -0.0208052774, 0.00817090793, 1.24076702 }),
+        (new Vector3(0.4f, 0.3f, -1.2f), -20f, 8f,
+            new[] { 840.375f, 584.625f, 1173.57f, 605.681f, 1170.01f, 782.335f, 842.218f, 748.358f }, 2, new[]
+            { 0.939691654, 0.0476001773, -0.338694284, 3.02892697e-07, -0.990268265, -0.139171703, 0.0345473154, 0.12110417, 1.29388467, 0.956045602, 0.104928124, 0.273800832, 0.0122655867, -0.947272926, 0.320193002, 0.0445339017, 0.119556925, 1.28922788, 0.93969197, 0.0476003257, -0.338693388, 2.34479523e-07, -0.990268128, -0.139172676, 0.0345473371, 0.121104197, 1.29388492, 0.97654779, 0.0932508136, 0.194058495, 0.03732589, -0.961015472, 0.273963576, 0.0442239041, 0.12245435, 1.31944828 }),
+        (new Vector3(0f, 0.1f, -1.2f), 0f, 0f,
+            new[] { 772f, 571f, 1148f, 571f, 1148f, 759f, 772f, 759f }, 2, new[]
+            { 1, -9.17662744e-18, -7.85635377e-17, 3.95356676e-18, -0.986206897, 0.165517241, 0, 0.0989561115, 1.19680851, 0.999992071, -0.00387695339, 0.000909047438, 0.00387695339, 0.895765933, -0.444509126, 0, 0.0997340426, 1.19680851, 1, -1.36184569e-16, -1.07796309e-15, -1.36184569e-16, -1, -5.65069505e-15, 3.69455841e-18, 0.0997340426, 1.19680851, 1, -3.39798581e-16, 1.256167e-14, -3.39798581e-16, -1, 1.69063156e-14, 2.51184343e-16, 0.0997340426, 1.19680851 }),
+        (new Vector3(0f, 0.1f, -4f), 10f, 0f,
+            new[] { 637f, 550f, 753f, 549f, 753f, 606f, 637f, 607f }, 2, new[]
+            { 0.992285124, -0.00560527184, 0.123849961, -0.0191290327, -0.993936645, 0.108277544, -0.694334602, 0.0995074796, 3.93426188, 0.974617396, -0.00307178626, 0.22385597, 0.010483042, -0.998182904, -0.0593379733, -0.693754567, 0.0997413314, 3.93426188, 0.994321825, -0.00606291249, 0.106241941, -0.0154357207, -0.996034136, 0.0876227044, -0.69407027, 0.0994845949, 3.932184, 0.994321825, -0.00606291229, 0.106241937, -0.0154357176, -0.996034138, 0.0876226806, -0.694070271, 0.099484595, 3.932184 }),
+    };
+
+    static IndoorSignObservation WithCorners(float[] px)
+    {
+        var corners = new Vector2[4];
+        for (var i = 0; i < 4; i++) corners[i] = new Vector2(px[2 * i], px[2 * i + 1]);
+        return new IndoorSignObservation { RoomId = "VEC120", CornersPx = corners, Fx = Fx, Fy = Fy, Cx = Cx, Cy = Cy, DeviceModel = Device };
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    [TestCase(3)]
+    public void TheNativeSolverOutputGivesTheCameraPose(int fixture)
+    {
+        var sign = Sign();
+        var (camera, yaw, pitch, corners, count, solutions) = Ippe[fixture];
+        var toMap = Quaternion.Euler(0f, sign.intoWallHeadingDeg, 0f);
+        var result = IndoorSignPose.FromIppe(WithCorners(corners), sign, solutions, count);
+        Assert.AreEqual(IndoorSignPoseStatus.Ok, result.Status);
+        Assert.Less(Vector3.Distance(sign.centerInMap + toMap * camera, result.CameraPositionInMap), 0.01f);
+        Assert.Less(Quaternion.Angle(toMap * Quaternion.Euler(pitch, yaw, 0f), result.CameraRotationInMap), 0.5f);
+    }
+
+    [Test]
+    public void TheNativeSolverIsAmbiguousWhenItsTwoSolutionsBothFitButDisagree()
+    {
+        var sign = Sign();
+        var (_, _, _, corners, count, solutions) = Ippe[4];
+        // Refinement pulls both solutions to one pose here; only the raw pair shows the flip.
+        Assert.AreEqual(IndoorSignPoseStatus.Ambiguous, IndoorSignPose.FromIppe(WithCorners(corners), sign, solutions, count).Status);
+        Assert.AreEqual(IndoorSignPoseStatus.BadGeometry, IndoorSignPose.FromIppe(WithCorners(corners), sign, new double[36], 0).Status);
+    }
+
     static List<(IndoorSignObservation, Vector3, float)> Samples(IndoorSignCalibrationEntry sign)
     {
         var samples = new List<(IndoorSignObservation, Vector3, float)>();

@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using UnityEngine;
+
+[assembly: InternalsVisibleTo("IndoorAr.Tests.EditMode")]
 
 namespace IndoorAr
 {
@@ -113,10 +116,11 @@ namespace IndoorAr
     /// Camera pose in the MapSet frame from the four image corners of one measured sign. Everything is in
     /// Unity's left-handed convention (camera x right, y up, z forward). The sign's local frame is x right,
     /// y up, z into the wall, so its transform to the map is a pure yaw.
-    /// The planar homography gives one pose; the mirrored IPPE candidate (plane normal reflected about the line
-    /// of sight) is then fitted too, and the sighting is rejected when both fit but disagree.
-    /// shortcut: managed homography plus that check, not OpenCV solvePnP IPPE, and no lens distortion model
-    /// (AR Foundation gives none); move to native IPPE with rectified corners if device validation shows bias.
+    /// On the phone OpenCV's solvePnP IPPE solves it (tools/sign-pnp, FromIppe). The Editor and EditMode tests have no
+    /// OpenCV build, so they use a planar homography and its mirrored IPPE candidate (plane normal reflected about the
+    /// line of sight). Either way the sighting is rejected when another candidate fits the corners but moves the camera.
+    /// shortcut: no lens distortion model (AR Foundation gives none), and survey validation runs in the Editor, so it
+    /// checks the managed solve, not OpenCV's; build OpenCV for the Editor if real captures show the two disagree.
     /// </summary>
     public static class IndoorSignPose
     {
@@ -172,8 +176,80 @@ namespace IndoorAr
                 || !AllFinite(obs.CornersPx))
                 return new IndoorSignPoseResult(IndoorSignPoseStatus.BadGeometry);
 
+#if !UNITY_EDITOR && (UNITY_IOS || UNITY_ANDROID)
+            return SolveNative(obs, sign);
+#else
+            return SolveManaged(obs, sign, Plane(sign));
+#endif
+        }
+
+        static Vector2[] Plane(IndoorSignCalibrationEntry sign)
+        {
             float hw = sign.widthM / 2f, hh = sign.heightM / 2f;
-            var plane = new[] { new Vector2(-hw, hh), new Vector2(hw, hh), new Vector2(hw, -hh), new Vector2(-hw, -hh) };
+            return new[] { new Vector2(-hw, hh), new Vector2(hw, hh), new Vector2(hw, -hh), new Vector2(-hw, -hh) };
+        }
+
+#if !UNITY_EDITOR && (UNITY_IOS || UNITY_ANDROID)
+#if UNITY_IOS
+        [System.Runtime.InteropServices.DllImport("__Internal")]
+#else
+        [System.Runtime.InteropServices.DllImport("indoorsignpnp")]
+#endif
+        static extern int IndoorSignSolveIppe(double[] plane8, double[] image8, double[] k4, double[] out36);
+
+        static IndoorSignPoseResult SolveNative(IndoorSignObservation obs, IndoorSignCalibrationEntry sign)
+        {
+            var plane = Plane(sign);
+            var planeXy = new double[8];
+            var image = new double[8];
+            for (var i = 0; i < 4; i++)
+            {
+                planeXy[2 * i] = plane[i].x;
+                planeXy[2 * i + 1] = plane[i].y;
+                image[2 * i] = obs.CornersPx[i].x;
+                image[2 * i + 1] = obs.CornersPx[i].y;
+            }
+            var solutions = new double[36];
+            var count = IndoorSignSolveIppe(planeXy, image, new double[] { obs.Fx, obs.Fy, obs.Cx, obs.Cy }, solutions);
+            return FromIppe(obs, sign, solutions, count);
+        }
+#endif
+
+        /// <summary>
+        /// The pose from tools/sign-pnp's output: OpenCV's IPPE solution s at 9 * s and its refinement at 9 * (2 + s),
+        /// each as rotation columns 1 and 2 then the translation, in OpenCV's y-down camera frame. The better-fitting
+        /// refinement is the pose and the other three are what the ambiguity check weighs it against.
+        /// </summary>
+        internal static IndoorSignPoseResult FromIppe(IndoorSignObservation obs, IndoorSignCalibrationEntry sign,
+            double[] solutions, int count)
+        {
+            if (count < 1 || count > 2 || solutions == null || solutions.Length < 36)
+                return new IndoorSignPoseResult(IndoorSignPoseStatus.BadGeometry);
+            var plane = Plane(sign);
+            var candidates = new List<(Vector3 R1, Vector3 R2, Vector3 T)>();
+            foreach (var slot in new[] { 2, 3, 0, 1 })
+            {
+                if (slot % 2 >= count) continue;
+                var i = 9 * slot;
+                // Negating y turns OpenCV's camera frame into Unity's.
+                candidates.Add((new Vector3((float)solutions[i], -(float)solutions[i + 1], (float)solutions[i + 2]),
+                    new Vector3((float)solutions[i + 3], -(float)solutions[i + 4], (float)solutions[i + 5]),
+                    new Vector3((float)solutions[i + 6], -(float)solutions[i + 7], (float)solutions[i + 8])));
+            }
+            var best = count > 1 && Fit(obs, plane, candidates[1]) < Fit(obs, plane, candidates[0]) ? 1 : 0;
+            var pose = candidates[best];
+            candidates.RemoveAt(best);
+            return Gate(obs, sign, plane, pose, candidates);
+        }
+
+        static float Fit(IndoorSignObservation obs, Vector2[] plane, (Vector3 R1, Vector3 R2, Vector3 T) c)
+        {
+            var error = Reprojection(obs, plane, c.R1, c.R2, Vector3.Cross(c.R1, c.R2), c.T);
+            return float.IsNaN(error) ? float.PositiveInfinity : error;
+        }
+
+        static IndoorSignPoseResult SolveManaged(IndoorSignObservation obs, IndoorSignCalibrationEntry sign, Vector2[] plane)
+        {
             var a = new double[8, 9];
             for (var i = 0; i < 4; i++)
             {
@@ -194,9 +270,19 @@ namespace IndoorAr
             var r2 = h2 - Vector3.Dot(h2, r1) * r1;
             if (!(r2.sqrMagnitude > 1e-12f)) return new IndoorSignPoseResult(IndoorSignPoseStatus.BadGeometry);
             r2.Normalize();
-            var r3 = Vector3.Cross(r1, r2);
             var t = h3 / scale;
+            var mirror = Mirror(obs, plane, r1, r2, t);
+            return Gate(obs, sign, plane, (r1, r2, t),
+                mirror.HasValue ? new[] { mirror.Value } : Array.Empty<(Vector3, Vector3, Vector3)>());
+        }
 
+        // A candidate pose must reproject onto the corners and put the camera where a reader could stand, and no other
+        // candidate that also fits may move the camera elsewhere.
+        static IndoorSignPoseResult Gate(IndoorSignObservation obs, IndoorSignCalibrationEntry sign, Vector2[] plane,
+            (Vector3 R1, Vector3 R2, Vector3 T) pose, IEnumerable<(Vector3 R1, Vector3 R2, Vector3 T)> others)
+        {
+            var (r1, r2, t) = pose;
+            var r3 = Vector3.Cross(r1, r2);
             var error = Reprojection(obs, plane, r1, r2, r3, t);
             if (float.IsNaN(error)) return new IndoorSignPoseResult(IndoorSignPoseStatus.BadGeometry);
             if (error > MaxReprojectionErrorPx)
@@ -208,8 +294,9 @@ namespace IndoorAr
             // Sign z points into the wall, so a camera that can read it has negative z.
             if (!(cameraInSign.z < 0f) || distance < MinDistanceM || distance > MaxDistanceM)
                 return new IndoorSignPoseResult(IndoorSignPoseStatus.Implausible, errorPx: error);
-            if (MirrorDisagrees(obs, plane, r1, r2, t, cameraInSign))
-                return new IndoorSignPoseResult(IndoorSignPoseStatus.Ambiguous, errorPx: error);
+            foreach (var other in others)
+                if (Disagrees(obs, plane, r1, r3, cameraInSign, other))
+                    return new IndoorSignPoseResult(IndoorSignPoseStatus.Ambiguous, errorPx: error);
             var forward = new Vector3(r1.z, r2.z, r3.z);
             var up = new Vector3(r1.y, r2.y, r3.y);
             var signToMap = Quaternion.Euler(0f, sign.intoWallHeadingDeg, 0f);
@@ -227,15 +314,14 @@ namespace IndoorAr
             return Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
         }
 
-        // The other IPPE candidate: rotation reflected about the line of sight to the sign, translation refitted by
-        // least squares. It matters only if it also reprojects well and moves the camera's yaw or plan position.
-        static bool MirrorDisagrees(IndoorSignObservation obs, Vector2[] plane, Vector3 r1, Vector3 r2, Vector3 t,
-            Vector3 cameraInSign)
+        // The other IPPE candidate for the managed solve: rotation reflected about the line of sight to the sign,
+        // translation refitted by least squares. Null when that fit is degenerate.
+        static (Vector3 R1, Vector3 R2, Vector3 T)? Mirror(IndoorSignObservation obs, Vector2[] plane, Vector3 r1,
+            Vector3 r2, Vector3 t)
         {
             var d = t.normalized;
             var m1 = r1 - 2f * Vector3.Dot(r1, d) * d;
             var m2 = r2 - 2f * Vector3.Dot(r2, d) * d;
-            var m3 = Vector3.Cross(m1, m2);
             var normal = new double[3, 4];
             for (var i = 0; i < 4; i++)
             {
@@ -245,14 +331,21 @@ namespace IndoorAr
                 AddNormalRow(normal, 1, 0, -u, u * p.z - p.x);
                 AddNormalRow(normal, 0, 1, -v, v * p.z - p.y);
             }
-            if (!SolveLinear(normal, 3, out var s)) return false;
-            var mt = new Vector3((float)s[0], (float)s[1], (float)s[2]);
-            var mirrorError = Reprojection(obs, plane, m1, m2, m3, mt);
-            if (float.IsNaN(mirrorError) || mirrorError > MaxReprojectionErrorPx) return false;
-            var mirror = CameraInSign(m1, m2, m3, mt);
-            var r3 = Vector3.Cross(r1, r2);
+            if (!SolveLinear(normal, 3, out var s)) return null;
+            return (m1, m2, new Vector3((float)s[0], (float)s[1], (float)s[2]));
+        }
+
+        // Another candidate matters only if it also reprojects well and moves the camera's yaw or plan position.
+        static bool Disagrees(IndoorSignObservation obs, Vector2[] plane, Vector3 r1, Vector3 r3, Vector3 cameraInSign,
+            (Vector3 R1, Vector3 R2, Vector3 T) other)
+        {
+            var (m1, m2, mt) = other;
+            var m3 = Vector3.Cross(m1, m2);
+            var otherError = Reprojection(obs, plane, m1, m2, m3, mt);
+            if (float.IsNaN(otherError) || otherError > MaxReprojectionErrorPx) return false;
+            var camera = CameraInSign(m1, m2, m3, mt);
             var yawGap = Mathf.Abs(Mathf.DeltaAngle(Mathf.Atan2(r1.z, r3.z) * Mathf.Rad2Deg, Mathf.Atan2(m1.z, m3.z) * Mathf.Rad2Deg));
-            var gapM = new Vector2(mirror.x - cameraInSign.x, mirror.z - cameraInSign.z).magnitude;
+            var gapM = new Vector2(camera.x - cameraInSign.x, camera.z - cameraInSign.z).magnitude;
             return yawGap > AmbiguityYawDeg || gapM > AmbiguityM;
         }
 

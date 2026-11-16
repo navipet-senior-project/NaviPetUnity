@@ -29,6 +29,29 @@ namespace IndoorAr.Editor
 
         public static string ReadIosKey(string path) => File.Exists(path) ? File.ReadAllText(path).Trim() : "";
 
+        // tools/build-sign-pnp.sh builds the native sign-pose solver into these gitignored paths.
+        public static string MissingSignPnp(BuildTarget target, string root)
+        {
+            var artifact = target == BuildTarget.iOS ? "Assets/Plugins/iOS/libindoorsignpnp.a"
+                : target == BuildTarget.Android ? "Assets/Plugins/Android/libs/arm64-v8a/libindoorsignpnp.so" : null;
+            return artifact == null || File.Exists(Path.Combine(root, artifact)) ? null : artifact;
+        }
+
+        // Without it an iOS build fails at Xcode link time and an Android one throws when it first sees a sign.
+        class SignPnpCheck : IPreprocessBuildWithReport
+        {
+            public int callbackOrder => 0;
+
+            public void OnPreprocessBuild(BuildReport report)
+            {
+                var target = report.summary.platform;
+                var missing = MissingSignPnp(target, Directory.GetCurrentDirectory());
+                if (missing != null)
+                    throw new BuildFailedException(
+                        $"[IndoorAr] {missing} is missing: run tools/build-sign-pnp.sh {(target == BuildTarget.iOS ? "ios" : "android")}");
+            }
+        }
+
         // ARCore Extensions checks and configures a build from the Build Settings scene list,
         // not from the exported one, and fails an iOS build that lists a Geospatial scene
         // while iOS authorization is off.
