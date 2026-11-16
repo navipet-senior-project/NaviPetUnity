@@ -17,6 +17,7 @@ namespace IndoorAr.Editor
     public static class IndoorArExport
     {
         public const string ExportPath = "Builds/IndoorArAndroid";
+        public const string OpenCvNoticesPath = "Assets/StreamingAssets/ThirdPartyNotices/OpenCV";
         // The indoor scene is first: it reads every request and loads the outdoor scene for mode "outdoor".
         // An export without the outdoor scene answers outdoor requests with "unavailable".
         static readonly string[] IndoorScenes = { "Assets/IndoorAr/Scenes/IndoorArSpike.unity" };
@@ -45,10 +46,18 @@ namespace IndoorAr.Editor
             public void OnPreprocessBuild(BuildReport report)
             {
                 var target = report.summary.platform;
-                var missing = MissingSignPnp(target, Directory.GetCurrentDirectory());
+                var root = Directory.GetCurrentDirectory();
+                var missing = MissingSignPnp(target, root);
                 if (missing != null)
                     throw new BuildFailedException(
                         $"[IndoorAr] {missing} is missing: run tools/build-sign-pnp.sh {(target == BuildTarget.iOS ? "ios" : "android")}");
+                var notices = Path.Combine(root, OpenCvNoticesPath);
+                if (!File.Exists(Path.Combine(notices, "LICENSE-OpenCV.txt"))
+                    || !File.Exists(Path.Combine(notices, "NOTICE-OpenCV.txt"))
+                    || !Directory.Exists(Path.Combine(notices, "third-party"))
+                    || !Directory.GetFiles(Path.Combine(notices, "third-party"), "*", SearchOption.AllDirectories).Any())
+                    throw new BuildFailedException(
+                        $"[IndoorAr] OpenCV runtime notices are missing: run tools/build-sign-pnp.sh {(target == BuildTarget.iOS ? "ios" : "android")}");
             }
         }
 
@@ -57,6 +66,7 @@ namespace IndoorAr.Editor
         // while iOS authorization is off.
         static BuildReport Build(BuildPlayerOptions options)
         {
+            AssetDatabase.Refresh();
             var listed = EditorBuildSettings.scenes;
             EditorBuildSettings.scenes = options.scenes.Select(path => new EditorBuildSettingsScene(path, true)).ToArray();
             try

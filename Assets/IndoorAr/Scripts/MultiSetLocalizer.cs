@@ -29,6 +29,16 @@ namespace IndoorAr
         static readonly Queue<MultiSetLocalizer> WaitingLocalizers = new Queue<MultiSetLocalizer>();
         public const float RequestTimeoutS = 30f;
 
+        sealed class SdkCompletionListener
+        {
+            readonly MultiSetLocalizer owner;
+
+            public SdkCompletionListener(MultiSetLocalizer localizer) => owner = localizer;
+            public void OnLocalized(LocalizationSuccessResponse result) => owner.OnLocalized(result);
+            public void OnLocalizedWithoutConfidence() => owner.OnLocalizedWithoutConfidence();
+            public void OnNotLocalized() => owner.OnNotLocalized();
+        }
+
         [SerializeField] string mapCode = "MSET_XTBY7AM7ZK77";
         [SerializeField] IndoorArSdkManager sdk;
         [SerializeField] SingleFrameLocalizationManager manager;
@@ -47,6 +57,8 @@ namespace IndoorAr
         bool _fallbackUnavailable;
         bool _mapSpaceIsolated;
         bool _blurCheckDisabled;
+        bool _ownerDestroyed;
+        SdkCompletionListener _completionListener;
 
         public event Action Authenticated;
         public event Action<bool> AuthFailed;
@@ -92,14 +104,15 @@ namespace IndoorAr
             manager.confidenceCheck = false;
             manager.showAlert = false;
             DisableBlurCheck();
+            _completionListener ??= new SdkCompletionListener(this);
             var mode = typeof(SingleFrameLocalizationManager).GetField("queryMode");
             if (mode != null) mode.SetValue(manager, Enum.Parse(mode.FieldType, "Vps1"));
             // Legacy 1.9.3 otherwise issues several single-image calls per LocalizeFrame start.
             typeof(SingleFrameLocalizationManager).GetField("_requestAttempts")?.SetValue(manager, 1);
             if (ResponseEvent != null)
-                ResponseEvent.AddEventHandler(manager, (Action<LocalizationSuccessResponse>)OnLocalized);
-            else manager.LocalizationSuccess.AddListener(OnLocalizedWithoutConfidence);
-            manager.LocalizationFailure.AddListener(OnNotLocalized);
+                ResponseEvent.AddEventHandler(manager, (Action<LocalizationSuccessResponse>)_completionListener.OnLocalized);
+            else manager.LocalizationSuccess.AddListener(_completionListener.OnLocalizedWithoutConfidence);
+            manager.LocalizationFailure.AddListener(_completionListener.OnNotLocalized);
             EventManager<EventData>.StartListening("AuthCallBack", OnAuthCallback);
         }
 
@@ -268,6 +281,7 @@ namespace IndoorAr
             _activeAttemptId = 0;
             _requestElapsed = 0f;
             _ignoreInFlight = false;
+            if (_ownerDestroyed) RemoveLocalizationListeners();
             if (!accepted)
             {
                 LogStaleResponse();
@@ -350,16 +364,29 @@ namespace IndoorAr
 
         static void LogStaleResponse() => Debug.Log("[IndoorAr] stale localization response ignored");
 
+        void RemoveLocalizationListeners()
+        {
+            if (manager == null || _completionListener == null) return;
+            if (ResponseEvent != null)
+                ResponseEvent.RemoveEventHandler(manager, (Action<LocalizationSuccessResponse>)_completionListener.OnLocalized);
+            else manager.LocalizationSuccess.RemoveListener(_completionListener.OnLocalizedWithoutConfidence);
+            manager.LocalizationFailure.RemoveListener(_completionListener.OnNotLocalized);
+        }
+
         void OnDestroy()
         {
             RemoveQueuedRequest();
             EventManager<EventData>.StopListening("AuthCallBack", OnAuthCallback);
+            if (_ownerDestroyed) return;
             if (manager != null)
             {
-                if (ResponseEvent != null)
-                    ResponseEvent.RemoveEventHandler(manager, (Action<LocalizationSuccessResponse>)OnLocalized);
-                else manager.LocalizationSuccess.RemoveListener(OnLocalizedWithoutConfidence);
-                manager.LocalizationFailure.RemoveListener(OnNotLocalized);
+                if (_requestInFlight && s_requestLive && s_requestOwner == this)
+                {
+                    _ownerDestroyed = true;
+                    _generation++;
+                    _ignoreInFlight = true;
+                }
+                else RemoveLocalizationListeners();
                 if (!s_requestLive) manager.StopAllCoroutines();
             }
             if (sdk != null && !s_requestLive) sdk.StopAllCoroutines();

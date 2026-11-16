@@ -137,3 +137,5 @@ InitTestScene*.unity*
 /[Aa]ssets/Plugins/iOS/NOTICE-OpenCV.txt
 /[Aa]ssets/Plugins/Android/libs/
 /[Aa]ssets/Plugins/Android/libs.meta
+/[Aa]ssets/StreamingAssets/ThirdPartyNotices/
+/[Aa]ssets/StreamingAssets/ThirdPartyNotices.meta

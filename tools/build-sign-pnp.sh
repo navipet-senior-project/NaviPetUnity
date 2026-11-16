@@ -24,6 +24,24 @@ EDITOR_DIR="${UNITY_EDITOR_DIR:-/Applications/Unity/Hub/Editor/6000.3.26f1}"
 
 verified() { [[ -f "$1" ]] && echo "$2  $1" | shasum -a 256 -c - >/dev/null 2>&1; }
 
+stage_notices() {
+  fetch "$ANDROID_ZIP" "$ANDROID_SHA"
+  local sdk="$CACHE/opencv-$VERSION-android"
+  unzip -oq "$CACHE/$ANDROID_ZIP" 'OpenCV-android-sdk/sdk/etc/licenses/*' -d "$sdk"
+  local upstream="$sdk/OpenCV-android-sdk/sdk/etc/licenses"
+  if [[ ! -d "$upstream" || -z "$(ls -A "$upstream")" ]]; then
+    echo "error: OpenCV third-party license files are missing from the verified Android SDK archive." >&2
+    exit 1
+  fi
+  local notices="$ROOT/Assets/StreamingAssets/ThirdPartyNotices/OpenCV"
+  mkdir -p "$(dirname "$notices")"
+  rm -rf "$notices"
+  mkdir -p "$notices/third-party"
+  cp "$ROOT/tools/sign-pnp/LICENSE-OpenCV.txt" "$notices/LICENSE-OpenCV.txt"
+  cp "$ROOT/tools/sign-pnp/NOTICE-OpenCV.txt" "$notices/NOTICE-OpenCV.txt"
+  cp -R "$upstream/." "$notices/third-party/"
+}
+
 # Downloads $1 into the cache unless a copy with sha256 $2 is already there; never keeps a file that fails the check.
 fetch() {
   local file="$CACHE/$1"
@@ -47,14 +65,13 @@ fetch() {
 extract() {
   local zip="$1" dir="$2"
   shift 2
-  [[ -d "$dir" ]] && return
-  rm -rf "$dir.tmp"
-  unzip -q "$CACHE/$zip" "$@" -d "$dir.tmp"
-  mv "$dir.tmp" "$dir"
+  rm -rf "$dir"
+  unzip -q "$CACHE/$zip" "$@" -d "$dir"
 }
 
 ios() {
   fetch "$IOS_ZIP" "$IOS_SHA"
+  stage_notices
   local sdk="$CACHE/opencv-$VERSION-ios" work="$CACHE/ios-build" out="$ROOT/Assets/Plugins/iOS/libindoorsignpnp.a"
   extract "$IOS_ZIP" "$sdk" 'opencv2.framework/Versions/A/*'
   local fw="$sdk/opencv2.framework/Versions/A"
@@ -79,6 +96,7 @@ ios() {
 
 android() {
   fetch "$ANDROID_ZIP" "$ANDROID_SHA"
+  stage_notices
   local sdk="$CACHE/opencv-$VERSION-android"
   extract "$ANDROID_ZIP" "$sdk" 'OpenCV-android-sdk/sdk/native/jni/include/*' \
     'OpenCV-android-sdk/sdk/native/staticlibs/arm64-v8a/*' 'OpenCV-android-sdk/sdk/native/3rdparty/libs/arm64-v8a/*' \

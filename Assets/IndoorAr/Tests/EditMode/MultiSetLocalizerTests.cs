@@ -226,6 +226,118 @@ public class MultiSetLocalizerTests
         Assert.IsFalse(_adapter.HasLiveRequest);
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void DestroyedOwnerKeepsGlobalLockUntilItsRealSdkCompletion(bool sdkFailure)
+    {
+        var ownerLocalized = 0;
+        var ownerRejected = 0;
+        _adapter.CandidatePoseValidator = _ => true;
+        _adapter.Localized += _ => ownerLocalized++;
+        _adapter.NotLocalized += _ => ownerRejected++;
+        LocalizeWithoutEditorFailure();
+        Assert.IsTrue(_adapter.HasLiveRequest);
+
+        var pin = new GameObject("Destination pin").transform;
+        pin.SetParent(_mapHost.transform, false);
+        pin.localPosition = new Vector3(2f, 1f, 3f);
+        var hud = new GameObject("Indoor HUD").transform;
+        hud.SetParent(_mapHost.transform, false);
+        hud.localPosition = new Vector3(-2f, 4f, 1f);
+        var rootPosition = _mapHost.transform.position;
+        var rootRotation = _mapHost.transform.rotation;
+        var pinPosition = pin.position;
+        var pinRotation = pin.rotation;
+        var hudPosition = hud.position;
+        var hudRotation = hud.rotation;
+        var sdkMapSpace = _adapter.SdkMapSpace;
+        typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        Object.DestroyImmediate(_adapter);
+        var ownerDrained = false;
+
+        GameObject otherSdkHost = null;
+        GameObject otherMap = null;
+        GameObject otherHost = null;
+        GameObject otherProxy = null;
+        SingleFrameLocalizationManager otherManager = null;
+        MultiSetLocalizer other = null;
+        try
+        {
+            otherSdkHost = new GameObject("Next SDK");
+            otherSdkHost.SetActive(false);
+            var otherSdk = otherSdkHost.AddComponent<IndoorArSdkManager>();
+            otherManager = otherSdkHost.AddComponent<SingleFrameLocalizationManager>();
+            otherMap = new GameObject("Next Navigation Map");
+            otherHost = new GameObject("Next Adapter");
+            otherHost.SetActive(false);
+            other = otherHost.AddComponent<MultiSetLocalizer>();
+            other.Configure(otherSdk, otherManager, otherMap.transform);
+            otherProxy = other.SdkMapSpace.gameObject;
+            otherHost.SetActive(true);
+            typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
+            other.CandidatePoseValidator = _ => true;
+            var attempts = 0;
+            var localized = 0;
+            other.AttemptStarted += _ => attempts++;
+            other.Localized += _ => localized++;
+
+            other.Localize();
+            Assert.AreEqual(0, attempts, "new session cannot overlap the destroyed owner's live SDK request");
+            Assert.AreEqual("waiting", other.FallbackStatus);
+            sdkMapSpace.SetPositionAndRotation(new Vector3(20f, 30f, 40f), Quaternion.Euler(0f, 90f, 0f));
+            Assert.AreEqual(rootPosition, _mapHost.transform.position);
+            Assert.AreEqual(rootRotation, _mapHost.transform.rotation);
+            Assert.AreEqual(pinPosition, pin.position);
+            Assert.AreEqual(pinRotation, pin.rotation);
+            Assert.AreEqual(hudPosition, hud.position);
+            Assert.AreEqual(hudRotation, hud.rotation);
+
+            if (sdkFailure)
+            {
+                LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+                _manager.LocalizationFailure.Invoke();
+            }
+            else
+            {
+                LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+                ReportSuccess(_manager);
+            }
+            ownerDrained = true;
+            Assert.AreEqual(0, ownerLocalized);
+            Assert.AreEqual(0, ownerRejected);
+            Assert.AreEqual(rootPosition, _mapHost.transform.position);
+            Assert.AreEqual(rootRotation, _mapHost.transform.rotation);
+            Assert.AreEqual(pinPosition, pin.position);
+            Assert.AreEqual(pinRotation, pin.rotation);
+            Assert.AreEqual(hudPosition, hud.position);
+            Assert.AreEqual(hudRotation, hud.rotation);
+
+            LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+            TickWithoutEditorFailure(other, otherManager, 0f);
+            Assert.AreEqual(1, attempts, "only genuine SDK completion lets the deferred request start");
+            other.SdkMapSpace.SetPositionAndRotation(new Vector3(4f, 5f, 6f), Quaternion.Euler(0f, 30f, 0f));
+            LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
+            ReportSuccess(otherManager);
+            Assert.AreEqual(1, localized);
+            Assert.AreEqual(new Vector3(4f, 5f, 6f), other.MapSpace.position);
+        }
+        finally
+        {
+            if (!ownerDrained)
+            {
+                LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+                _manager.LocalizationFailure.Invoke();
+            }
+            if (other != null && other.HasLiveRequest && otherManager != null) otherManager.LocalizationFailure.Invoke();
+            if (other != null)
+                typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(other, null);
+            if (otherHost != null) Object.DestroyImmediate(otherHost);
+            if (otherMap != null) Object.DestroyImmediate(otherMap);
+            if (otherProxy != null) Object.DestroyImmediate(otherProxy);
+            if (otherSdkHost != null) Object.DestroyImmediate(otherSdkHost);
+        }
+    }
+
     [Test]
     public void OldResponseWithoutPoseAfterNewLocalizeIsIgnoredAndNewResponseIsAccepted()
     {
@@ -453,15 +565,19 @@ public class MultiSetLocalizerTests
 
     void ReportSuccess(bool poseFound = true)
     {
+        ReportSuccess(_manager, poseFound);
+    }
+
+    void ReportSuccess(SingleFrameLocalizationManager manager, bool poseFound = true)
+    {
         var callback = typeof(SingleFrameLocalizationManager).GetMethod("LocalizationSuccessCallback");
-        callback.Invoke(_manager, callback.GetParameters().Length == 0 ? null
+        callback.Invoke(manager, callback.GetParameters().Length == 0 ? null
             : new object[] { new LocalizationSuccessResponse { poseFound = poseFound, confidence = 0.73f } });
     }
 
     void LocalizeWithoutEditorFailure()
     {
-        var callback = (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), _adapter,
-            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
+        var callback = FailureCallback(_adapter);
         _manager.LocalizationFailure.RemoveListener(callback);
         if (!_adapter.HasLiveRequest)
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
@@ -471,8 +587,7 @@ public class MultiSetLocalizerTests
 
     void ReportFailureAndStartDeferredRequest(bool abandoned = true)
     {
-        var callback = (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), _adapter,
-            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
+        var callback = FailureCallback(_adapter);
         _manager.LocalizationFailure.RemoveListener(callback);
         if (abandoned) LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
         typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
@@ -482,21 +597,33 @@ public class MultiSetLocalizerTests
 
     void TickWithoutEditorFailure(float deltaTime)
     {
-        var callback = (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), _adapter,
-            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
-        _manager.LocalizationFailure.RemoveListener(callback);
-        _adapter.Tick(deltaTime);
-        _manager.LocalizationFailure.AddListener(callback);
+        TickWithoutEditorFailure(_adapter, _manager, deltaTime);
+    }
+
+    void TickWithoutEditorFailure(MultiSetLocalizer localizer, SingleFrameLocalizationManager manager, float deltaTime)
+    {
+        var callback = FailureCallback(localizer);
+        manager.LocalizationFailure.RemoveListener(callback);
+        localizer.Tick(deltaTime);
+        manager.LocalizationFailure.AddListener(callback);
     }
 
     void ReportNoPoseAndStartDeferredRequest()
     {
-        var callback = (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), _adapter,
-            typeof(MultiSetLocalizer).GetMethod("OnNotLocalized", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
+        var callback = FailureCallback(_adapter);
         _manager.LocalizationFailure.RemoveListener(callback);
         LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
         typeof(SingleFrameLocalizationManager).GetMethod("LocalizationSuccessCallback").Invoke(_manager,
             new object[] { new LocalizationSuccessResponse { poseFound = false, confidence = 0.73f } });
         _manager.LocalizationFailure.AddListener(callback);
+    }
+
+    static UnityAction FailureCallback(MultiSetLocalizer localizer)
+    {
+        var field = typeof(MultiSetLocalizer).GetField("_completionListener",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var listener = field.GetValue(localizer);
+        return (UnityAction)System.Delegate.CreateDelegate(typeof(UnityAction), listener,
+            listener.GetType().GetMethod("OnNotLocalized"));
     }
 }
