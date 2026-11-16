@@ -9,13 +9,14 @@ namespace IndoorAr
 
         readonly IIndoorArLocalizer _inner;
         readonly IndoorSignCalibration _calibration;
-        // Room signs lead (OCR on or a validated sign): the session starts without VPS sign-in and VPS waits HoldS.
+        // Room signs lead when OCR is on: the session starts without VPS sign-in and VPS waits HoldS.
         readonly bool _ownAuth;
         bool _open;
         bool _innerPosed;
         bool _innerReady;
         bool _innerWanted;
         bool _innerAuthFailed;
+        bool _fallbackStopped;
         float _holdLeft;
 
         /// <param name="readsSigns">Room-sign OCR is on. It needs no VPS sign-in, so neither does the session.</param>
@@ -25,7 +26,7 @@ namespace IndoorAr
             _inner = inner;
             _calibration = calibration ?? new IndoorSignCalibration();
             SignsCanPose = _calibration.CanPose(SystemInfo.deviceModel);
-            _ownAuth = readsSigns || SignsCanPose;
+            _ownAuth = readsSigns;
             _inner.Localized += OnInnerLocalized;
             _inner.Authenticated += OnInnerAuthenticated;
             _inner.AuthFailed += OnInnerAuthFailed;
@@ -42,8 +43,9 @@ namespace IndoorAr
         public Transform MapSpace => _inner.MapSpace;
         public string MapCode => _inner.MapCode;
         public bool SignsCanPose { get; }
-        public bool FallbackAvailable => !_innerAuthFailed && (_inner is not MultiSetLocalizer multiSet || multiSet.FallbackAvailable);
-        public string FallbackStatus => _innerAuthFailed ? "unavailable: authentication failed"
+        public bool FallbackAvailable => !_fallbackStopped && !_innerAuthFailed && (_inner is not MultiSetLocalizer multiSet || multiSet.FallbackAvailable);
+        public string FallbackStatus => _fallbackStopped ? "unavailable: session stopped fallback"
+            : _innerAuthFailed ? "unavailable: authentication failed"
             : _inner is MultiSetLocalizer multiSet ? multiSet.FallbackStatus : "available";
         public bool FromSigns { get; private set; }
         public long LastSolveUs { get; private set; }
@@ -63,7 +65,7 @@ namespace IndoorAr
                 return;
             }
             FromSigns = _innerPosed = false;
-            // OCR off and no validated sign: VPS is the only pose source, so it is asked at once. Otherwise room
+            // OCR off: VPS is the only pose source, so it is asked at once. Otherwise room
             // signs get the hold first, with or without calibration, and VPS stays the delayed fallback.
             if (!_ownAuth)
             {
@@ -77,6 +79,7 @@ namespace IndoorAr
         public void Reset()
         {
             _open = _innerPosed = _innerWanted = false;
+            _fallbackStopped = false;
             FromSigns = false;
             _holdLeft = 0f;
         }
@@ -86,6 +89,12 @@ namespace IndoorAr
             _innerWanted = false;
             _holdLeft = 0f;
             if (_inner is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
+        }
+
+        public void StopFallback()
+        {
+            _fallbackStopped = true;
+            DropQueuedFallback();
         }
 
         public void Tick(float dt)
@@ -115,6 +124,7 @@ namespace IndoorAr
 
         void AskInner()
         {
+            if (_fallbackStopped) return;
             if (_ownAuth && !_innerReady)
             {
                 _innerWanted = !_innerAuthFailed;

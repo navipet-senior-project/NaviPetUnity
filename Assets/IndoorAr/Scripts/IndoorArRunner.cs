@@ -170,7 +170,7 @@ namespace IndoorAr
                     Deliver(IndoorArContract.Unavailable(0, 0));
                 return;
             }
-            _session = new IndoorArSession(request, _localizer.MapCode);
+            _session = new IndoorArSession(request, _localizer.MapCode, signLocalization);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
             var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid")?.text;
             _floor1Grid = IndoorWalkGrid.ForFloor(gridJson, 1);
@@ -190,6 +190,7 @@ namespace IndoorAr
             _baseline.NoteSessionOpened(NowMs());
             AttachHud();
             _session.LocalizeRequested += RequestLocalization;
+            _session.FallbackStopped += StopMultiSetFallback;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += OnAttemptStarted;
@@ -283,6 +284,7 @@ namespace IndoorAr
 
         void RequestLocalization()
         {
+            if (_session.FallbackExpired && _signFirst == null) return;
             _baseline?.NoteAttemptStarted(NowMs());
             if (!Application.isEditor)
                 Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");
@@ -374,7 +376,7 @@ namespace IndoorAr
 
         bool IsCandidateMultiSetPoseAllowed(Transform candidateMapSpace)
         {
-            if (_session == null || _session.State != IndoorArState.Localizing || arCamera == null) return false;
+            if (_session == null || _session.State != IndoorArState.Localizing || _session.FallbackExpired || arCamera == null) return false;
             return !RejectMultiSetFloorConflict(candidateMapSpace.InverseTransformPoint(arCamera.transform.position));
         }
 
@@ -425,8 +427,8 @@ namespace IndoorAr
             if (_session == null || _delivered) return;
             var localized = _session.State is IndoorArState.Pinned or IndoorArState.Arrived;
             var tracking = ARSession.state == ARSessionState.SessionTracking;
-            var fallback = _signFirst != null
-                ? _signFirst.FallbackAvailable : localizerBehaviour is MultiSetLocalizer multiSet && multiSet.FallbackAvailable;
+            var fallback = _session.State != IndoorArState.Done && !_session.FallbackExpired && (_signFirst != null
+                ? _signFirst.FallbackAvailable : localizerBehaviour is MultiSetLocalizer multiSet && multiSet.FallbackAvailable);
             var room = _session.SignRoom;
             var key = $"{_session.State}|{tracking}|{room?.Id}|{localized}|{fallback}";
             if (key == _statusSent) return;
@@ -443,7 +445,12 @@ namespace IndoorAr
 
         void OnHudHere() => _session?.ImHere(CameraInMap());
         void OnHudDone() => _session?.ConfirmArrival();
-        void OnHudRetry() => _session?.Retry();
+        void OnHudRetry()
+        {
+            if (_session == null || !LiveDoorHud.LocalizationFailed(_session)) return;
+            _signFirst?.Reset();
+            _session.Retry();
+        }
 
         void UpdateHud()
         {
@@ -719,6 +726,7 @@ namespace IndoorAr
             }
             if (_session == null || _localizer == null) return;
             _session.LocalizeRequested -= RequestLocalization;
+            _session.FallbackStopped -= StopMultiSetFallback;
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= OnAttemptStarted;
@@ -755,6 +763,12 @@ namespace IndoorAr
         {
             if (_localizer is MultiSetLocalizer multiSet) multiSet.DropQueuedFallback();
             else if (_localizer is SignFirstLocalizer signFirst) signFirst.DropQueuedFallback();
+        }
+
+        void StopMultiSetFallback()
+        {
+            if (_signFirst != null) _signFirst.StopFallback();
+            else DropQueuedMultiSetFallback();
         }
 
         // Android's back button arrives as Escape.

@@ -389,7 +389,7 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void LiveViewScansThenPointsAtTheDoorAndFailsClosed()
+        public void LiveViewScansThenBlocksMissingRouteAndFailsClosed()
         {
             var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
             var session = new IndoorArSession(request, request.mapCode);
@@ -407,8 +407,10 @@ namespace IndoorAr.Tests
 
             var guiding = LiveDoorHud.Compose(session, camera, Vector3.forward, LiveDoorHud.LocationFoundHoldS);
             Assert.AreEqual(IndoorHudState.Straight, guiding.State);
-            var door = new Vector3(request.position.x, request.position.y, request.position.z);
-            Assert.AreEqual(GuidanceCue.ArrowYawDegrees(Vector3.forward, camera, door), guiding.ArrowYaw, 1e-3f);
+            Assert.IsTrue(guiding.RouteBlocked);
+            Assert.IsFalse(guiding.FollowingRoute);
+            Assert.AreEqual("Route unavailable", guiding.TitleOverride);
+            Assert.AreEqual(0f, guiding.ArrowYaw);
 
             session.OnTrackingLost();
             session.Tick(IndoorArSession.LocalizeTimeoutS);

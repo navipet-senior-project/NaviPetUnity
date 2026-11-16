@@ -163,15 +163,17 @@ public class SignFirstLocalizerTests
         finally { Object.DestroyImmediate(host); }
     }
 
-    [Test]
-    public void WithOcrOffAndNoCalibrationMultiSetAuthenticationStillGatesTheSession()
+    [TestCase(false)]
+    [TestCase(true)]
+    public void WithOcrOffMultiSetAuthenticationStillGatesTheSession(bool calibrated)
     {
         var host = new GameObject("fake");
         try
         {
             var inner = host.AddComponent<RunnerFakeLocalizer>();
             inner.DeferAuth = true;
-            var first = new SignFirstLocalizer(inner, readsSigns: false);
+            var first = new SignFirstLocalizer(inner,
+                calibrated ? IndoorSignPoseTests.ValidatedHere(out _, out _) : null, readsSigns: false);
             var authenticated = 0;
             var failed = 0;
             first.Authenticated += () => authenticated++;
@@ -180,6 +182,10 @@ public class SignFirstLocalizerTests
             Assert.AreEqual(0, authenticated);
             inner.FailAuth(false);
             Assert.AreEqual(1, failed);
+
+            first.Authenticate();
+            inner.FailAuth(true);
+            Assert.AreEqual(2, failed);
 
             first.Authenticate();
             inner.CompleteAuth();
@@ -217,6 +223,43 @@ public class SignFirstLocalizerTests
             first.Localize();
             first.Tick(SignFirstLocalizer.HoldS);
             inner.CompleteAuth();
+            Assert.AreEqual(1, inner.AttemptCount);
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
+    [Test]
+    public void TerminalTimeoutCannotDispatchLateAuthWhileFailureCardRemains()
+    {
+        var host = new GameObject("Delayed authentication");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            inner.DeferAuth = true;
+            var first = new SignFirstLocalizer(inner);
+            var session = new IndoorArSession(new IndoorArRequest
+            {
+                frame = IndoorArContract.Frame, mapCode = inner.MapCode,
+                position = new IndoorArVector3()
+            }, inner.MapCode);
+            first.Authenticated += session.OnAuthenticated;
+            session.LocalizeRequested += first.Localize;
+            session.FallbackStopped += first.StopFallback;
+            session.OnArSupport(true);
+            first.Authenticate();
+            first.Tick(SignFirstLocalizer.HoldS);
+            session.Tick(IndoorArSession.LocalizeTimeoutS);
+            session.Tick(IndoorArSession.LocalizeTimeoutS);
+            Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
+            Assert.AreEqual(IndoorHudState.NotFound,
+                LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f).State);
+            inner.CompleteAuth();
+            first.Tick(300f);
+            Assert.AreEqual(0, inner.AttemptCount);
+            Assert.IsFalse(first.FallbackAvailable);
+            first.Reset();
+            session.Retry();
+            first.Tick(SignFirstLocalizer.HoldS);
             Assert.AreEqual(1, inner.AttemptCount);
         }
         finally { Object.DestroyImmediate(host); }

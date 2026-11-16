@@ -27,21 +27,25 @@ namespace IndoorAr
         // Supported floor of the accepted pose while tracking stays continuous; 0 until sampled.
         int _trackedFloor;
         bool _signSuperseded;
+        readonly bool _allowSignRecovery;
 
-        public IndoorArSession(IndoorArRequest request, string buildMapCode)
+        public IndoorArSession(IndoorArRequest request, string buildMapCode, bool allowSignRecovery = false)
         {
             Request = request;
+            _allowSignRecovery = allowSignRecovery;
             if (!IndoorArContract.CheckMap(request, buildMapCode))
                 Finish(IndoorArContract.Error(IndoorArContract.MapMismatch, 0, 0));
         }
 
         /// <summary>Raised when the localizer must start a localization attempt.</summary>
         public event Action LocalizeRequested;
+        public event Action FallbackStopped;
 
         public IndoorArRequest Request { get; }
         public IndoorArState State { get; private set; } = IndoorArState.Init;
         public int Queries { get; private set; }
         public bool WasPinned { get; private set; }
+        public bool FallbackExpired { get; private set; }
         public string ResultJson { get; private set; }
         /// <summary>Last room sign confirmed by OCR. Approximate location only: never a pose.</summary>
         public IndoorRoomLandmark SignRoom { get; private set; }
@@ -161,7 +165,7 @@ namespace IndoorAr
         /// </summary>
         public void OnSignInView()
         {
-            if (State != IndoorArState.Localizing || !_noPose || _retried) return;
+            if (State != IndoorArState.Localizing || FallbackExpired || !_noPose || _retried) return;
             _retried = true;
             _noPose = false;
             _localizingS = 0f;
@@ -191,11 +195,17 @@ namespace IndoorAr
                 }
                 return;
             }
-            if (State != IndoorArState.Localizing) return;
+            if (State != IndoorArState.Localizing || FallbackExpired) return;
             _localizingS += dt;
             if (_localizingS < LocalizeTimeoutS) return;
             if (_retried)
             {
+                FallbackExpired = true;
+                if (_allowSignRecovery)
+                {
+                    FallbackStopped?.Invoke();
+                    return;
+                }
                 Finish(IndoorArContract.LocalizationFailed(Queries, ElapsedMs));
                 return;
             }
@@ -223,6 +233,7 @@ namespace IndoorAr
         {
             if (State != IndoorArState.Done || ResultJson == null || !ResultJson.Contains("\"status\":\"localizationFailed\"")) return;
             ResultJson = null;
+            FallbackExpired = false;
             StartLocalizing();
         }
 
@@ -255,6 +266,7 @@ namespace IndoorAr
         {
             ResultJson = IndoorArContract.WithSignRoom(resultJson, SignRoom?.Id);
             State = IndoorArState.Done;
+            FallbackStopped?.Invoke();
         }
     }
 }

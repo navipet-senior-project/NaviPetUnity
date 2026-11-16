@@ -312,12 +312,12 @@ public class IndoorArRunnerTests
     }
 
     [Test]
-    public void PinnedHudPointsOneArrowFromTheCameraTowardTheDoor()
+    public void PinnedHudPointsOneArrowAlongTheClearRoute()
     {
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var camObject = new GameObject("AR Camera", typeof(Camera));
         camObject.transform.SetParent(_host.transform, false);
-        camObject.transform.localPosition = new Vector3(1f, -0.4f, 3f);
+        camObject.transform.localPosition = new Vector3(-5.625f, -0.4f, 23.625f);
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
         var arState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
@@ -335,21 +335,25 @@ public class IndoorArRunnerTests
             Call(runner, "Update");
             var hud = _host.GetComponentInChildren<IndoorHud>();
             Assert.AreSame(localizer.MapSpace, hud.transform.parent);
-            var door = new Vector3(-5.7651f, -1.8186f, 22.6689f);
+            var route = Field<Vector3[]>(runner, "_route");
+            Assert.IsTrue(Field<IndoorWalkGrid>(runner, "_walkGrid").TryNextWaypoint(route,
+                camObject.transform.position, LiveDoorHud.RouteLookAheadM, out var target));
             var arrow = hud.transform.Find("HUD Canvas/Safe area/Guide arrow");
             Assert.AreEqual(1, hud.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Guide arrow"));
             Assert.AreEqual(0, hud.GetComponentsInChildren<MeshRenderer>(true).Length);
-            var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, camObject.transform.position, door);
-            Assert.AreEqual(GuidanceCue.ArrowScreenRotation(yaw), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
+            var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, camObject.transform.position, target);
+            Assert.AreEqual(0f, Mathf.DeltaAngle(GuidanceCue.ArrowScreenRotation(yaw),
+                arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
             // Camera height is in the supported eye-height band above Floor 1.
-            CollectionAssert.Contains(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(), "VEC 119 is ahead");
+            Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Any(t => t.text.Contains("Hallway route to VEC 119")));
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>(true).Any(t => t.text.Contains("VEC 119")));
 
             camObject.transform.localRotation = Quaternion.LookRotation(Vector3.right);
             Call(runner, "Update");
             Assert.AreSame(arrow, hud.transform.Find("HUD Canvas/Safe area/Guide arrow"));
-            var turned = GuidanceCue.ArrowYawDegrees(Vector3.right, camObject.transform.position, door);
-            Assert.AreEqual(GuidanceCue.ArrowScreenRotation(turned), Mathf.DeltaAngle(0f, arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
+            var turned = GuidanceCue.ArrowYawDegrees(Vector3.right, camObject.transform.position, target);
+            Assert.AreEqual(0f, Mathf.DeltaAngle(GuidanceCue.ArrowScreenRotation(turned),
+                arrow.GetComponent<RectTransform>().localEulerAngles.z), 0.5f);
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Any(t => t.text.Contains("Look this way")));
         }
         finally { arState.Invoke(null, new object[] { previous }); }
@@ -493,6 +497,10 @@ public class IndoorArRunnerTests
         try
         {
             var runner = Runner();
+            var camera = new GameObject("AR Camera").AddComponent<Camera>();
+            camera.transform.SetParent(_host.transform, false);
+            camera.transform.localPosition = new Vector3(-5.625f, -0.4f, 23.625f);
+            runner.Configure(_host.GetComponent<RunnerFakeLocalizer>(), _pinPrefab, camera);
             Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
             var baseline = Field<IndoorArBaseline>(runner, "_baseline");
             Assert.IsNull(baseline.ArStartupMs);
@@ -657,7 +665,7 @@ public class IndoorArRunnerTests
         localizer.DeferAnswer = true;
         var camObject = new GameObject("AR Camera", typeof(Camera));
         camObject.transform.SetParent(_host.transform, false);
-        camObject.transform.localPosition = new Vector3(1f, -0.4f, 3f);
+        camObject.transform.localPosition = new Vector3(-5.625f, -0.4f, 23.625f);
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
         runner.SetLocalizationMode(IndoorLocalizationMode.SignFirst);
@@ -708,6 +716,132 @@ public class IndoorArRunnerTests
             Assert.IsFalse(Labels(runner).Any(t => t.Contains(LiveDoorHud.HeadingUnknown)));
         }
         finally { arState.Invoke(null, new object[] { previous }); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void SameSignRecoversAfterVpsDeadlineWithoutRestartingCamera(bool delayedAuth)
+    {
+        var directory = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath,
+            "IndoorNavigation/Data/vec_floors1and2.json"));
+        var ocr = _host.AddComponent<IndoorRoomMlKitOcr>();
+        ocr.Configure(null, new TextAsset(directory));
+        var androidOcr = _host.AddComponent<IndoorRoomOcrDemo>();
+        androidOcr.Configure(null, directory);
+        var inner = _host.AddComponent<RunnerFakeLocalizer>();
+        inner.DeferAuth = delayedAuth;
+        inner.DeferAnswer = true;
+        var camera = new GameObject("AR Camera").AddComponent<Camera>();
+        var cameraInMap = new Vector3(-5.625f, -0.4f, 23.625f);
+        camera.transform.position = cameraInMap;
+        camera.transform.rotation = Quaternion.Euler(0f, 100f, 0f);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(inner, _pinPrefab, camera);
+        var sign = IndoorSignPoseTests.Sign(device: SystemInfo.deviceModel);
+        sign.doorKey = "VEC127";
+        sign.centerInMap = cameraInMap + new Vector3(1.2f, 0f, -.2f);
+        runner.SetSignCalibration(new IndoorSignCalibration { signs = new[] { sign } });
+        var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        try
+        {
+            ((IEnumerator)Call(runner, "Start")).MoveNext();
+            var session = Field<IndoorArSession>(runner, "_session");
+            var first = Field<SignFirstLocalizer>(runner, "_signFirst");
+            var restarted = ArSessionLifecycle.LoaderRestarted;
+            session.OnArSupport(true);
+            first.Authenticate();
+            var match = IndoorRoomIdentityMatcher.MatchSign("127", directory);
+            var started = Field<float>(runner, "_sessionStarted");
+            Call(runner, "OnSignRead", "127", match, started, null);
+            Call(runner, "OnSignRead", "127", match, started, null);
+            first.Tick(SignFirstLocalizer.HoldS);
+            session.Tick(IndoorArSession.LocalizeTimeoutS);
+            session.Tick(IndoorArSession.LocalizeTimeoutS);
+            Assert.IsTrue(session.FallbackExpired);
+            Assert.IsFalse(first.FallbackAvailable);
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+            Assert.IsNull(session.ResultJson);
+            var attempts = inner.AttemptCount;
+            if (delayedAuth) inner.CompleteAuth();
+            first.Tick(300f);
+            session.Tick(300f);
+            Assert.AreEqual(attempts, inner.AttemptCount);
+            Call(runner, "Update");
+            Assert.IsTrue(ocr.enabled);
+            Assert.IsTrue(androidOcr.enabled);
+            var hud = Field<IndoorHud>(runner, "_hud");
+            Assert.IsNull(hud.transform.Find("HUD Canvas/Safe area/Guide arrow"));
+            Assert.IsTrue(Labels(runner).Any(t => t.Contains(" to VEC 119.") && t.EndsWith(LiveDoorHud.HeadingUnknown)));
+            StringAssert.Contains("\"state\":\"localizing\"", IndoorArBridge.LastStatusJson);
+            StringAssert.Contains("\"fallbackAvailable\":false", IndoorArBridge.LastStatusJson);
+            StringAssert.DoesNotContain("\"pose\"", IndoorArBridge.LastStatusJson);
+
+            var observation = IndoorSignPoseTests.Observe(sign, cameraInMap, camera.transform.rotation, SystemInfo.deviceModel);
+            observation.RoomId = sign.doorKey;
+            observation.CameraWorldPosition = camera.transform.position;
+            observation.CameraWorldRotation = camera.transform.rotation;
+            Call(runner, "OnSignRead", "127", match, started, observation);
+            Assert.AreEqual(IndoorArState.Pinned, session.State);
+            runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+            Call(runner, "Update");
+            Assert.AreSame(session, Field<IndoorArSession>(runner, "_session"));
+            Assert.AreSame(hud, Field<IndoorHud>(runner, "_hud"));
+            Assert.AreSame(camera, Field<Camera>(runner, "arCamera"));
+            Assert.AreEqual(restarted, ArSessionLifecycle.LoaderRestarted);
+            Assert.IsNotNull(hud.transform.Find("HUD Canvas/Safe area/Guide arrow"));
+            StringAssert.Contains("\"source\":\"sign\"", IndoorArBridge.LastStatusJson);
+
+            session.OnTrackingLost();
+            first.Tick(300f);
+            session.Tick(300f);
+            Assert.AreEqual(attempts, inner.AttemptCount);
+            Call(runner, "OnSignRead", "127", match, started, observation);
+            Assert.AreEqual(IndoorArState.Pinned, session.State);
+            Call(runner, "OnHudExit");
+            Call(runner, "UpdateSignOcr");
+            Assert.IsFalse(ocr.enabled);
+            Assert.IsFalse(androidOcr.enabled);
+            Call(runner, "OnSignRead", "127", match, started, observation);
+            Assert.AreEqual(IndoorArState.Done, session.State);
+        }
+        finally
+        {
+            state.Invoke(null, new object[] { previous });
+            UnityEngine.Object.DestroyImmediate(camera.gameObject);
+        }
+    }
+
+    [Test]
+    public void CalibratedOcrOffKeepsAdaptersDisabledAndWaitsForMultiSetAuth()
+    {
+        var ocr = _host.AddComponent<IndoorRoomMlKitOcr>();
+        var androidOcr = _host.AddComponent<IndoorRoomOcrDemo>();
+        var runner = Runner(IndoorLocalizationMode.SignFirst);
+        runner.GetType().GetField("signLocalization", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(runner, false);
+        runner.SetSignCalibration(IndoorSignPoseTests.ValidatedHere(out var observation, out _));
+        var inner = _host.GetComponent<RunnerFakeLocalizer>();
+        inner.DeferAuth = true;
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        Field<SignFirstLocalizer>(runner, "_signFirst").Authenticate();
+        Call(runner, "UpdateSignOcr");
+        Assert.IsFalse(ocr.enabled);
+        Assert.IsFalse(androidOcr.enabled);
+        Assert.AreEqual(IndoorArState.Auth, session.State);
+        var rootPosition = _host.transform.position;
+        var match = IndoorRoomIdentityMatcher.MatchSign("120",
+            "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
+        Call(runner, "OnSignRead", "120", match, Field<float>(runner, "_sessionStarted"), observation);
+        Assert.IsNull(session.SignRoom);
+        Assert.AreEqual(rootPosition, _host.transform.position);
+        Assert.AreEqual(0, inner.AttemptCount);
+        inner.CompleteAuth();
+        Assert.AreEqual(1, inner.AttemptCount);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
     }
 
     [Test]

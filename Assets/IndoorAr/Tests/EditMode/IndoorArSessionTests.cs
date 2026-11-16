@@ -116,6 +116,72 @@ public class IndoorArSessionTests
     }
 
     [Test]
+    public void SignRecoveryOutlivesVpsBudgetWithoutRetryingFallback()
+    {
+        var session = new IndoorArSession(Vec119(), MapCode, allowSignRecovery: true);
+        var requests = 0;
+        var stopped = 0;
+        session.LocalizeRequested += () => requests++;
+        session.FallbackStopped += () => stopped++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.IsTrue(session.FallbackExpired);
+        Assert.AreEqual(1, stopped);
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.IsNull(session.ResultJson);
+        session.OnNotLocalized();
+        session.OnSignConfirmed(Sign120);
+        session.OnSignInView();
+        session.Tick(300f);
+        Assert.AreEqual(2, requests);
+        Assert.AreEqual(1, stopped);
+        Assert.AreSame(Sign120, session.SignRoom);
+        session.OnLocalized();
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        session.Cancel();
+        Assert.AreEqual(2, stopped);
+        StringAssert.Contains("\"status\":\"cancelled\"", session.ResultJson);
+        session.OnLocalized();
+        Assert.AreEqual(IndoorArState.Done, session.State);
+    }
+
+    [TestCase("timeout")]
+    [TestCase("auth")]
+    [TestCase("cancel")]
+    [TestCase("arrival")]
+    [TestCase("unavailable")]
+    public void EveryTerminalTransitionStopsFallback(string terminal)
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        var stopped = 0;
+        session.FallbackStopped += () => stopped++;
+        session.OnArSupport(true);
+        if (terminal == "auth") session.OnAuthFailed(false);
+        else
+        {
+            session.OnAuthenticated();
+            switch (terminal)
+            {
+                case "timeout":
+                    session.Tick(IndoorArSession.LocalizeTimeoutS);
+                    session.Tick(IndoorArSession.LocalizeTimeoutS);
+                    break;
+                case "cancel": session.Cancel(); break;
+                case "arrival":
+                    session.OnLocalized();
+                    session.ImHere(Vector3.zero);
+                    session.ConfirmArrival();
+                    break;
+                case "unavailable": session.OnStepFreeUnverified(); break;
+            }
+        }
+        Assert.AreEqual(IndoorArState.Done, session.State);
+        Assert.AreEqual(1, stopped);
+    }
+
+    [Test]
     public void TrackingLossGoesBackToLocalizingWithAFreshRetry()
     {
         var session = new IndoorArSession(Vec119(), MapCode);

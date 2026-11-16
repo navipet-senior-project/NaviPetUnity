@@ -567,6 +567,51 @@ public class MultiSetLocalizerTests
         Assert.IsNull(session.ResultJson);
     }
 
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public void SessionDeadlineDropsQueuedIntentButKeepsSdkOwnershipUntilCallback(bool recoverSigns, bool success)
+    {
+        var session = new IndoorArSession(new IndoorArRequest
+        {
+            frame = IndoorArContract.Frame, mapCode = _adapter.MapCode,
+            position = new IndoorArVector3()
+        }, _adapter.MapCode, recoverSigns);
+        session.FallbackStopped += _adapter.DropQueuedFallback;
+        _adapter.CandidatePoseValidator = _ => true;
+        _adapter.Localized += session.OnLocalized;
+        var attempts = 0;
+        _adapter.AttemptStarted += _ => attempts++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        LocalizeWithoutEditorFailure();
+        _adapter.Localize();
+        Assert.AreEqual(1, attempts);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(recoverSigns ? IndoorArState.Localizing : IndoorArState.Done, session.State);
+        Assert.IsTrue(_adapter.HasLiveRequest);
+        _adapter.Tick(0f);
+        Assert.AreEqual(1, attempts);
+        _adapter.SdkMapSpace.SetPositionAndRotation(new Vector3(30f, 4f, 20f), Quaternion.Euler(0f, 80f, 0f));
+        Assert.AreEqual(Vector3.zero, _adapter.MapSpace.position);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] stale localization response ignored");
+        if (success) ReportSuccess();
+        else _manager.LocalizationFailure.Invoke();
+        Assert.IsFalse(_adapter.HasLiveRequest);
+        Assert.AreEqual(Vector3.zero, _adapter.MapSpace.position);
+        Assert.AreEqual(recoverSigns ? IndoorArState.Localizing : IndoorArState.Done, session.State);
+        _adapter.Tick(0f);
+        Assert.AreEqual(1, attempts, "the cancelled queue must not dispatch after the real callback");
+        _adapter.AbandonPending();
+        LocalizeWithoutEditorFailure();
+        Assert.IsTrue(_adapter.HasLiveRequest);
+        Assert.AreEqual(2, attempts, "only genuine completion makes a fresh session eligible");
+        _manager.LocalizationFailure.Invoke();
+        Assert.IsFalse(_adapter.HasLiveRequest);
+    }
+
     void ReportSuccess(bool poseFound = true)
     {
         ReportSuccess(_manager, poseFound);

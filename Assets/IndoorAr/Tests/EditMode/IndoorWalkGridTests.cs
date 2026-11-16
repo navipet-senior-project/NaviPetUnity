@@ -75,7 +75,9 @@ public class IndoorWalkGridTests
         session.OnLocalized();
         var straight = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f);
         Assert.IsFalse(straight.FollowingRoute);
-        Assert.AreEqual(45f, straight.ArrowYaw, 1e-3f, "no route: straight at the door, through the wall");
+        Assert.IsTrue(straight.RouteBlocked);
+        Assert.AreEqual(0f, straight.ArrowYaw);
+        Assert.AreEqual("Route unavailable", straight.TitleOverride);
         var routed = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, routeGrid: hall);
         Assert.IsTrue(routed.FollowingRoute);
         Assert.AreEqual(90f, routed.ArrowYaw, 1e-3f, "route: along the hallway to the corner");
@@ -88,12 +90,49 @@ public class IndoorWalkGridTests
             wrongFloorEvidence: true);
         Assert.IsTrue(noConnector.WrongFloor);
         Assert.IsFalse(noConnector.FollowingRoute, "no connector must not fall back to a direct arrow across floors");
+        Assert.IsTrue(noConnector.RouteBlocked);
         var toStairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route, "stairs",
             wrongFloorEvidence: true, routeGrid: hall);
         Assert.IsTrue(toStairs.FollowingRoute, "on the wrong floor a route to the stairs is followed");
         Assert.AreEqual("stairs", toStairs.FloorChange);
         Assert.IsFalse(LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, "stairs").FollowingRoute,
             "on the right floor a route that ends at the stairs is not to the door");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void MissingOrUncheckedRouteHidesArrowAndKeepsRoomDirections(bool uncheckedRoute)
+    {
+        var grid = Hall();
+        var camera = new Vector3(.5f, 0f, 2.5f);
+        var door = new Vector3(4.5f, 0f, 4.5f);
+        Assert.IsFalse(grid.TryRoute(camera, door, out var route));
+        var session = new IndoorArSession(new IndoorArRequest
+        {
+            frame = IndoorArContract.Frame, mapCode = "test", floor = "1", room = "119",
+            position = new IndoorArVector3 { x = door.x, y = door.y, z = door.z }
+        }, "test");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized();
+        if (uncheckedRoute) route = new[] { camera, door };
+        const string directions = "From the room sign, follow the hallway toward VEC 119.";
+        var view = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route,
+            roomDirections: directions);
+        Assert.IsTrue(view.RouteBlocked);
+        Assert.IsFalse(view.FollowingRoute);
+        Assert.AreEqual("Route unavailable", view.TitleOverride);
+        Assert.AreEqual(directions, view.DetailOverride);
+        var host = new GameObject("Unreachable route HUD");
+        try
+        {
+            var hud = host.AddComponent<IndoorHud>();
+            hud.Initialize(host.AddComponent<Camera>());
+            hud.Show(view);
+            Assert.IsNull(host.transform.Find("HUD Canvas/Safe area/Guide arrow"));
+            Assert.IsNotNull(host.transform.Find("HUD Canvas/Safe area/Here"));
+        }
+        finally { Object.DestroyImmediate(host); }
     }
 
     [TestCase(false, false, false)]
