@@ -9,7 +9,7 @@ namespace IndoorAr
 
         readonly IIndoorArLocalizer _inner;
         readonly IndoorSignCalibration _calibration;
-        // The session starts without VPS sign-in; only the fallback waits for it.
+        // Room signs lead (OCR on or a validated sign): the session starts without VPS sign-in and VPS waits HoldS.
         readonly bool _ownAuth;
         bool _open;
         bool _innerPosed;
@@ -63,7 +63,9 @@ namespace IndoorAr
                 return;
             }
             FromSigns = _innerPosed = false;
-            if (!SignsCanPose)
+            // OCR off and no validated sign: VPS is the only pose source, so it is asked at once. Otherwise room
+            // signs get the hold first, with or without calibration, and VPS stays the delayed fallback.
+            if (!_ownAuth)
             {
                 AskInner();
                 return;

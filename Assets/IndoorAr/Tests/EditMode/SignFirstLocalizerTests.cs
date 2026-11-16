@@ -5,7 +5,7 @@ using UnityEngine;
 public class SignFirstLocalizerTests
 {
     [Test]
-    public void WithoutDeviceValidatedCalibrationMultiSetStartsImmediately()
+    public void WithoutDeviceValidatedCalibrationMultiSetStillWaitsForTheSignHold()
     {
         var host = new GameObject("fake");
         try
@@ -19,7 +19,10 @@ public class SignFirstLocalizerTests
             first.Localized += _ => localized++;
             first.Authenticate();
             first.Localize();
-            Assert.AreEqual(1, inner.AttemptCount);
+            first.Tick(SignFirstLocalizer.HoldS - 1f);
+            Assert.AreEqual(0, inner.AttemptCount, "room signs get the hold even with no usable calibration");
+            first.Tick(1f);
+            Assert.AreEqual(1, inner.AttemptCount, "then MultiSet is the fallback");
             Assert.AreEqual(0, localized);
             Assert.IsFalse(first.FromSigns);
             Assert.AreEqual(Vector3.zero, host.transform.position);
@@ -148,8 +151,9 @@ public class SignFirstLocalizerTests
             first.Authenticate();
             Assert.AreEqual(2, authenticated);
             first.Localize();
-            Assert.AreEqual(0, inner.AttemptCount);
             inner.CompleteAuth();
+            Assert.AreEqual(0, inner.AttemptCount, "signed in, but the sign hold still runs");
+            first.Tick(SignFirstLocalizer.HoldS);
             Assert.AreEqual(1, inner.AttemptCount);
             Assert.AreEqual(1, localized);
             Assert.IsFalse(first.FromSigns);
@@ -187,6 +191,7 @@ public class SignFirstLocalizerTests
     }
 
     [TestCase(false, false)]
+    [TestCase(false, true)]
     [TestCase(true, false)]
     [TestCase(true, true)]
     public void DroppedFallbackCannotDispatchAfterDelayedAuthentication(bool calibrated, bool duringHold)

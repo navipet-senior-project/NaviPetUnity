@@ -647,6 +647,70 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void RoomSignGivesDirectionsWithoutArrowThenValidatedPoseShowsArrowInTheSameSession()
+    {
+        var directory = System.IO.File.ReadAllText(
+            System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+        var ocr = _host.AddComponent<IndoorRoomMlKitOcr>();
+        ocr.Configure(null, new TextAsset(directory));
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        var camObject = new GameObject("AR Camera", typeof(Camera));
+        camObject.transform.SetParent(_host.transform, false);
+        camObject.transform.localPosition = new Vector3(1f, -0.4f, 3f);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
+        runner.SetLocalizationMode(IndoorLocalizationMode.SignFirst);
+        runner.SetSignCalibration(new IndoorSignCalibration()); // the shipped file has no measured signs
+        var arState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previous = UnityEngine.XR.ARFoundation.ARSession.state;
+        arState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        try
+        {
+            ((IEnumerator)Call(runner, "Start")).MoveNext();
+            var session = Field<IndoorArSession>(runner, "_session");
+            var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
+            Assert.IsFalse(signFirst.SignsCanPose);
+            var restarted = ArSessionLifecycle.LoaderRestarted;
+            session.OnArSupport(true);
+            signFirst.Authenticate();
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+
+            var match = IndoorRoomIdentityMatcher.MatchSign("VEC 127", directory);
+            var started = Field<float>(runner, "_sessionStarted");
+            Call(runner, "OnSignRead", "VEC 127", match, started, null);
+            Call(runner, "OnSignRead", "VEC 127", match, started, null);
+            Assert.AreEqual("VEC127", session.SignRoom.Id);
+            Call(runner, "Update");
+            var hud = _host.GetComponentInChildren<IndoorHud>();
+            var labels = hud.GetComponentsInChildren<UnityEngine.UI.Text>(true).Select(t => t.text).ToArray();
+            Assert.IsTrue(labels.Any(t => t.Contains("Room VEC 127 detected")), string.Join(" | ", labels));
+            Assert.IsTrue(labels.Any(t => t.Contains(" to VEC 119.") && t.EndsWith(LiveDoorHud.HeadingUnknown)),
+                string.Join(" | ", labels));
+            Assert.IsNull(hud.transform.Find("HUD Canvas/Safe area/Guide arrow"), "no arrow before a validated pose");
+            Assert.AreEqual(0, localizer.AttemptCount, "MultiSet waits out the sign hold");
+
+            signFirst.Tick(SignFirstLocalizer.HoldS);
+            Assert.AreEqual(1, localizer.AttemptCount, "then MultiSet is the delayed fallback");
+            Call(runner, "Update");
+            Assert.IsNull(hud.transform.Find("HUD Canvas/Safe area/Guide arrow"), "an open attempt is not a pose");
+
+            localizer.CompleteLocalized(.5f);
+            Assert.AreEqual(IndoorArState.Pinned, session.State);
+            runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+            Call(runner, "Update");
+            Assert.AreSame(session, Field<IndoorArSession>(runner, "_session"), "same session, no relaunch");
+            Assert.AreSame(hud, _host.GetComponentInChildren<IndoorHud>());
+            Assert.AreSame(camObject.GetComponent<Camera>(), Field<Camera>(runner, "arCamera"));
+            Assert.AreEqual(restarted, ArSessionLifecycle.LoaderRestarted, "the AR camera was not restarted");
+            Assert.AreEqual(1, hud.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Guide arrow"));
+            Assert.IsFalse(Labels(runner).Any(t => t.Contains(LiveDoorHud.HeadingUnknown)));
+        }
+        finally { arState.Invoke(null, new object[] { previous }); }
+    }
+
+    [Test]
     public void MultiSetModeKeepsTheOriginalLocalizer()
     {
         var runner = Runner(IndoorLocalizationMode.MultiSet);

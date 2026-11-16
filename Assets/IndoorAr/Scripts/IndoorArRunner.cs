@@ -24,8 +24,8 @@ namespace IndoorAr
         [SerializeField] Camera arCamera;
         // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
         [SerializeField] bool signLocalization = true;
-        // SignFirst names the room from signs, poses the map only from a sign validated on this device, and keeps
-        // MultiSet as the fallback; no sign is validated yet.
+        // SignFirst names the room from signs and gives heading-free directions from it, poses the map only from a
+        // sign validated on this device, and asks MultiSet only after the sign hold; no sign is validated yet.
         [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.SignFirst;
 
         IIndoorArLocalizer _localizer;
@@ -75,6 +75,9 @@ namespace IndoorAr
         IndoorWalkGrid _floor1Grid;
         IndoorWalkGrid _floor2Grid;
         List<(string Type, Vector3 PositionInMap)> _connectors;
+        // Heading-free directions from the last confirmed room sign, routed once per room.
+        IndoorRoomLandmark _directionsRoom;
+        string _roomDirections;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -180,6 +183,8 @@ namespace IndoorAr
             _routeWrongFloor = false;
             _floorUnknown = false;
             _hereFloor = 0;
+            _directionsRoom = null;
+            _roomDirections = null;
             _baseline = new IndoorArBaseline();
             _baselineLog = null;
             _baseline.NoteSessionOpened(NowMs());
@@ -449,7 +454,7 @@ namespace IndoorAr
                 && !LiveDoorHud.StepFreeUnavailable(_session)) return;
             var route = Route(CameraInMap());
             var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor, route,
-                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor));
+                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), RoomDirections());
             if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
@@ -460,7 +465,9 @@ namespace IndoorAr
             if (view.State == IndoorHudState.Scanning)
             {
                 view.ScanTooFast = SampleScanMotion();
-                if (view.ScanTooFast) view.TitleOverride = view.DetailOverride = null; // slow-down wins
+                // Slow-down wins, except over room directions the user is walking by.
+                if (view.ScanTooFast && (_roomDirections == null || view.DetailOverride != _roomDirections))
+                    view.TitleOverride = view.DetailOverride = null;
             }
             else
             {
@@ -530,6 +537,21 @@ namespace IndoorAr
             return _route;
         }
 
+        string RoomDirections()
+        {
+            var room = _session.SignRoom;
+            if (room == _directionsRoom) return _roomDirections;
+            _directionsRoom = room;
+            _roomDirections = room == null ? null : LiveDoorHud.RoomDirections(room, _session.Request, Grid(room.Floor),
+                IndoorRoomIdentityMatcher.FloorMarkers(DirectoryJson, room.Floor));
+            // Room and whether a route was found: no position, no text.
+            if (room != null && !Application.isEditor)
+                Debug.Log($"[IndoorAr] room directions room={room.Id} status={(_roomDirections == null ? "none" : "found")}");
+            return _roomDirections;
+        }
+
+        string DirectoryJson => _iosOcr != null ? _iosOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null;
+
         /// <summary>Shortest scan-grid route on the user's floor to a directory stairs or elevator marker.</summary>
         void RouteToFloorChange(Vector3 cameraInMap, int here)
         {
@@ -538,8 +560,7 @@ namespace IndoorAr
             if (_hereFloor != here)
             {
                 _hereFloor = here;
-                _connectors = IndoorRoomIdentityMatcher.FloorConnectors(
-                    _iosOcr != null ? _iosOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null, here);
+                _connectors = IndoorRoomIdentityMatcher.FloorConnectors(DirectoryJson, here);
             }
             var hereGrid = Grid(here);
             if (hereGrid == null) return;
