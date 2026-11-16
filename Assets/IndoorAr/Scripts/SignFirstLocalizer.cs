@@ -9,6 +9,8 @@ namespace IndoorAr
 
         readonly IIndoorArLocalizer _inner;
         readonly IndoorSignCalibration _calibration;
+        // The session starts without VPS sign-in; only the fallback waits for it.
+        readonly bool _ownAuth;
         bool _open;
         bool _innerPosed;
         bool _innerReady;
@@ -16,11 +18,14 @@ namespace IndoorAr
         bool _innerAuthFailed;
         float _holdLeft;
 
-        public SignFirstLocalizer(IIndoorArLocalizer inner, IndoorSignCalibration calibration = null)
+        /// <param name="readsSigns">Room-sign OCR is on. It needs no VPS sign-in, so neither does the session.</param>
+        public SignFirstLocalizer(IIndoorArLocalizer inner, IndoorSignCalibration calibration = null,
+            bool readsSigns = true)
         {
             _inner = inner;
             _calibration = calibration ?? new IndoorSignCalibration();
             SignsCanPose = _calibration.CanPose(SystemInfo.deviceModel);
+            _ownAuth = readsSigns || SignsCanPose;
             _inner.Localized += OnInnerLocalized;
             _inner.Authenticated += OnInnerAuthenticated;
             _inner.AuthFailed += OnInnerAuthFailed;
@@ -47,7 +52,7 @@ namespace IndoorAr
         {
             _innerReady = _innerWanted = _innerAuthFailed = false;
             _inner.Authenticate();
-            if (SignsCanPose) Authenticated?.Invoke();
+            if (_ownAuth) Authenticated?.Invoke();
         }
 
         public void Localize()
@@ -60,7 +65,7 @@ namespace IndoorAr
             FromSigns = _innerPosed = false;
             if (!SignsCanPose)
             {
-                _inner.Localize();
+                AskInner();
                 return;
             }
             _open = true;
@@ -107,7 +112,7 @@ namespace IndoorAr
 
         void AskInner()
         {
-            if (SignsCanPose && !_innerReady)
+            if (_ownAuth && !_innerReady)
             {
                 _innerWanted = !_innerAuthFailed;
                 return;
@@ -119,13 +124,13 @@ namespace IndoorAr
         void OnInnerAuthenticated()
         {
             _innerReady = true;
-            if (!SignsCanPose) Authenticated?.Invoke();
+            if (!_ownAuth) Authenticated?.Invoke();
             else if (_innerWanted) AskInner();
         }
 
         void OnInnerAuthFailed(bool network)
         {
-            if (!SignsCanPose) AuthFailed?.Invoke(network);
+            if (!_ownAuth) AuthFailed?.Invoke(network);
             else _innerAuthFailed = true;
         }
 

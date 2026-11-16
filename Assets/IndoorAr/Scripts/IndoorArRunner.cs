@@ -102,7 +102,7 @@ namespace IndoorAr
                 _localizer = _signPose;
             }
             else if (localizationMode == IndoorLocalizationMode.SignFirst)
-                _localizer = _signFirst = new SignFirstLocalizer(_localizer, _signCalibration)
+                _localizer = _signFirst = new SignFirstLocalizer(_localizer, _signCalibration, signLocalization)
                     { CandidatePoseValidator = IsCandidateSignPoseAllowed };
             ArCameraDiagnostics.Attach();
             _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();

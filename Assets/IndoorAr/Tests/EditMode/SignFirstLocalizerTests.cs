@@ -112,8 +112,9 @@ public class SignFirstLocalizerTests
         finally { Object.DestroyImmediate(host); }
     }
 
+    // The shipped calibration is empty: room-sign OCR must still run when VPS sign-in fails or is slow.
     [Test]
-    public void WithoutDeviceValidatedCalibrationUsesMultiSetAuthentication()
+    public void WithoutCalibrationRoomSignsDoNotWaitForMultiSetAuthentication()
     {
         var host = new GameObject("fake");
         try
@@ -121,6 +122,52 @@ public class SignFirstLocalizerTests
             var inner = host.AddComponent<RunnerFakeLocalizer>();
             inner.DeferAuth = true;
             var first = new SignFirstLocalizer(inner);
+            Assert.IsFalse(first.SignsCanPose);
+            var authenticated = 0;
+            var failed = 0;
+            var localized = 0;
+            first.Authenticated += () => authenticated++;
+            first.AuthFailed += _ => failed++;
+            first.Localized += _ => localized++;
+
+            first.Authenticate();
+            Assert.AreEqual(1, authenticated, "the session starts, so OCR reads signs");
+            first.Localize();
+            Assert.AreEqual(0, inner.AttemptCount, "no VPS query before VPS sign-in");
+            inner.FailAuth(true);
+            Assert.AreEqual(0, failed, "offline VPS does not end the session");
+            Assert.IsFalse(first.FallbackAvailable);
+            Assert.AreEqual("unavailable: authentication failed", first.FallbackStatus);
+            first.Localize();
+            Assert.AreEqual(0, inner.AttemptCount);
+            Assert.AreEqual(0, localized, "no pose without a calibrated sign or VPS");
+            Assert.AreEqual(Vector3.zero, host.transform.position);
+
+            // Delayed sign-in: the attempt the session asked for runs once VPS is ready, and its pose is the fallback.
+            first.Reset();
+            first.Authenticate();
+            Assert.AreEqual(2, authenticated);
+            first.Localize();
+            Assert.AreEqual(0, inner.AttemptCount);
+            inner.CompleteAuth();
+            Assert.AreEqual(1, inner.AttemptCount);
+            Assert.AreEqual(1, localized);
+            Assert.IsFalse(first.FromSigns);
+            Assert.IsTrue(first.FallbackAvailable);
+            Assert.AreEqual(0, failed);
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
+    [Test]
+    public void WithOcrOffAndNoCalibrationMultiSetAuthenticationStillGatesTheSession()
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            inner.DeferAuth = true;
+            var first = new SignFirstLocalizer(inner, readsSigns: false);
             var authenticated = 0;
             var failed = 0;
             first.Authenticated += () => authenticated++;
@@ -129,6 +176,12 @@ public class SignFirstLocalizerTests
             Assert.AreEqual(0, authenticated);
             inner.FailAuth(false);
             Assert.AreEqual(1, failed);
+
+            first.Authenticate();
+            inner.CompleteAuth();
+            Assert.AreEqual(1, authenticated);
+            first.Localize();
+            Assert.AreEqual(1, inner.AttemptCount, "VPS-only: asked at once");
         }
         finally { Object.DestroyImmediate(host); }
     }
