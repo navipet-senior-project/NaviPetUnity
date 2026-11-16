@@ -68,7 +68,7 @@ namespace IndoorAr
                     : authFailed ? "The session could not use the AR token." : null,
             };
             if (view.State == IndoorHudState.Scanning && session.SignRoom != null) ShowSign(view, session.SignRoom, roomDirections);
-            // The 60 s localization failure is about position only; the room-sign directions stay readable on its card.
+            // A position failure does not invalidate room identity or its heading-free directions.
             else if (view.State == IndoorHudState.NotFound && LocalizationFailed(session) && !request.LocalizeOnly
                 && session.SignRoom != null && roomDirections != null)
                 view.DetailOverride = roomDirections;

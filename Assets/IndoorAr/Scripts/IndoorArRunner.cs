@@ -14,7 +14,7 @@ namespace IndoorAr
     /// <summary>
     /// Runs one door verification: reads the launch request, drives
     /// IndoorArSession from AR Foundation and the localizer, shows the pin and
-    /// HUD, and hands the result to the Android host.
+    /// HUD, and hands the result to the host.
     /// </summary>
     [DefaultExecutionOrder(100)] // after EventSystem, so an exit tap cancels before tracking loss rebuilds the HUD
     public class IndoorArRunner : MonoBehaviour

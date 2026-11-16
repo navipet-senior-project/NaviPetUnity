@@ -4,7 +4,7 @@ Produces the Xcode project and `UnityFramework` the Flutter app embeds. The requ
 
 Unity **6000.3.26f1**. AR Foundation and the ARKit XR plugin are **6.3.5**. The iOS player settings committed in this project are minimum iOS **15.0** (ARKit's own floor is 11), **ARM64**, **IL2CPP**, **Metal** only, a camera usage description, a location usage description, the `UNITY_XR_ARKIT_LOADER_ENABLED` define, and a disabled Unity splash screen and logo. The iOS export reapplies and checks the splash settings immediately before building; if the license forces the splash back on, export stops with an error. XR Plug-in Management enables the ARKit loader for iOS and leaves the ARCore loader on Android. ARKit's requirement is optional, same as ARCore, so a host app can still install on a phone without AR.
 
-This editor install has no iOS Build Support module (`PlaybackEngines` contains `AndroidPlayer` only). Install the module before the export below. Do not switch the editor version.
+The export requires the iOS Build Support module for this editor version. Install it before the export below if it is missing. Do not switch the editor version.
 
 ## Export the Xcode project
 
@@ -86,6 +86,6 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 
 ## Not verified here
 
-The editor used for this change has no iOS Build Support, so the iOS player was not compiled and nothing was run on a device. EditMode tests cover the shared contract, the editor bridge stand-in, and the saved iOS player and XR settings.
+The final indoor OCR change still requires a native player build and device validation. Prior framework linking does not verify the final change. EditMode tests cover the shared contract, the editor bridge stand-in, and the saved iOS player and XR settings.
 
 The outdoor change was exported with iOS Build Support and the ARCore key, and the exported workspace was built with Xcode 26.5 without signing (`Release`, `iphoneos`). That shows the ARCore package resolves and `UnityFramework` links. Nothing ran on a device, so these are not verified: the key and its restriction, the location prompt, ARCore's Earth service, VPS coverage, and the framework inside the Flutter app. An export without the key file was not built in Xcode either.

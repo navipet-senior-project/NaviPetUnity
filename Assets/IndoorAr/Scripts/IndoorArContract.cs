@@ -64,7 +64,7 @@ namespace IndoorAr
         public string arToken;
         /// <summary>
         /// The user needs a route without stairs. Optional; absent means false. Current route data cannot verify
-        /// step-free segments, so a true request returns unavailable.
+        /// step-free segments, so a true navigation request returns unavailable; localize-only requests need no route.
         /// </summary>
         public bool stepFree;
     }

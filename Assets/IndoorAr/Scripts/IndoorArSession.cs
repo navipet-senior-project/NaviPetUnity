@@ -47,7 +47,7 @@ namespace IndoorAr
         public bool WasPinned { get; private set; }
         public bool FallbackExpired { get; private set; }
         public string ResultJson { get; private set; }
-        /// <summary>Last room sign confirmed by OCR. Approximate location only: never a pose.</summary>
+        /// <summary>Last room sign confirmed by OCR. Room identity only; never a camera pose.</summary>
         public IndoorRoomLandmark SignRoom { get; private set; }
         /// <summary>
         /// SignRoom while it is still evidence of the user's floor: null once continuously tracked motion from an
