@@ -59,9 +59,11 @@ public class IndoorWalkGridTests
         var hall = Hall();
         var camera = new Vector3(.5f, 0f, .5f);
         hall.TryRoute(camera, new Vector3(4.5f, 0f, 4.5f), out var route);
-        Assert.AreEqual(route[1], hall.NextWaypoint(route, camera, 1f));
+        Assert.IsTrue(hall.TryNextWaypoint(route, camera, 1f, out var target));
+        Assert.AreEqual(route[1], target);
         // Past the corner the same route steers at the goal, and never back at a point already reached.
-        Assert.AreEqual(route[2], hall.NextWaypoint(route, new Vector3(4.4f, 0f, .6f), 1f));
+        Assert.IsTrue(hall.TryNextWaypoint(route, new Vector3(4.4f, 0f, .6f), 1f, out target));
+        Assert.AreEqual(route[2], target);
 
         IndoorArContract.TryParseRequest(
             "{\"schemaVersion\":1,\"room\":\"119\",\"doorKey\":\"VEC119\",\"floor\":\"1\"," +
@@ -87,7 +89,7 @@ public class IndoorWalkGridTests
         Assert.IsTrue(noConnector.WrongFloor);
         Assert.IsFalse(noConnector.FollowingRoute, "no connector must not fall back to a direct arrow across floors");
         var toStairs = LiveDoorHud.Compose(session, camera + Vector3.up * 4f, Vector3.forward, 10f, route, "stairs",
-            wrongFloorEvidence: true);
+            wrongFloorEvidence: true, routeGrid: hall);
         Assert.IsTrue(toStairs.FollowingRoute, "on the wrong floor a route to the stairs is followed");
         Assert.AreEqual("stairs", toStairs.FloorChange);
         Assert.IsFalse(LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, "stairs").FollowingRoute,
@@ -114,6 +116,8 @@ public class IndoorWalkGridTests
         Assert.IsTrue(grid.TryRoute(grid.CenterOf(sx, sz), grid.CenterOf(gx, gz), out var route));
         Assert.AreEqual(3, route.Length);
         Assert.AreEqual(2f, IndoorWalkGrid.LengthM(route), 1e-4f);
+        Assert.IsTrue(grid.TryNextWaypoint(route, route[0], 1f, out var target));
+        Assert.AreEqual(route[1], target);
     }
 
     [TestCase(false, false, false)]
@@ -182,8 +186,78 @@ public class IndoorWalkGridTests
         for (var z = 0; z < 5; z++) rows[z] = new string(cells[z]);
         var grid = Corner(rows);
         var route = new[] { Point(.5f, .5f), Point(4.5f, .5f), Point(4.5f, 4.5f) };
-        Assert.AreEqual(route[1], grid.NextWaypoint(route, Point(3.7f, .5f), 1f));
-        Assert.AreEqual(route[2], grid.NextWaypoint(route, Point(4.4f, .6f), 1f));
+        Assert.IsTrue(grid.TryNextWaypoint(route, Point(3.7f, .5f), 1f, out var target));
+        Assert.AreEqual(route[1], target);
+        Assert.IsTrue(grid.TryNextWaypoint(route, Point(4.4f, .6f), 1f, out target));
+        Assert.AreEqual(route[2], target);
+    }
+
+    [TestCase(1)]
+    [TestCase(2)]
+    public void ShippedGridSteeringTargetsHaveCameraClearance(int floor)
+    {
+        var grid = IndoorWalkGrid.ForFloor(Scan, floor);
+        var camera = new Vector3(11.375f, grid.FloorY + 1.5f, 21.5025f);
+        if (floor == 2)
+        {
+            Assert.IsTrue(grid.TrySnap(Door("VEC201"), out var startX, out var startZ));
+            camera = grid.CenterOf(startX, startZ) + new Vector3(.05f, 1.5f, .05f);
+        }
+        Assert.IsTrue(grid.TryRoute(camera, Door(floor == 1 ? "VEC136" : "VEC227"), out var route));
+        Assert.IsTrue(grid.TrySnap(camera, out var x, out var z));
+        if (floor == 1)
+        {
+            Assert.AreEqual(178, x);
+            Assert.AreEqual(85, z);
+            Assert.AreEqual(2, route.Length);
+            var crossesBlockedCell = false;
+            for (var i = 0; i <= 10000; i++)
+            {
+                var point = Vector3.Lerp(camera, route[1], i / 10000f);
+                crossesBlockedCell |= grid.ColumnOf(point.x) == 178 && grid.RowOf(point.z) == 84;
+            }
+            Assert.IsTrue(crossesBlockedCell);
+            Assert.IsFalse(grid.IsWalkable(178, 84));
+        }
+        Assert.IsTrue(grid.TryNextWaypoint(route, camera, 1f, out var target));
+        if (floor == 1) Assert.AreEqual(grid.CenterOf(x, z), target);
+        for (var i = 0; i <= 1000; i++)
+        {
+            var point = Vector3.Lerp(camera, target, i / 1000f);
+            Assert.IsTrue(grid.IsWalkable(grid.ColumnOf(point.x), grid.RowOf(point.z)));
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void UnreachableFinalAndIntermediateTargetsInvalidateGuidance(bool intermediate)
+    {
+        var grid = Hall();
+        Assert.IsTrue(grid.TryRoute(new Vector3(.5f, 0f, .5f), new Vector3(4.5f, 0f, 4.5f), out var route));
+        if (!intermediate) route = new[] { route[0], route[route.Length - 1] };
+        var camera = new Vector3(.5f, 1.5f, 2.5f);
+        Assert.IsTrue(grid.IsWalkable(grid.ColumnOf(camera.x), grid.RowOf(camera.z)));
+        Assert.IsFalse(grid.TryNextWaypoint(route, camera, 1f, out _));
+        var request = new IndoorArRequest
+        {
+            schemaVersion = 1, room = "119", floor = "1", mapCode = "test", frame = "multiset-mapset",
+            position = new IndoorArVector3 { x = 4.5f, z = 4.5f }
+        };
+        var session = new IndoorArSession(request, request.mapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized();
+        var view = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route, routeGrid: grid);
+        Assert.AreEqual(IndoorHudState.Straight, view.State);
+        Assert.IsTrue(view.RouteBlocked);
+        Assert.IsFalse(view.FollowingRoute);
+        Assert.AreEqual(0f, view.ArrowYaw);
+        Assert.AreEqual("Route unavailable", view.TitleOverride);
+
+        view = LiveDoorHud.Compose(session, route[0], Vector3.forward, 10f, route);
+        Assert.AreEqual(IndoorHudState.Straight, view.State);
+        Assert.IsTrue(view.RouteBlocked);
+        Assert.IsFalse(view.FollowingRoute);
     }
 
     // Every mapped door on a floor reaches stairs or an elevator on the scan, so a wrong-floor user gets a route.

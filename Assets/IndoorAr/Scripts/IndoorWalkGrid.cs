@@ -204,12 +204,21 @@ namespace IndoorAr
         /// The point to steer at: the first waypoint more than lookAhead metres from the camera, so the arrow does not
         /// flip as the user passes a corner point. The last waypoint when everything is nearer than that.
         /// </summary>
-        public Vector3 NextWaypoint(Vector3[] route, Vector3 camera, float lookAhead)
+        public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint)
         {
-            for (var i = 1; i < route.Length - 1; i++)
-                if (new Vector2(route[i].x - camera.x, route[i].z - camera.z).magnitude > lookAhead
-                    || !LineIsClear(camera, route[i + 1])) return route[i];
-            return route[route.Length - 1];
+            waypoint = default;
+            if (route == null || route.Length < 2) return false;
+            var next = 1;
+            while (next < route.Length - 1
+                && new Vector2(route[next].x - camera.x, route[next].z - camera.z).magnitude <= lookAhead
+                && LineIsClear(camera, route[next + 1])) next++;
+            for (; next >= 0; next--)
+                if (LineIsClear(camera, route[next]))
+                {
+                    waypoint = route[next];
+                    return true;
+                }
+            return false;
         }
     }
 }

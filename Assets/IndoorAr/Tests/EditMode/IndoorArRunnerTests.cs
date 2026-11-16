@@ -852,6 +852,65 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void CachedRouteRechecksClearanceAfterSmallCameraMovement()
+    {
+        var grid = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid").text, 1);
+        var directory = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath,
+            "IndoorNavigation/Data/vec_floors1and2.json"));
+        var door = IndoorRoomIdentityMatcher.MatchSign("VEC136", directory).Landmark.DoorPositionInMap;
+        Assert.IsTrue(IndoorArContract.TryParseRequest(_request, out var request));
+        request.room = "136";
+        request.doorKey = "VEC136";
+        request.position = new IndoorArVector3 { x = door.x, y = door.y, z = door.z };
+        IndoorArBridge.EditorRequestJson = JsonUtility.ToJson(request);
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        var camera = new GameObject("AR camera").AddComponent<Camera>();
+        camera.transform.SetParent(_host.transform, false);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camera);
+        runner.SetLocalizationMode(IndoorLocalizationMode.MultiSet);
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized();
+        typeof(IndoorArRunner).GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(runner, 10f);
+        var position = new Vector3(11.375f, grid.FloorY + 1.5f, 21.5025f);
+        camera.transform.localPosition = position + new Vector3(0f, 0f, -.1f);
+        Call(runner, "UpdateHud");
+        var cached = Field<Vector3[]>(runner, "_route");
+        Assert.AreEqual(2, cached.Length);
+        var hud = Field<IndoorHud>(runner, "_hud");
+        Assert.IsNull(Field<RectTransform>(hud, "_arrow"));
+        Assert.IsNull(Field<IndoorArBaseline>(runner, "_baseline").ArrowShownMs);
+
+        camera.transform.localPosition = position;
+        Call(runner, "UpdateHud");
+        Assert.AreSame(cached, Field<Vector3[]>(runner, "_route"));
+        Assert.IsTrue(grid.TryNextWaypoint(cached, position, 1f, out var target));
+        Assert.AreEqual(cached[0], target);
+        var arrow = Field<RectTransform>(hud, "_arrow");
+        Assert.IsNotNull(arrow);
+        Assert.IsNotNull(Field<IndoorArBaseline>(runner, "_baseline").ArrowShownMs);
+        var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, position, target);
+        Assert.AreEqual(0f, Mathf.DeltaAngle(-yaw, arrow.localEulerAngles.z), .01f);
+
+        camera.transform.localPosition = position + new Vector3(0f, 0f, -.1f);
+        Call(runner, "UpdateHud");
+        Assert.AreSame(cached, Field<Vector3[]>(runner, "_route"));
+        Assert.IsNull(Field<RectTransform>(hud, "_arrow"));
+        CollectionAssert.Contains(Labels(runner), "Route unavailable");
+        Assert.IsNotNull(hud.transform.Find("HUD Canvas/Safe area/Here"));
+
+        camera.transform.localPosition = position;
+        Call(runner, "UpdateHud");
+        Assert.AreSame(cached, Field<Vector3[]>(runner, "_route"));
+        Assert.IsNotNull(Field<RectTransform>(hud, "_arrow"));
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+    }
+
+    [Test]
     public void StepFreeWrongFloorRequestReturnsUnavailableWithoutConnectorRoute()
     {
         IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"stepFree\":true");

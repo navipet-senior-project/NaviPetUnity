@@ -27,6 +27,7 @@ namespace IndoorAr
         // Outdoor guidance reuses this HUD: no floor, and a distance because the walk is long.
         public bool Outdoor;
         public bool FollowingRoute;
+        public bool RouteBlocked;
         // "stairs" or "elevator": the route on a wrong floor ends there, not at the door.
         public string FloorChange;
         public bool OffRoute;
@@ -115,7 +116,7 @@ namespace IndoorAr
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             FitSafeArea();
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
             if (_chrome != chrome)
             {
                 Build(view);
@@ -176,10 +177,13 @@ namespace IndoorAr
             float right = 56f;
             if (view.State == IndoorHudState.Straight)
             {
-                _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
-                _arrow.GetComponent<Image>().type = Image.Type.Simple;
-                _lookLeft = Pill("Look left", "‹  Look this way", 34, new Vector2(0f, .5f), new Vector2(24f, 190f), 84f);
-                _lookRight = Pill("Look right", "Look this way  ›", 34, new Vector2(1f, .5f), new Vector2(-24f, 190f), 84f);
+                if (!view.RouteBlocked)
+                {
+                    _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
+                    _arrow.GetComponent<Image>().type = Image.Type.Simple;
+                    _lookLeft = Pill("Look left", "‹  Look this way", 34, new Vector2(0f, .5f), new Vector2(24f, 190f), 84f);
+                    _lookRight = Pill("Look right", "Look this way  ›", 34, new Vector2(1f, .5f), new Vector2(-24f, 190f), 84f);
+                }
                 var here = Pill("Here", "I'm here", 36, new Vector2(1f, 0f), new Vector2(-48f, 72f), 100f);
                 OnTap(here, () => HereRequested?.Invoke());
                 right = 48f + here.sizeDelta.x + 28f;

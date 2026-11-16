@@ -37,12 +37,17 @@ namespace IndoorAr
             var request = session.Request;
             var door = request.position;
             var target = door == null ? Vector3.zero : new Vector3(door.x, door.y, door.z);
+            var routeBlocked = false;
             var wrongFloor = wrongFloorEvidence || session.FloorSign != null && session.FloorSign.Floor is (1 or 2)
                 && int.TryParse(request.floor, out var requestedFloor) && session.FloorSign.Floor != requestedFloor;
             // On the wrong floor only a route to stairs or an elevator helps; one to the door would cross floors.
             if (door == null || route == null || route.Length < 2 || request.LocalizeOnly || floorUnknown
                 || wrongFloor != (floorChange != null)) route = null;
-            else target = routeGrid != null ? routeGrid.NextWaypoint(route, cameraInMap, RouteLookAheadM) : route[1];
+            else if (routeGrid == null || !routeGrid.TryNextWaypoint(route, cameraInMap, RouteLookAheadM, out target))
+            {
+                route = null;
+                routeBlocked = true;
+            }
             var authFailed = AuthFailed(session);
             var stepFreeUnavailable = StepFreeUnavailable(session);
             var view = new IndoorHudView
@@ -51,15 +56,18 @@ namespace IndoorAr
                     : floorUnknown && session.State == IndoorArState.Pinned ? IndoorHudState.Localized : StateFor(session, pinnedForS),
                 Destination = Destination(request),
                 Floor = int.TryParse(request.floor, out var floor) ? floor : 0,
-                ArrowYaw = door == null ? 0f : GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
+                ArrowYaw = door == null || routeBlocked ? 0f : GuidanceCue.ArrowYawDegrees(cameraForwardInMap, cameraInMap, target),
                 LocalizeOnly = request.LocalizeOnly,
                 WrongFloor = !request.LocalizeOnly && door != null && wrongFloor,
                 FollowingRoute = route != null,
+                RouteBlocked = routeBlocked,
                 FloorChange = route == null ? null : floorChange,
                 DistanceM = route == null ? double.NaN : IndoorWalkGrid.LengthM(route),
-                TitleOverride = stepFreeUnavailable ? "Step-free route unavailable" : authFailed ? "AR sign-in failed" : null,
+                TitleOverride = stepFreeUnavailable ? "Step-free route unavailable" : authFailed ? "AR sign-in failed"
+                    : routeBlocked ? "Route unavailable" : null,
                 DetailOverride = stepFreeUnavailable ? "A step-free route to this destination cannot be confirmed."
                     : floorUnknown && session.State == IndoorArState.Pinned ? "Your floor could not be confirmed."
+                    : routeBlocked ? "No clear hallway route from your position."
                     : authFailed ? "The session could not use the AR token." : null,
             };
             if (view.State == IndoorHudState.Scanning && session.SignRoom != null) ShowSign(view, session.SignRoom);

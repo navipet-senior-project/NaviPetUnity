@@ -453,7 +453,7 @@ namespace IndoorAr
                 _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor));
             if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
             // Names the sign the camera reads now. It is not the camera's position.
-            if (view.State == IndoorHudState.Straight && !view.FollowingRoute && _session.SignRoom != null
+            if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
                 && _signs != null && _signs.InView(Time.unscaledTime))
                 view.DetailOverride = LiveDoorHud.SignDetected(_session.SignRoom);
             if (view.State == IndoorHudState.Scanning && _signFirst != null && _session.SignRoom == null)
@@ -468,7 +468,7 @@ namespace IndoorAr
                 _scanPoseReady = false;
                 _slowHoldLeft = 0f;
             }
-            if (view.State == IndoorHudState.Straight)
+            if (view.State == IndoorHudState.Straight && !view.RouteBlocked)
             {
                 _baseline?.NoteArrowShown(NowMs());
                 LogBaseline();
