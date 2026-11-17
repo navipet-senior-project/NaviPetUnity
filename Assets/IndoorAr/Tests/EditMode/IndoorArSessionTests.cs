@@ -461,6 +461,46 @@ public class IndoorArSessionTests
     }
 
     [Test]
+    public void SignArrivalOmitsDistanceOnlyForHostsThatSentTheCapability()
+    {
+        var capable = Vec119();
+        capable.capabilities = new[] { IndoorArContract.SignArrivalCapability };
+        var session = new IndoorArSession(capable, MapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnSignConfirmed(new IndoorRoomLandmark("VEC119", "VEC", "floor_1"));
+        session.ConfirmArrival();
+        Assert.AreEqual(
+            "{\"status\":\"arrived\",\"localizationQueries\":0,\"durationMs\":0,\"signRoom\":\"VEC119\"}",
+            session.ResultJson);
+
+        var legacy = Localizing(out _);
+        legacy.OnSignConfirmed(new IndoorRoomLandmark("VEC119", "VEC", "floor_1"));
+        legacy.ConfirmArrival();
+        StringAssert.Contains("\"checkDistanceM\":0,", legacy.ResultJson, "legacy hosts still require the field");
+        StringAssert.Contains("\"signRoom\":\"VEC119\"", legacy.ResultJson);
+
+        var other = Vec119();
+        other.capabilities = new[] { "somethingElse" };
+        Assert.IsFalse(other.SupportsSignArrival);
+    }
+
+    [Test]
+    public void CapableHostStillGetsTheMeasuredDistanceForManualArrival()
+    {
+        var request = Vec119();
+        request.capabilities = new[] { IndoorArContract.SignArrivalCapability };
+        var session = new IndoorArSession(request, MapCode);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized();
+        session.Tick(1.5f);
+        session.ImHere(new Vector3(-5.7651f + 3f, 10f, 22.6689f + 4f));
+        session.ConfirmArrival();
+        StringAssert.Contains("\"checkDistanceM\":5", session.ResultJson);
+    }
+
+    [Test]
     public void ConfirmedSignIsReportedButNeverPins()
     {
         var session = Localizing(out _);

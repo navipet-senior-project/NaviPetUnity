@@ -225,6 +225,23 @@ public class IndoorArContractTests
             IndoorArContract.Arrived(0.42f, 0, 1234));
     }
 
+    [Test]
+    public void BuildsSignArrivalWithoutADistance()
+    {
+        Assert.AreEqual(
+            "{\"status\":\"arrived\",\"localizationQueries\":1,\"durationMs\":9}",
+            IndoorArContract.ArrivedBySign(1, 9));
+    }
+
+    [Test]
+    public void ParsesTheSignArrivalCapabilityAndIgnoresItsAbsence()
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119.Replace("\"room\":", "\"capabilities\":[\"signArrival\"],\"room\":"), out var capable));
+        Assert.IsTrue(capable.SupportsSignArrival);
+        Assert.IsTrue(IndoorArContract.TryParseRequest(Vec119, out var legacy));
+        Assert.IsFalse(legacy.SupportsSignArrival);
+    }
+
     [TestCase(float.NaN)]
     [TestCase(float.PositiveInfinity)]
     [TestCase(float.NegativeInfinity)]

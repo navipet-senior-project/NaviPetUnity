@@ -164,8 +164,9 @@ namespace IndoorAr
                 || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
                 || !string.Equals(LiveDoorHud.RoomLabel(Request.doorKey), LiveDoorHud.RoomLabel(room.Id),
                     StringComparison.OrdinalIgnoreCase)) return;
-            // The sign identifies the destination itself. Preserve the host's required distance field; signRoom
-            // records the evidence and confidence stays unset because this arrival has no distance measurement.
+            // The sign identifies the destination itself. A host with the signArrival capability gets no distance;
+            // a legacy host still requires the field, so it keeps getting 0. signRoom records the evidence and
+            // confidence stays unset because this arrival has no distance measurement.
             _arrivalDistance = 0f;
             _confidence = null;
             ArrivedBySign = true;
@@ -239,7 +240,9 @@ namespace IndoorAr
 
         public void ConfirmArrival()
         {
-            if (State == IndoorArState.Arrived)
+            if (State == IndoorArState.Arrived && ArrivedBySign && Request.SupportsSignArrival)
+                Finish(IndoorArContract.ArrivedBySign(Queries, ElapsedMs));
+            else if (State == IndoorArState.Arrived)
                 Finish(IndoorArContract.Arrived(_arrivalDistance, Queries, ElapsedMs, _confidence));
         }
 

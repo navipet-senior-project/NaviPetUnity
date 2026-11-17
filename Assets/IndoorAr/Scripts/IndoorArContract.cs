@@ -67,6 +67,10 @@ namespace IndoorAr
         /// step-free segments, so a true navigation request returns unavailable; localize-only requests need no route.
         /// </summary>
         public bool stepFree;
+        /// <summary>Optional host features. Absent from legacy hosts, which still require checkDistanceM on every arrival.</summary>
+        public string[] capabilities;
+        /// <summary>The host accepts an arrived result without checkDistanceM when it carries the destination signRoom.</summary>
+        public bool SupportsSignArrival => capabilities != null && Array.IndexOf(capabilities, IndoorArContract.SignArrivalCapability) >= 0;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
@@ -81,6 +85,7 @@ namespace IndoorAr
     {
         public const int SchemaVersion = 1;
         public const int SchemaVersionV2 = 2;
+        public const string SignArrivalCapability = "signArrival";
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
         public const string Frame = "multiset-mapset";
@@ -186,6 +191,13 @@ namespace IndoorAr
                 || (confidence.HasValue && (float.IsNaN(confidence.Value) || float.IsInfinity(confidence.Value)))
                 ? Error(BadRequest, localizationQueries, durationMs)
                 : Build("arrived", checkDistanceM, null, localizationQueries, durationMs, confidence);
+
+        /// <summary>
+        /// A sign-confirmed arrival with no measured distance, for hosts that sent the signArrival capability.
+        /// Never send it to a legacy host: that host rejects an arrival without checkDistanceM.
+        /// </summary>
+        public static string ArrivedBySign(int localizationQueries, long durationMs) =>
+            Build("arrived", null, null, localizationQueries, durationMs);
 
         public static string Cancelled(int localizationQueries, long durationMs) =>
             Build("cancelled", null, null, localizationQueries, durationMs);
