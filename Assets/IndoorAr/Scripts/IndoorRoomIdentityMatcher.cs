@@ -52,13 +52,11 @@ namespace IndoorAr
     {
         public IndoorRoomMatchStatus Status { get; }
         public IndoorRoomLandmark Landmark { get; }
-        public bool HasRoomIdentifier { get; }
 
-        internal IndoorRoomMatch(IndoorRoomMatchStatus status, IndoorRoomLandmark landmark = null, bool hasRoomIdentifier = false)
+        internal IndoorRoomMatch(IndoorRoomMatchStatus status, IndoorRoomLandmark landmark = null)
         {
             Status = status;
             Landmark = landmark;
-            HasRoomIdentifier = hasRoomIdentifier;
         }
     }
 
@@ -132,17 +130,15 @@ namespace IndoorAr
             if (string.IsNullOrWhiteSpace(recognizedText))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             var numbers = new HashSet<string>();
-            var hasRoomIdentifier = false;
             foreach (Match number in Regex.Matches(recognizedText,
-                         @"(?<![A-Za-z0-9_])(?:(ROOM|VEC)[\s-]*)?([0-9]{3})(?![A-Za-z0-9_])",
+                         @"(?<![A-Za-z0-9_])(?:(?:ROOM|VEC)[ \t-]*)?([0-9]{3})(?![A-Za-z0-9_])",
                          RegexOptions.IgnoreCase))
-            {
-                hasRoomIdentifier |= number.Groups[1].Success;
-                numbers.Add(number.Groups[2].Value);
-            }
-            if (numbers.Count == 0 || !hasRoomIdentifier && !Regex.IsMatch(recognizedText, @"\A[0-9\s]+\z"))
-                return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+                numbers.Add(number.Groups[1].Value);
             if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
+            if (numbers.Count == 0 || !Regex.IsMatch(recognizedText,
+                    @"^[ \t]*(?:ROOM|VEC)(?:[ \t-]*|[ \t]*\r?\n[ \t]*)[0-9]{3}[ \t]*\r?$",
+                    RegexOptions.IgnoreCase | RegexOptions.Multiline))
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
 
             var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson ?? "");
             if (directory == null || string.IsNullOrWhiteSpace(directory.buildingId))
@@ -159,7 +155,7 @@ namespace IndoorAr
             }
             return match == null
                 ? new IndoorRoomMatch(IndoorRoomMatchStatus.NoMatch)
-                : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match, hasRoomIdentifier);
+                : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match);
         }
 
         /// <summary>

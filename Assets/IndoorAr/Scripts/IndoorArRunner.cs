@@ -341,7 +341,7 @@ namespace IndoorAr
             if (match?.Status == IndoorRoomMatchStatus.Matched && _signs.InView(now)
                 && match.Landmark.Id == _signs.Confirmed.Id)
             {
-                _session.OnSignConfirmed(_signs.Confirmed, _signs.HasConfirmedRoomIdentifier);
+                _session.OnSignConfirmed(_signs.Confirmed);
                 if (_session.State == IndoorArState.Arrived)
                 {
                     UpdateSignOcr();

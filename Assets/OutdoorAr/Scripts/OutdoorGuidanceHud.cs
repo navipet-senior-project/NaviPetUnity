@@ -36,15 +36,19 @@ namespace OutdoorAr
         {
             var destination = Name(request);
             var pinName = pinBuilding == null ? destination : pinBuilding + " building center";
-            var hasPinDistance = hasPose && labelAnchor.HasValue && !double.IsNaN(pinDistanceM);
+            var hasPinDistance = hasPose && OutdoorGeospatialGate.CanGuide(state)
+                && pinDistanceM >= 0d && !double.IsInfinity(pinDistanceM);
             var pending = !labelAnchor.HasValue && !arrived && (OutdoorGeospatialGate.CanGuide(state)
                 || state is OutdoorArState.VpsCheckRequired or OutdoorArState.TrackingUncertain);
+            var pinLabel = pinName;
+            if (hasPinDistance)
+                pinLabel += (state == OutdoorArState.Approximate ? " · approx. " : " · ") + IndoorHud.DistanceLabel(pinDistanceM);
+            if (pending) pinLabel += " · Pin unplaced";
             var view = new IndoorHudView
             {
                 Outdoor = true,
                 Destination = destination,
-                PinLabel = pending ? pinName + " · Pin unplaced" : !labelAnchor.HasValue ? null
-                    : hasPinDistance ? pinName + " · " + IndoorHud.DistanceLabel(pinDistanceM) : pinName,
+                PinLabel = pending || labelAnchor.HasValue ? pinLabel : null,
                 PinScreenHeight = hasPinDistance ? PinHeight(pinDistanceM) : .20f,
                 FollowingRoute = request.HasRoute,
                 OffRoute = offRoute,

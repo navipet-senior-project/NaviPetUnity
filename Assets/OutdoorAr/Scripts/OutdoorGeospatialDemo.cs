@@ -168,10 +168,10 @@ namespace OutdoorAr
 
             if (!(_request != null ? readiness.CanGuide : readiness.CanPlaceGuidanceAnchor))
             {
-                if (_request == null || !OutdoorGeospatialGate.CanKeepGuidanceAnchor(readiness.State)) ClearAnchor();
+                if (_request == null || !readiness.CanKeepGuidanceAnchor) ClearAnchor();
                 _distanceM = double.NaN;
                 _readyFor = 0f;
-                UpdateHud(false);
+                UpdateHud(null);
                 return;
             }
             _readyFor += Time.unscaledDeltaTime;
@@ -195,7 +195,7 @@ namespace OutdoorAr
                 // EUN: x is east and z is north.
                 var forward = pose.EunRotation * Vector3.forward;
                 _turnDeg = OutdoorGeospatialGate.TurnDeg(bearing, Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg);
-                UpdateHud(true);
+                UpdateHud(pose);
             }
 
             if (_anchor == null && readiness.CanPlaceGuidanceAnchor)
@@ -413,11 +413,10 @@ namespace OutdoorAr
                     : "Keep following your route to the destination.";
         }
 
-        void UpdateHud(bool hasPose)
+        void UpdateHud(GeospatialPose? pose)
         {
             if (_hud == null || _finished) return;
             Vector3? anchor = null;
-            var pinDistance = double.NaN;
             if (_anchor != null && _anchor.trackingState == TrackingState.Tracking)
             {
                 var fix = _anchor.transform.position;
@@ -428,13 +427,11 @@ namespace OutdoorAr
                 }
                 anchor = _pinPosition = IndoorHud.EasePin(_pinPosition.Value, fix, ref _pinTarget, ref _pinVelocity,
                     Time.unscaledDeltaTime);
-                if (hasPose)
-                {
-                    var pose = readiness.CurrentPose;
-                    pinDistance = OutdoorGeospatialGate.DistanceM(pose.Latitude, pose.Longitude, _building.Latitude, _building.Longitude);
-                }
             }
-            _hud.Show(OutdoorGuidanceHud.Compose(_request, readiness.State, hasPose, _arrived, _distanceM,
+            var pinDistance = pose.HasValue
+                ? OutdoorGeospatialGate.DistanceM(pose.Value.Latitude, pose.Value.Longitude, _building.Latitude, _building.Longitude)
+                : double.NaN;
+            _hud.Show(OutdoorGuidanceHud.Compose(_request, readiness.State, pose.HasValue, _arrived, _distanceM,
                 _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor, _arrivalFeedback, _building.Building,
                 pinDistance));
             LogState();

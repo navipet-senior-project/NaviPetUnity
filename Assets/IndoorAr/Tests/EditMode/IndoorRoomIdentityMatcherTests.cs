@@ -60,7 +60,7 @@ public class IndoorRoomIdentityMatcherTests
 
     [TestCase("VEC 215", "VEC215", "floor_2")]
     [TestCase("ROOM\nVEC 120\nCLASSROOM", "VEC120", "floor_1")]
-    [TestCase("120\n120", "VEC120", "floor_1")]
+    [TestCase("ROOM\r\n120", "VEC120", "floor_1")]
     public void SignMatchesAnyFloorFromAnyLine(string text, string id, string floor)
     {
         var result = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
@@ -82,7 +82,7 @@ public class IndoorRoomIdentityMatcherTests
         Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
             IndoorRoomIdentityMatcher.MatchSign("  ", VecDirectory).Status);
         Assert.AreEqual(IndoorRoomMatchStatus.MissingBuilding,
-            IndoorRoomIdentityMatcher.MatchSign("119", "{}").Status);
+            IndoorRoomIdentityMatcher.MatchSign("VEC 119", "{}").Status);
     }
 
     [Test]
@@ -129,5 +129,17 @@ public class IndoorRoomIdentityMatcherTests
         var result = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
         Assert.AreEqual(IndoorRoomMatchStatus.Matched, result.Status);
         Assert.AreEqual("VEC119", result.Landmark.Id);
+    }
+
+    [TestCase("119")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS ROOM\n119")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS ROOM\n119 PERSONS")]
+    [TestCase("THIS ROOM 119")]
+    [TestCase("ROOM 119 PERSONS")]
+    public void TextWithoutACompleteRoomLabelCannotIdentifyAFloor(string text)
+    {
+        var match = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
+        Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber, match.Status);
+        Assert.IsNull(match.Landmark);
     }
 }

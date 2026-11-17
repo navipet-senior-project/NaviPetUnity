@@ -350,7 +350,7 @@ namespace IndoorAr
             var pinHeight = view.Outdoor ? view.PinScreenHeight * Screen.height / _canvas.scaleFactor : labelHeight;
             var pinWidth = pinHeight * .72f;
             var at = rect.center + Vector2.up * 72f;
-            var labelAt = at;
+            var labelAt = view.Outdoor ? at + Vector2.up * pinHeight : at;
             var showScreenPin = view.Outdoor;
             if (hasAnchor)
             {
@@ -369,8 +369,18 @@ namespace IndoorAr
                         view.WorldPin.rotation = Quaternion.LookRotation(facing);
                 }
                 var uiCamera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
+                Vector2 ToHud(Vector2 point)
+                {
+                    RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, point, uiCamera, out var local);
+                    return local;
+                }
+
+                at = ToHud(screen);
+                labelAt = view.Outdoor || clippedDepth ? at + Vector2.up * pinHeight
+                    : ToHud(_camera.WorldToScreenPoint(view.LabelAnchor.Value));
                 if (dock)
                 {
+                    var behind = screen.z <= 0f;
                     if (screen.z == 0f)
                         screen = _camera.WorldToScreenPoint(anchor + _camera.transform.forward);
                     else if (screen.z < 0f && !_camera.orthographic)
@@ -382,24 +392,36 @@ namespace IndoorAr
                     var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(labelWidth, pinWidth) * .5f + 24f);
                     var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
                     var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
-                    at = new Vector2(Mathf.Lerp(rect.xMin + insetX, rect.xMax - insetX, Mathf.InverseLerp(viewport.xMin, viewport.xMax, edge.x)),
+                    var dockedAt = new Vector2(Mathf.Lerp(rect.xMin + insetX, rect.xMax - insetX, Mathf.InverseLerp(viewport.xMin, viewport.xMax, edge.x)),
                         Mathf.Lerp(bottom, top, Mathf.InverseLerp(viewport.yMin, viewport.yMax, edge.y)));
-                    labelAt = at;
-                }
-                else
-                {
-                    RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, uiCamera, out at);
-                    labelAt = at;
-                    if (!showScreenPin)
-                        RectTransformUtility.ScreenPointToLocalPointInRectangle(_root,
-                            _camera.WorldToScreenPoint(view.LabelAnchor.Value), uiCamera, out labelAt);
+                    var dockedLabel = dockedAt + Vector2.up * pinHeight;
+                    if (behind)
+                    {
+                        at = dockedAt;
+                        labelAt = dockedLabel;
+                    }
+                    else
+                    {
+                        var overshoot = Mathf.Max(Mathf.Abs(screen.x - edge.x) / Mathf.Max(1f, viewport.width),
+                            Mathf.Abs(screen.y - edge.y) / Mathf.Max(1f, viewport.height));
+                        var blend = Mathf.SmoothStep(0f, 1f, overshoot / .12f);
+                        var edgeAt = ToHud(edge);
+                        labelAt = Vector2.Lerp(labelAt + (edgeAt - at), dockedLabel, blend);
+                        at = Vector2.Lerp(edgeAt, dockedAt, blend);
+                    }
                 }
             }
 
-            labelAt.y += (showScreenPin ? pinHeight : 0f) + labelGap;
+            labelAt.y += labelGap;
             var preferredLabel = labelAt;
-            if (labelAt.y + labelHeight > rect.yMax) labelAt.y = at.y - labelHeight - labelGap;
-            labelAt.y = Mathf.Clamp(labelAt.y, rect.yMin, Mathf.Max(rect.yMin, rect.yMax - labelHeight));
+            var maxLabelY = Mathf.Max(rect.yMin, rect.yMax - labelHeight);
+            if (labelAt.y > maxLabelY)
+            {
+                var belowPin = Mathf.Clamp(at.y - labelHeight - labelGap, rect.yMin, maxLabelY);
+                var blend = Mathf.SmoothStep(0f, 1f, (labelAt.y - maxLabelY) / (pinHeight + labelHeight));
+                labelAt.y = Mathf.Lerp(maxLabelY, belowPin, blend);
+            }
+            labelAt.y = Mathf.Max(rect.yMin, labelAt.y);
             labelAt.x = Mathf.Clamp(labelAt.x, rect.xMin + labelWidth * .5f, rect.xMax - labelWidth * .5f);
             var clippedBody = showScreenPin && (at.x - pinWidth * .5f < rect.xMin || at.x + pinWidth * .5f > rect.xMax);
             _pinLabel.GetComponent<Image>().color = clippedBody || labelAt != preferredLabel ? Amber : White;

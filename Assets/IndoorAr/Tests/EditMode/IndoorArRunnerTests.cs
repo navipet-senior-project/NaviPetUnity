@@ -185,15 +185,15 @@ public class IndoorArRunnerTests
         var currentAttempt = localizer.LastAttemptId;
         localizer.CompleteWithoutPose(oldAttempt);
 
-        var match = IndoorRoomIdentityMatcher.MatchSign("120", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
+        var match = IndoorRoomIdentityMatcher.MatchSign("VEC 120", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
         var started = Field<float>(runner, "_sessionStarted");
         var onSignRead = runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic);
-        onSignRead.Invoke(runner, new object[] { "120", match, started, null });
-        onSignRead.Invoke(runner, new object[] { "120", match, started, null });
+        onSignRead.Invoke(runner, new object[] { "VEC 120", match, started, null });
+        onSignRead.Invoke(runner, new object[] { "VEC 120", match, started, null });
         Assert.AreEqual(2, localizer.AttemptCount, "old failure cannot spend current session retry");
 
         localizer.CompleteWithoutPose(currentAttempt);
-        onSignRead.Invoke(runner, new object[] { "120", match, started, null });
+        onSignRead.Invoke(runner, new object[] { "VEC 120", match, started, null });
         Assert.AreEqual(3, localizer.AttemptCount, "current session failure retains early sign retry");
     }
 
@@ -203,9 +203,9 @@ public class IndoorArRunnerTests
         var runner = Runner();
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         var session = Field<IndoorArSession>(runner, "_session");
-        var match = IndoorRoomIdentityMatcher.MatchSign("119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
+        var match = IndoorRoomIdentityMatcher.MatchSign("VEC 119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
         runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic)
-            .Invoke(runner, new object[] { "119", match, Field<float>(runner, "_sessionStarted") - 1f, null });
+            .Invoke(runner, new object[] { "VEC 119", match, Field<float>(runner, "_sessionStarted") - 1f, null });
         Assert.IsNull(session.SignRoom);
     }
 
@@ -775,10 +775,10 @@ public class IndoorArRunnerTests
             var restarted = ArSessionLifecycle.LoaderRestarted;
             session.OnArSupport(true);
             first.Authenticate();
-            var match = IndoorRoomIdentityMatcher.MatchSign("127", directory);
+            var match = IndoorRoomIdentityMatcher.MatchSign("VEC 127", directory);
             var started = Field<float>(runner, "_sessionStarted");
-            Call(runner, "OnSignRead", "127", match, started, null);
-            Call(runner, "OnSignRead", "127", match, started, null);
+            Call(runner, "OnSignRead", "VEC 127", match, started, null);
+            Call(runner, "OnSignRead", "VEC 127", match, started, null);
             first.Tick(SignFirstLocalizer.HoldS);
             session.Tick(IndoorArSession.LocalizeTimeoutS);
             session.Tick(IndoorArSession.LocalizeTimeoutS);
@@ -805,7 +805,7 @@ public class IndoorArRunnerTests
             observation.RoomId = sign.doorKey;
             observation.CameraWorldPosition = camera.transform.position;
             observation.CameraWorldRotation = camera.transform.rotation;
-            Call(runner, "OnSignRead", "127", match, started, observation);
+            Call(runner, "OnSignRead", "VEC 127", match, started, observation);
             Assert.AreEqual(IndoorArState.Pinned, session.State);
             runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
                 .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
@@ -821,13 +821,13 @@ public class IndoorArRunnerTests
             first.Tick(300f);
             session.Tick(300f);
             Assert.AreEqual(attempts, inner.AttemptCount);
-            Call(runner, "OnSignRead", "127", match, started, observation);
+            Call(runner, "OnSignRead", "VEC 127", match, started, observation);
             Assert.AreEqual(IndoorArState.Pinned, session.State);
             Call(runner, "OnHudExit");
             Call(runner, "UpdateSignOcr");
             Assert.IsFalse(ocr.enabled);
             Assert.IsFalse(androidOcr.enabled);
-            Call(runner, "OnSignRead", "127", match, started, observation);
+            Call(runner, "OnSignRead", "VEC 127", match, started, observation);
             Assert.AreEqual(IndoorArState.Done, session.State);
         }
         finally
@@ -856,9 +856,9 @@ public class IndoorArRunnerTests
         Assert.IsFalse(androidOcr.enabled);
         Assert.AreEqual(IndoorArState.Auth, session.State);
         var rootPosition = _host.transform.position;
-        var match = IndoorRoomIdentityMatcher.MatchSign("120",
+        var match = IndoorRoomIdentityMatcher.MatchSign("VEC 120",
             "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
-        Call(runner, "OnSignRead", "120", match, Field<float>(runner, "_sessionStarted"), observation);
+        Call(runner, "OnSignRead", "VEC 120", match, Field<float>(runner, "_sessionStarted"), observation);
         Assert.IsNull(session.SignRoom);
         Assert.AreEqual(rootPosition, _host.transform.position);
         Assert.AreEqual(0, inner.AttemptCount);
@@ -1363,12 +1363,17 @@ public class IndoorArRunnerTests
         var directory = System.IO.File.ReadAllText(
             System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
         var started = Field<float>(runner, "_sessionStarted");
-        foreach (var text in new[] { "MAXIMUM OCCUPANCY 119", "MAXIMUM OCCUPANCY\n119", "119", "119", "VEC\n119" })
+        const string occupancy = "MAXIMUM OCCUPANCY FOR THIS ROOM\n119 PERSONS";
+        foreach (var text in new[] { occupancy, occupancy, "119", "119", "VEC\n119" })
         {
             Call(runner, "OnSignRead", text, IndoorRoomIdentityMatcher.MatchSign(text, directory), started, null);
             Assert.AreEqual(IndoorArState.Localizing, session.State);
+            Assert.IsNull(session.FloorSign);
         }
-        Assert.AreEqual(1, session.FloorSign.Floor);
+        var floors = Field<(int Floor, float Y)[]>(runner, "_floorHeights");
+        var floorThreeEyeHeight = floors.Single(f => f.Floor == 3).Y + 1.5f;
+        Assert.IsFalse(session.PoseConflictsWithSign(floorThreeEyeHeight, floors));
+        Assert.AreEqual(3, session.CurrentFloor(floorThreeEyeHeight, floors));
         Call(runner, "OnSignRead", "ROOM 119", IndoorRoomIdentityMatcher.MatchSign("ROOM 119", directory), started, null);
         Assert.AreEqual(IndoorArState.Arrived, session.State);
         Assert.IsNull(Field<Vector3[]>(runner, "_route"));

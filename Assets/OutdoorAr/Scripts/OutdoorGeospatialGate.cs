@@ -156,8 +156,9 @@ namespace OutdoorAr
         public static bool CanGuide(OutdoorArState state) =>
             state == OutdoorArState.Ready || state == OutdoorArState.Approximate;
 
-        public static bool CanKeepGuidanceAnchor(OutdoorArState state) =>
-            CanGuide(state) || state is OutdoorArState.VpsCheckRequired or OutdoorArState.VpsCheckFailed;
+        public static bool CanKeepGuidanceAnchor(OutdoorArState state, TrackingState earthTracking) =>
+            earthTracking == TrackingState.Tracking && (CanGuide(state)
+                || state is OutdoorArState.VpsCheckRequired or OutdoorArState.VpsCheckFailed or OutdoorArState.TrackingUncertain);
 
         public static bool CanArrive(bool precise, double distanceM) =>
             precise && !double.IsNaN(distanceM) && !double.IsInfinity(distanceM)

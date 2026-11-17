@@ -234,14 +234,16 @@ namespace IndoorAr.Tests
             }
         }
 
-        [TestCase(-.01f, .5f)]
-        [TestCase(1.01f, .82f)]
-        [TestCase(.5f, -.01f)]
-        [TestCase(.5f, 1.01f)]
-        public void VisibleTipsStayProjectedWhileLabelsFitAndOffscreenPinsDock(float x, float y)
+        [TestCase(-.25f, .5f)]
+        [TestCase(1.25f, .82f)]
+        [TestCase(.5f, -.25f)]
+        [TestCase(.5f, 1.25f)]
+        [TestCase(-.25f, 1.25f)]
+        public void VisibleTipsStayProjectedAndDockSmoothlyInBothDirections(float x, float y)
         {
             var cameraObject = new GameObject("Camera", typeof(Camera));
             var root = new GameObject("HUD");
+            var worldPin = new GameObject("Room pin");
             try
             {
                 var camera = cameraObject.GetComponent<Camera>();
@@ -249,14 +251,24 @@ namespace IndoorAr.Tests
                 hud.Initialize(camera);
                 Canvas.ForceUpdateCanvases();
                 var area = (RectTransform)root.transform.Find("HUD Canvas/Safe area");
-                var visible = new Vector3(Mathf.Clamp(x, .01f, .99f), Mathf.Clamp(y, .01f, .99f), 5f);
-                var offscreen = new Vector3(x, y, 5f);
+                var offscreen = new Vector2(x, y);
+                var edge = new Vector2(Mathf.Clamp01(x), Mathf.Clamp01(y));
+                var step = (offscreen - edge).normalized * .001f;
                 foreach (var outdoor in new[] { true, false })
                 {
-                    var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1, camera.ViewportToWorldPoint(visible));
+                    var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1);
                     view.Outdoor = outdoor;
                     view.PinScreenHeight = .2f;
-                    hud.Show(view);
+                    view.WorldPin = outdoor ? null : worldPin.transform;
+                    void ShowAt(Vector2 viewport)
+                    {
+                        var anchor = camera.ViewportToWorldPoint(new Vector3(viewport.x, viewport.y, 5f));
+                        if (!outdoor) worldPin.transform.position = anchor;
+                        view.LabelAnchor = outdoor ? anchor : anchor + Vector3.up * .45f;
+                        hud.Show(view);
+                    }
+
+                    ShowAt(edge - step);
                     var pin = (RectTransform)area.Find(outdoor ? "Building pin" : "Docked pin");
                     var pill = (RectTransform)area.Find("Pin label");
                     var label = pill.GetComponentInChildren<Text>();
@@ -270,19 +282,37 @@ namespace IndoorAr.Tests
                         Assert.That(Vector2.Distance(projected, pin.anchoredPosition), Is.LessThan(.01f));
                     }
 
-                    view.LabelAnchor = camera.ViewportToWorldPoint(offscreen);
-                    hud.Show(view);
+                    var visiblePin = pin.anchoredPosition;
+                    var visibleLabel = pill.anchoredPosition;
+                    ShowAt(edge + step);
                     Assert.IsTrue(pin.gameObject.activeSelf);
+                    Assert.That(Vector2.Distance(visiblePin, pin.anchoredPosition), Is.LessThan(12f));
+                    Assert.That(Vector2.Distance(visibleLabel, pill.anchoredPosition), Is.LessThan(12f));
+                    AssertLabelFits(area, pill);
+
+                    ShowAt(offscreen);
                     Assert.AreEqual(view.Destination, label.text);
+                    Assert.That(Vector2.Distance(visiblePin, pin.anchoredPosition), Is.GreaterThan(12f));
                     AssertLabelFits(area, pill);
                     if (x > 1f)
                     {
                         var inset = Mathf.Max(pill.rect.width, pin.rect.width) * .5f + 24f;
                         Assert.AreEqual(area.rect.xMax - inset, pin.anchoredPosition.x, .01f);
                     }
+                    ShowAt(edge + step);
+                    Assert.That(Vector2.Distance(visiblePin, pin.anchoredPosition), Is.LessThan(12f));
+                    ShowAt(edge - step);
+                    Assert.AreEqual(visiblePin, pin.anchoredPosition);
+                    Assert.AreEqual(visibleLabel, pill.anchoredPosition);
+                    Assert.AreEqual(outdoor, pin.gameObject.activeSelf);
                 }
             }
-            finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
+            finally
+            {
+                Object.DestroyImmediate(worldPin);
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(cameraObject);
+            }
         }
 
         [TestCase(.05f)]
@@ -613,7 +643,7 @@ namespace IndoorAr.Tests
             var session = new IndoorArSession(request, request.mapCode);
             session.OnArSupport(true);
             session.OnAuthenticated();
-            session.OnSignConfirmed(new IndoorRoomLandmark(id, "VEC", floor), hasRoomIdentifier: true);
+            session.OnSignConfirmed(new IndoorRoomLandmark(id, "VEC", floor));
             return LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f);
         }
 

@@ -10,13 +10,11 @@ namespace IndoorAr
         public const int ConfirmReads = 2;
         public const float ReadWindowS = 4f;
 
-        IndoorRoomMatch _candidate;
+        IndoorRoomLandmark _candidate;
         int _hits;
         float _lastHitAt;
 
         public IndoorRoomLandmark Confirmed { get; private set; }
-        public bool HasConfirmedRoomIdentifier =>
-            _hits >= ConfirmReads && _candidate?.HasRoomIdentifier == true;
 
         /// <returns>true when this read confirmed a room different from the previous one.</returns>
         public bool Observe(IndoorRoomMatch match, float nowS)
@@ -30,12 +28,10 @@ namespace IndoorAr
             }
             if (match.Status != IndoorRoomMatchStatus.Matched) return false;
             var room = match.Landmark;
-            if (_candidate != null && _candidate.Landmark.Id == room.Id
-                && _candidate.HasRoomIdentifier == match.HasRoomIdentifier
-                && nowS - _lastHitAt <= ReadWindowS) _hits++;
+            if (_candidate != null && _candidate.Id == room.Id && nowS - _lastHitAt <= ReadWindowS) _hits++;
             else
             {
-                _candidate = match;
+                _candidate = room;
                 _hits = 1;
             }
             _lastHitAt = nowS;
@@ -46,7 +42,7 @@ namespace IndoorAr
 
         /// <summary>The confirmed room's sign was read again within the window.</summary>
         public bool InView(float nowS) =>
-            Confirmed != null && _candidate != null && _candidate.Landmark.Id == Confirmed.Id
+            Confirmed != null && _candidate != null && _candidate.Id == Confirmed.Id
             && _hits >= ConfirmReads && nowS - _lastHitAt <= ReadWindowS;
     }
 }

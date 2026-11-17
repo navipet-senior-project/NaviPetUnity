@@ -23,6 +23,8 @@ namespace OutdoorAr
         public OutdoorArState State { get; private set; } = OutdoorArState.Disabled;
         public bool CanPlaceGuidanceAnchor => OutdoorGeospatialGate.CanPlaceGuidanceAnchor(State);
         public bool CanGuide => OutdoorGeospatialGate.CanGuide(State);
+        public bool CanKeepGuidanceAnchor => OutdoorGeospatialGate.CanKeepGuidanceAnchor(State,
+            earthManager == null ? TrackingState.None : earthManager.EarthTrackingState);
         public GeospatialPose CurrentPose => earthManager.CameraGeospatialPose;
 
         public void SetOptIn(bool enabled, bool consented)
