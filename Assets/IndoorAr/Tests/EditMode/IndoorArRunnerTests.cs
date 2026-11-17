@@ -1273,10 +1273,11 @@ public class IndoorArRunnerTests
         Assert.AreEqual(1, localizer.AttemptCount);
     }
 
-    [TestCase(2, "VECstairsF2B", 3, "VEC301")]
-    [TestCase(3, "VECstairsF3A", 2, "VEC217")]
+    [TestCase(2, "VECstairsF2B", 3, "VEC301", 1)]
+    [TestCase(2, "VECelev2B", 3, "VEC301", -1)]
+    [TestCase(3, "VECstairsF3A", 2, "VEC217", 1)]
     public void FloorThreeNavigationFollowsTheSelectedConnectorThroughItsLanding(
-        int fromFloor, string startId, int toFloor, string room)
+        int fromFloor, string startId, int toFloor, string room, int blockedOffset)
     {
         var directory = System.IO.File.ReadAllText(
             System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
@@ -1297,8 +1298,9 @@ public class IndoorArRunnerTests
 
         var connectors = IndoorRoomIdentityMatcher.FloorConnectors(directory, fromFloor);
         var origin = connectors.Single(c => c.Id == startId).PositionInMap;
-        Assert.IsTrue(grids[fromFloor].TrySnap(origin, out var x, out var z));
-        var start = grids[fromFloor].CenterOf(x, z) + Vector3.up * 1.5f;
+        var x = grids[fromFloor].ColumnOf(origin.x);
+        var z = grids[fromFloor].RowOf(origin.z);
+        var start = new Vector3(origin.x, grids[fromFloor].FloorY + 1.5f, origin.z);
         camera.transform.position = start;
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         var session = Field<IndoorArSession>(runner, "_session");
@@ -1320,8 +1322,8 @@ public class IndoorArRunnerTests
         Assert.IsNotNull(hudArea.Find("Guide arrow"));
         CollectionAssert.Contains(Labels(runner), "You're on Floor " + fromFloor);
 
-        Assert.IsFalse(grids[fromFloor].IsWalkable(x + 1, z));
-        camera.transform.position = grids[fromFloor].CenterOf(x + 1, z) + Vector3.up * 1.5f;
+        Assert.IsFalse(grids[fromFloor].IsWalkable(x + blockedOffset, z));
+        camera.transform.position = grids[fromFloor].CenterOf(x + blockedOffset, z) + Vector3.up * 1.5f;
         Call(runner, "UpdateHud");
         Assert.AreSame(route, Field<Vector3[]>(runner, "_route"));
         Assert.IsNull(hudArea.Find("Guide arrow"));
@@ -1335,14 +1337,14 @@ public class IndoorArRunnerTests
 
         var landing = IndoorRoomIdentityMatcher.FloorConnectors(directory, toFloor)
             .Single(c => c.Id == connectorId).PositionInMap;
-        Assert.IsTrue(grids[toFloor].TrySnap(landing, out x, out z));
-        camera.transform.position = grids[toFloor].CenterOf(x, z) + Vector3.up * 1.5f;
+        camera.transform.position = new Vector3(landing.x, grids[toFloor].FloorY + 1.5f, landing.z);
         camera.transform.LookAt(door);
         Call(runner, "UpdateHud");
         Assert.IsNotNull(Field<Vector3[]>(runner, "_route"));
         Assert.IsNull(Field<string>(runner, "_floorChange"));
         Assert.AreEqual(door, pin.position);
         Assert.IsTrue(pin.gameObject.activeSelf);
+        Assert.IsNotNull(hudArea.Find("Guide arrow"));
         CollectionAssert.Contains(Labels(runner), "You're on Floor " + toFloor);
     }
 
@@ -1360,11 +1362,14 @@ public class IndoorArRunnerTests
         session.OnAuthenticated();
         var directory = System.IO.File.ReadAllText(
             System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
-        var match = IndoorRoomIdentityMatcher.MatchSign("VEC 119", directory);
         var started = Field<float>(runner, "_sessionStarted");
-        Call(runner, "OnSignRead", "VEC 119", match, started, null);
-        Assert.AreEqual(IndoorArState.Localizing, session.State);
-        Call(runner, "OnSignRead", "VEC 119", match, started, null);
+        foreach (var text in new[] { "MAXIMUM OCCUPANCY 119", "MAXIMUM OCCUPANCY\n119", "119", "119", "VEC\n119" })
+        {
+            Call(runner, "OnSignRead", text, IndoorRoomIdentityMatcher.MatchSign(text, directory), started, null);
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+        }
+        Assert.AreEqual(1, session.FloorSign.Floor);
+        Call(runner, "OnSignRead", "ROOM 119", IndoorRoomIdentityMatcher.MatchSign("ROOM 119", directory), started, null);
         Assert.AreEqual(IndoorArState.Arrived, session.State);
         Assert.IsNull(Field<Vector3[]>(runner, "_route"));
         var hud = Field<IndoorHud>(runner, "_hud");

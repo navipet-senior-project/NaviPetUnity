@@ -445,7 +445,7 @@ public class IndoorArSessionTests
     public void OnlyMatchingDestinationSignStopsNavigation(string room, string floor, bool arrived)
     {
         var session = Localizing(out _);
-        session.OnSignConfirmed(new IndoorRoomLandmark(room, "VEC", floor));
+        session.OnSignConfirmed(new IndoorRoomLandmark(room, "VEC", floor), hasRoomIdentifier: true);
         var view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f);
         Assert.AreEqual(arrived ? IndoorHudState.Arrived : IndoorHudState.Scanning, view.State);
         Assert.AreEqual(session.SignRoom.Floor, view.CurrentFloor);

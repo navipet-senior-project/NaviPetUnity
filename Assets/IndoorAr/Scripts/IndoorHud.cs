@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace IndoorAr
@@ -91,6 +92,7 @@ namespace IndoorAr
         RectTransform _pinLabel;
         RectTransform _screenPin;
         Text _pinText;
+        IndoorHudView _view;
         public event Action ExitRequested;
         public event Action HereRequested;
         public event Action RetryRequested;
@@ -130,6 +132,17 @@ namespace IndoorAr
                 _chrome = chrome;
             }
             Refresh(view);
+            _view = view;
+            if (!Application.isPlaying || !view.LabelAnchor.HasValue) PlacePin(view);
+        }
+
+        void OnEnable() => RenderPipelineManager.beginCameraRendering += ProjectPin;
+
+        void OnDisable() => RenderPipelineManager.beginCameraRendering -= ProjectPin;
+
+        void ProjectPin(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera == _camera && _view?.LabelAnchor != null) PlacePin(_view);
         }
 
         // Keeps the room pill, close button and guidance clear of the notch and home indicator.
@@ -185,6 +198,9 @@ namespace IndoorAr
                 _screenPin.pivot = new Vector2(.5f, 0f);
                 _pinLabel = Pill("Pin label", view.Destination, 30, Center, Vector2.zero, 64f);
                 _pinText = _pinLabel.GetComponentInChildren<Text>();
+                _pinText.resizeTextForBestFit = true;
+                _pinText.resizeTextMinSize = 16;
+                _pinText.resizeTextMaxSize = 30;
                 _pinLabel.pivot = new Vector2(.5f, 0f);
                 _pinLabel.gameObject.SetActive(false);
             }
@@ -311,62 +327,85 @@ namespace IndoorAr
                 _lookLeft.gameObject.SetActive(!facing && !right);
                 _lookRight.gameObject.SetActive(!facing && right);
             }
-            PlacePin(view);
         }
 
         void PlacePin(IndoorHudView view)
         {
             if (_pinLabel == null) return;
             var hasAnchor = view.LabelAnchor.HasValue && _camera != null;
-            _pinLabel.gameObject.SetActive(hasAnchor);
-            if (!hasAnchor)
+            var pending = view.Outdoor && view.PinLabel != null && !hasAnchor;
+            _pinLabel.gameObject.SetActive(hasAnchor || pending);
+            if (!hasAnchor && !pending)
             {
                 _screenPin.gameObject.SetActive(false);
                 if (view.WorldPin != null) view.WorldPin.gameObject.SetActive(false);
                 return;
             }
 
-            var anchor = view.WorldPin != null ? view.WorldPin.position : view.LabelAnchor.Value;
-            var screen = _camera.WorldToScreenPoint(anchor);
-            var viewport = _camera.pixelRect;
-            var behind = screen.z <= 0f;
-            var dock = behind || !viewport.Contains(screen);
-            if (view.WorldPin != null) view.WorldPin.gameObject.SetActive(!dock);
-            _screenPin.gameObject.SetActive(view.Outdoor || dock);
-            if (screen.z == 0f)
-                screen = _camera.WorldToScreenPoint(anchor + _camera.transform.forward);
-            else if (behind && !_camera.orthographic)
-            {
-                // Perspective projection reverses x and y behind the camera.
-                var center = viewport.center;
-                screen.x = 2f * center.x - screen.x;
-                screen.y = 2f * center.y - screen.y;
-            }
-            var uiCamera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
-            var labelScreen = !dock && !view.Outdoor ? _camera.WorldToScreenPoint(view.LabelAnchor.Value) : screen;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, labelScreen, uiCamera, out var at);
-            var label = view.PinLabel ?? view.Destination;
-            var labelHeight = _pinLabel.sizeDelta.y;
-            var pinHeight = view.Outdoor ? view.PinScreenHeight * Screen.height / _canvas.scaleFactor : dock ? labelHeight : 0f;
-            var pinWidth = pinHeight * .72f;
-            const float labelGap = 12f;
             var rect = _root.rect;
-            if (dock)
+            _pinText.text = view.PinLabel ?? view.Destination;
+            var labelHeight = _pinLabel.sizeDelta.y;
+            var labelWidth = Mathf.Min(rect.width, _pinText.preferredWidth + labelHeight * .8f);
+            const float labelGap = 12f;
+            var pinHeight = view.Outdoor ? view.PinScreenHeight * Screen.height / _canvas.scaleFactor : labelHeight;
+            var pinWidth = pinHeight * .72f;
+            var at = rect.center + Vector2.up * 72f;
+            var labelAt = at;
+            var showScreenPin = view.Outdoor;
+            if (hasAnchor)
             {
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, viewport.center, uiCamera, out var center);
-                var toward = at - center;
-                if (Mathf.Abs(toward.y) > Mathf.Abs(toward.x)) label += toward.y > 0f ? "  ↑" : "  ↓";
-                else label = toward.x < 0f ? "‹  " + label : label + "  ›";
-                _pinText.text = label;
-                var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(_pinText.preferredWidth + labelHeight * .8f, pinWidth) * .5f + 24f);
-                var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
-                var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
-                var limits = Rect.MinMaxRect(rect.xMin + insetX, bottom, rect.xMax - insetX, top);
-                at = DockPin(limits.center + toward, limits);
+                var anchor = view.WorldPin != null ? view.WorldPin.position : view.LabelAnchor.Value;
+                var screen = _camera.WorldToScreenPoint(anchor);
+                var viewport = _camera.pixelRect;
+                var dock = screen.z <= 0f || !viewport.Contains(screen);
+                var clippedDepth = screen.z < _camera.nearClipPlane || screen.z > _camera.farClipPlane;
+                showScreenPin |= dock || clippedDepth;
+                if (view.WorldPin != null)
+                {
+                    view.WorldPin.gameObject.SetActive(!showScreenPin);
+                    var facing = anchor - _camera.transform.position;
+                    facing.y = 0f;
+                    if (!showScreenPin && facing.sqrMagnitude > .0001f)
+                        view.WorldPin.rotation = Quaternion.LookRotation(facing);
+                }
+                var uiCamera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
+                if (dock)
+                {
+                    if (screen.z == 0f)
+                        screen = _camera.WorldToScreenPoint(anchor + _camera.transform.forward);
+                    else if (screen.z < 0f && !_camera.orthographic)
+                    {
+                        screen.x = 2f * viewport.center.x - screen.x;
+                        screen.y = 2f * viewport.center.y - screen.y;
+                    }
+                    var edge = DockPin(screen, viewport);
+                    var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(labelWidth, pinWidth) * .5f + 24f);
+                    var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
+                    var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
+                    at = new Vector2(Mathf.Lerp(rect.xMin + insetX, rect.xMax - insetX, Mathf.InverseLerp(viewport.xMin, viewport.xMax, edge.x)),
+                        Mathf.Lerp(bottom, top, Mathf.InverseLerp(viewport.yMin, viewport.yMax, edge.y)));
+                    labelAt = at;
+                }
+                else
+                {
+                    RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, uiCamera, out at);
+                    labelAt = at;
+                    if (!showScreenPin)
+                        RectTransformUtility.ScreenPointToLocalPointInRectangle(_root,
+                            _camera.WorldToScreenPoint(view.LabelAnchor.Value), uiCamera, out labelAt);
+                }
             }
-            else _pinText.text = label;
-            _pinLabel.sizeDelta = new Vector2(Mathf.Min(rect.width, _pinText.preferredWidth + labelHeight * .8f), labelHeight);
-            _pinLabel.anchoredPosition = at + Vector2.up * (pinHeight + labelGap);
+
+            labelAt.y += (showScreenPin ? pinHeight : 0f) + labelGap;
+            var preferredLabel = labelAt;
+            if (labelAt.y + labelHeight > rect.yMax) labelAt.y = at.y - labelHeight - labelGap;
+            labelAt.y = Mathf.Clamp(labelAt.y, rect.yMin, Mathf.Max(rect.yMin, rect.yMax - labelHeight));
+            labelAt.x = Mathf.Clamp(labelAt.x, rect.xMin + labelWidth * .5f, rect.xMax - labelWidth * .5f);
+            var clippedBody = showScreenPin && (at.x - pinWidth * .5f < rect.xMin || at.x + pinWidth * .5f > rect.xMax);
+            _pinLabel.GetComponent<Image>().color = clippedBody || labelAt != preferredLabel ? Amber : White;
+            _pinLabel.sizeDelta = new Vector2(labelWidth, labelHeight);
+            _pinLabel.anchoredPosition = labelAt;
+            _screenPin.gameObject.SetActive(showScreenPin);
             _screenPin.sizeDelta = new Vector2(pinWidth, pinHeight);
             _screenPin.anchoredPosition = at;
         }

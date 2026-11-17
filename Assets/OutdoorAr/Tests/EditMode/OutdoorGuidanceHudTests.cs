@@ -23,7 +23,6 @@ namespace OutdoorAr.Tests
         [TestCase(" VEC ")]
         [TestCase("VEC217")]
         [TestCase("VEC 217")]
-        [TestCase("VEC · Room 217")]
         public void VecPinTargetsBuildingCenterAndKeepsTheRequestName(string name)
         {
             var request = Request(name);
@@ -33,13 +32,14 @@ namespace OutdoorAr.Tests
             var view = OutdoorGuidanceHud.Compose(request, OutdoorArState.Ready, true, false, 50, 60, 0,
                 false, 5f, Vector3.forward, pinBuilding: target.Building, pinDistanceM: 10);
             Assert.AreEqual(name.Trim(), view.Destination);
-            Assert.AreEqual("VEC · 33 ft", view.PinLabel);
+            Assert.AreEqual("VEC building center · 33 ft", view.PinLabel);
             Assert.AreEqual(OutdoorGuidanceHud.PinHeight(10), view.PinScreenHeight);
             Assert.AreEqual(50, view.DistanceM);
         }
 
         [TestCase("VEC - North Entrance")]
         [TestCase("VEC217 West")]
+        [TestCase("VEC · Room 217")]
         [TestCase("VEC · Room 217 West")]
         [TestCase("VEC-WEST")]
         public void OtherDestinationsKeepTheirSuppliedCoordinates(string name)
@@ -57,6 +57,32 @@ namespace OutdoorAr.Tests
             Assert.AreEqual(.2f, OutdoorGuidanceHud.PinHeight(200));
             Assert.AreEqual(.2f, OutdoorGuidanceHud.PinHeight(30));
             Assert.Greater(OutdoorGuidanceHud.PinHeight(10), .2f);
+        }
+
+        [Test]
+        public void ApproximateGuidanceHasAnUnplacedPinAndTheRouteDistance()
+        {
+            var view = OutdoorGuidanceHud.Compose(Request("VEC", route: true), OutdoorArState.Approximate, true,
+                false, 80, 120, 30, false, 2f, null, pinBuilding: "VEC");
+            Assert.AreEqual(IndoorHudState.Straight, view.State);
+            Assert.IsNull(view.LabelAnchor);
+            Assert.AreEqual("VEC building center · Pin unplaced", view.PinLabel);
+            Assert.AreEqual(.2f, view.PinScreenHeight);
+            Assert.AreEqual(120, view.DistanceM);
+        }
+
+        [TestCase(OutdoorArState.VpsCheckRequired)]
+        [TestCase(OutdoorArState.VpsCheckFailed)]
+        public void ATrackingPinStaysWorldLockedDuringCoverageChecksWithoutARoute(OutdoorArState state)
+        {
+            var view = OutdoorGuidanceHud.Compose(Request("VEC", route: true), state, false, false, double.NaN,
+                120, 0, false, 0f, Vector3.forward, pinBuilding: "VEC", pinDistanceM: 40);
+            Assert.IsTrue(OutdoorGeospatialGate.CanKeepGuidanceAnchor(state));
+            Assert.IsFalse(OutdoorGeospatialGate.CanGuide(state));
+            Assert.IsFalse(OutdoorGeospatialGate.CanPlaceGuidanceAnchor(state));
+            Assert.AreEqual(Vector3.forward, view.LabelAnchor);
+            Assert.AreEqual("VEC building center", view.PinLabel);
+            Assert.IsTrue(double.IsNaN(view.DistanceM));
         }
 
         [Test]

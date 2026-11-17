@@ -52,11 +52,13 @@ namespace IndoorAr
     {
         public IndoorRoomMatchStatus Status { get; }
         public IndoorRoomLandmark Landmark { get; }
+        public bool HasRoomIdentifier { get; }
 
-        internal IndoorRoomMatch(IndoorRoomMatchStatus status, IndoorRoomLandmark landmark = null)
+        internal IndoorRoomMatch(IndoorRoomMatchStatus status, IndoorRoomLandmark landmark = null, bool hasRoomIdentifier = false)
         {
             Status = status;
             Landmark = landmark;
+            HasRoomIdentifier = hasRoomIdentifier;
         }
     }
 
@@ -130,11 +132,16 @@ namespace IndoorAr
             if (string.IsNullOrWhiteSpace(recognizedText))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             var numbers = new HashSet<string>();
+            var hasRoomIdentifier = false;
             foreach (Match number in Regex.Matches(recognizedText,
-                         @"(?<![A-Za-z0-9_])(?:(?:ROOM|VEC)[ \t-]*)?([0-9]{3})(?![A-Za-z0-9_])",
+                         @"(?<![A-Za-z0-9_])(?:(ROOM|VEC)[\s-]*)?([0-9]{3})(?![A-Za-z0-9_])",
                          RegexOptions.IgnoreCase))
-                numbers.Add(number.Groups[1].Value);
-            if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            {
+                hasRoomIdentifier |= number.Groups[1].Success;
+                numbers.Add(number.Groups[2].Value);
+            }
+            if (numbers.Count == 0 || !hasRoomIdentifier && !Regex.IsMatch(recognizedText, @"\A[0-9\s]+\z"))
+                return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
 
             var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson ?? "");
@@ -152,7 +159,7 @@ namespace IndoorAr
             }
             return match == null
                 ? new IndoorRoomMatch(IndoorRoomMatchStatus.NoMatch)
-                : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match);
+                : new IndoorRoomMatch(IndoorRoomMatchStatus.Matched, match, hasRoomIdentifier);
         }
 
         /// <summary>

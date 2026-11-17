@@ -154,13 +154,13 @@ namespace IndoorAr
             if (State == IndoorArState.Localizing) _noPose = true;
         }
 
-        public void OnSignConfirmed(IndoorRoomLandmark room)
+        public void OnSignConfirmed(IndoorRoomLandmark room, bool hasRoomIdentifier = false)
         {
             if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;
             SignRoom = room;
             _signSuperseded = false;
             if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
-                || Request.LocalizeOnly
+                || Request.LocalizeOnly || !hasRoomIdentifier
                 || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
                 || !string.Equals(LiveDoorHud.RoomLabel(Request.doorKey), LiveDoorHud.RoomLabel(room.Id),
                     StringComparison.OrdinalIgnoreCase)) return;

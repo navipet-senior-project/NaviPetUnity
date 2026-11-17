@@ -341,7 +341,7 @@ namespace IndoorAr
             if (match?.Status == IndoorRoomMatchStatus.Matched && _signs.InView(now)
                 && match.Landmark.Id == _signs.Confirmed.Id)
             {
-                _session.OnSignConfirmed(_signs.Confirmed);
+                _session.OnSignConfirmed(_signs.Confirmed, _signs.HasConfirmedRoomIdentifier);
                 if (_session.State == IndoorArState.Arrived)
                 {
                     UpdateSignOcr();
@@ -574,7 +574,8 @@ namespace IndoorAr
                 var destination = new Vector3(door.x, door.y, door.z);
                 var directory = DirectoryJson;
                 var landings = IndoorRoomIdentityMatcher.FloorConnectors(directory, destinationFloor);
-                landings.RemoveAll(landing => !_walkGrid.TryRoute(landing.PositionInMap, destination, out _));
+                landings.RemoveAll(landing => !_walkGrid.TryRoute(landing.PositionInMap, destination, out var onward)
+                    || !_walkGrid.TryNextWaypoint(onward, landing.PositionInMap, LiveDoorHud.RouteLookAheadM, out _));
                 _connectors = IndoorRoomIdentityMatcher.FloorConnectors(directory, here).FindAll(connector =>
                 {
                     var stem = connector.Type == "stairs" ? "VECstairsF" : "VECelev";
@@ -586,7 +587,8 @@ namespace IndoorAr
                 });
             }
             foreach (var (_, type, at) in _connectors)
-                if (hereGrid.TryRoute(cameraInMap, at, out var route)
+                if (hereGrid.IsWalkable(hereGrid.ColumnOf(at.x), hereGrid.RowOf(at.z))
+                    && hereGrid.TryRoute(cameraInMap, at, out var route)
                     && (_route == null || IndoorWalkGrid.LengthM(route) < IndoorWalkGrid.LengthM(_route)))
                 {
                     _route = route;
@@ -635,9 +637,6 @@ namespace IndoorAr
                 _pinMapPoint = mapPoint;
             }
             _pin.position = IndoorHud.EasePin(_pin.position, at, ref _pinTarget, ref _pinVelocity, Time.unscaledDeltaTime);
-            var direction = _pin.position - arCamera.transform.position;
-            direction.y = 0f;
-            if (direction.sqrMagnitude > 0.0001f) _pin.rotation = Quaternion.LookRotation(direction);
             view.WorldPin = _pin;
             view.LabelAnchor = PinLabelAnchor(_pin);
             if (connector)

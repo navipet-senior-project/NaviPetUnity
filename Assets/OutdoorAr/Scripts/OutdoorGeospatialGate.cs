@@ -156,6 +156,9 @@ namespace OutdoorAr
         public static bool CanGuide(OutdoorArState state) =>
             state == OutdoorArState.Ready || state == OutdoorArState.Approximate;
 
+        public static bool CanKeepGuidanceAnchor(OutdoorArState state) =>
+            CanGuide(state) || state is OutdoorArState.VpsCheckRequired or OutdoorArState.VpsCheckFailed;
+
         public static bool CanArrive(bool precise, double distanceM) =>
             precise && !double.IsNaN(distanceM) && !double.IsInfinity(distanceM)
             && distanceM >= 0 && distanceM <= ArrivalRadiusM;

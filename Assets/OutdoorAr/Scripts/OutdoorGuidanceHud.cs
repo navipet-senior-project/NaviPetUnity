@@ -16,7 +16,7 @@ namespace OutdoorAr
         // Mean of the four surveyed corners in vec_building_corners.json.
         public const double VecLatitude = 33.78282420612733;
         public const double VecLongitude = -118.11040173365433;
-        static readonly Regex VecName = new Regex(@"\AVEC(?:\s*[0-9]{3}|\s*·\s*Room\s+[0-9]{3})?\z",
+        static readonly Regex VecName = new Regex(@"\AVEC(?:[ \t]*[0-9]{3})?\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         public static (string Building, double Latitude, double Longitude) PinTarget(IndoorArDestination destination)
@@ -34,18 +34,23 @@ namespace OutdoorAr
             float readyForS, Vector3? labelAnchor, string arrivalFeedback = null,
             string pinBuilding = null, double pinDistanceM = double.NaN)
         {
+            var destination = Name(request);
+            var pinName = pinBuilding == null ? destination : pinBuilding + " building center";
+            var hasPinDistance = hasPose && labelAnchor.HasValue && !double.IsNaN(pinDistanceM);
+            var pending = !labelAnchor.HasValue && !arrived && (OutdoorGeospatialGate.CanGuide(state)
+                || state is OutdoorArState.VpsCheckRequired or OutdoorArState.TrackingUncertain);
             var view = new IndoorHudView
             {
                 Outdoor = true,
-                Destination = Name(request),
-                PinLabel = double.IsNaN(pinDistanceM) ? null
-                    : (pinBuilding ?? Name(request)) + " · " + IndoorHud.DistanceLabel(pinDistanceM),
-                PinScreenHeight = PinHeight(pinDistanceM),
+                Destination = destination,
+                PinLabel = pending ? pinName + " · Pin unplaced" : !labelAnchor.HasValue ? null
+                    : hasPinDistance ? pinName + " · " + IndoorHud.DistanceLabel(pinDistanceM) : pinName,
+                PinScreenHeight = hasPinDistance ? PinHeight(pinDistanceM) : .20f,
                 FollowingRoute = request.HasRoute,
                 OffRoute = offRoute,
                 ArrowYaw = (float)turnDeg,
                 LabelAnchor = labelAnchor,
-                DistanceM = request.HasRoute ? routeRemainingM : distanceM
+                DistanceM = !hasPose ? double.NaN : request.HasRoute ? routeRemainingM : distanceM
             };
             if (arrived) view.State = IndoorHudState.Arrived;
             else if (hasPose)
@@ -59,7 +64,6 @@ namespace OutdoorAr
             else
             {
                 view.State = state == OutdoorArState.VpsCheckFailed ? IndoorHudState.NotFound : IndoorHudState.Scanning;
-                view.LabelAnchor = null;
                 if (state == OutdoorArState.VpsUnavailable)
                 {
                     view.TitleOverride = "No outdoor AR coverage here";

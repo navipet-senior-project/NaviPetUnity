@@ -155,7 +155,6 @@ namespace OutdoorAr
                 }
                 if (_terrainPromise != null && _terrainPromise.State != PromiseState.Pending)
                 {
-                    // The HUD arrow needs no anchor, so a failed terrain anchor only drops the pin label.
                     if (_terrainPromise.State == PromiseState.Done
                         && _terrainPromise.Result.TerrainAnchorState == TerrainAnchorState.Success
                         && _terrainPromise.Result.Anchor != null)
@@ -167,10 +166,9 @@ namespace OutdoorAr
                 }
             }
 
-            // A hosted session guides on approximate accuracy too, labelled so; the pin and the standalone marker need precise.
             if (!(_request != null ? readiness.CanGuide : readiness.CanPlaceGuidanceAnchor))
             {
-                ClearAnchor();
+                if (_request == null || !OutdoorGeospatialGate.CanKeepGuidanceAnchor(readiness.State)) ClearAnchor();
                 _distanceM = double.NaN;
                 _readyFor = 0f;
                 UpdateHud(false);
@@ -377,6 +375,12 @@ namespace OutdoorAr
 
         void ClearAnchor()
         {
+            if (_terrainPromise != null)
+            {
+                if (_terrainPromise.State == PromiseState.Pending) _terrainPromise.Cancel();
+                else if (_terrainPromise.State == PromiseState.Done) _anchor = _terrainPromise.Result.Anchor;
+            }
+            _terrainPromise = null;
             if (_anchor != null) Destroy(_anchor.gameObject);
             _anchor = null;
             _pinPosition = null;
@@ -414,7 +418,7 @@ namespace OutdoorAr
             if (_hud == null || _finished) return;
             Vector3? anchor = null;
             var pinDistance = double.NaN;
-            if (hasPose && _anchor != null && _anchor.trackingState == TrackingState.Tracking)
+            if (_anchor != null && _anchor.trackingState == TrackingState.Tracking)
             {
                 var fix = _anchor.transform.position;
                 if (!_pinPosition.HasValue)
@@ -424,8 +428,11 @@ namespace OutdoorAr
                 }
                 anchor = _pinPosition = IndoorHud.EasePin(_pinPosition.Value, fix, ref _pinTarget, ref _pinVelocity,
                     Time.unscaledDeltaTime);
-                var pose = readiness.CurrentPose;
-                pinDistance = OutdoorGeospatialGate.DistanceM(pose.Latitude, pose.Longitude, _building.Latitude, _building.Longitude);
+                if (hasPose)
+                {
+                    var pose = readiness.CurrentPose;
+                    pinDistance = OutdoorGeospatialGate.DistanceM(pose.Latitude, pose.Longitude, _building.Latitude, _building.Longitude);
+                }
             }
             _hud.Show(OutdoorGuidanceHud.Compose(_request, readiness.State, hasPose, _arrived, _distanceM,
                 _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor, _arrivalFeedback, _building.Building,
