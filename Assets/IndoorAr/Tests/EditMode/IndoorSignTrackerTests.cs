@@ -6,7 +6,7 @@ using UnityEngine;
 public class IndoorSignTrackerTests
 {
     static readonly string VecDirectory = File.ReadAllText(
-        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
 
     static IndoorRoomMatch Read(string text) => IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
 

@@ -45,7 +45,7 @@ public class IndoorRoomMlKitOcrTests
         void Record(string _, IndoorRoomMatch match, float startedAt, IndoorSignObservation seen) =>
             adapter.Results.Add((match, startedAt, seen));
         var directory = new TextAsset(File.ReadAllText(Path.Combine(
-            Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json")));
+            Application.dataPath, "IndoorNavigation/Data/vec_floors123.json")));
         if (ios)
         {
             var ocr = host.AddComponent<IndoorRoomMlKitOcr>();
@@ -209,7 +209,7 @@ public class IndoorRoomMlKitOcrTests
         {
             var ocr = host.AddComponent<IndoorRoomMlKitOcr>();
             var directory = new TextAsset(File.ReadAllText(Path.Combine(
-                Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json")));
+                Application.dataPath, "IndoorNavigation/Data/vec_floors123.json")));
             ocr.Configure(null, directory);
             string text = null;
             IndoorRoomMatch match = null;

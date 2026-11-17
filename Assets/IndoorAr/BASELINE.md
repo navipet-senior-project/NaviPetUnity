@@ -31,4 +31,4 @@ These numbers are not produced by this instrumentation. Do not fill them in from
 
 Use one phone for a series. Same door, same network, commit recorded. Stand in a hallway the map contains, start from the chest, one slow sweep. Repeat. Log the attempt index. Do not log the token, the raw pose, or `MultiSetConfig`.
 
-Offline control in `MultiSet` mode: airplane mode should return `NETWORK` before a VPS call, with `attempts=0`. In the default `SignFirst` mode with OCR enabled, scanning continues without MultiSet authentication; see [fallback behavior](OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified).
+Offline control in `MultiSet` mode: airplane mode should return `NETWORK` before a VPS call, with `attempts=0`. In the optional `SignFirst` calibration mode with OCR enabled, scanning continues without MultiSet authentication; see [fallback behavior](OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified).

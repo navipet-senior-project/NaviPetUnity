@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -24,15 +25,19 @@ namespace IndoorAr
         [SerializeField] Camera arCamera;
         // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
         [SerializeField] bool signLocalization = true;
-        // SignFirst names the room from signs and gives heading-free directions from it, poses the map only from a
-        // sign validated on this device, and asks MultiSet only after the sign hold; no sign is validated yet.
-        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.SignFirst;
+        // The shipped scene gets its pose from MultiSet. SignFirst remains available for calibration.
+        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.MultiSet;
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
         string _requestJson;
         bool _started;
         Transform _pin;
+        Vector3 _pinTarget;
+        Vector3 _pinVelocity;
+        int _pinFloor;
+        Vector3 _pinMapPoint;
+        Vector3 _connectorPosition;
         IndoorHud _hud;
         float _pinnedFor;
         float _failureLeft = -1f;
@@ -72,12 +77,9 @@ namespace IndoorAr
         bool _floorUnknown;
         int _hereFloor;
         // Supported floors, parsed once per session: routing and both pose gates read them every frame.
-        IndoorWalkGrid _floor1Grid;
-        IndoorWalkGrid _floor2Grid;
-        List<(string Type, Vector3 PositionInMap)> _connectors;
-        // Heading-free directions from the last confirmed room sign, routed once per room.
-        IndoorRoomLandmark _directionsRoom;
-        string _roomDirections;
+        Dictionary<int, IndoorWalkGrid> _grids;
+        (int Floor, float Y)[] _floorHeights;
+        List<(string Id, string Type, Vector3 PositionInMap)> _connectors;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -96,10 +98,12 @@ namespace IndoorAr
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
             if (localizerBehaviour is MultiSetLocalizer multiSet)
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
-            _signCalibration ??= IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text);
             if (localizationMode == IndoorLocalizationMode.SignFirst)
+            {
+                _signCalibration ??= IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text);
                 _localizer = _signFirst = new SignFirstLocalizer(_localizer, _signCalibration, signLocalization)
                     { CandidatePoseValidator = IsCandidateSignPoseAllowed };
+            }
             ArCameraDiagnostics.Attach();
             _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();
             _iosOcr = GetComponent<IndoorRoomMlKitOcr>();
@@ -170,11 +174,10 @@ namespace IndoorAr
                     Deliver(IndoorArContract.Unavailable(0, 0));
                 return;
             }
-            _session = new IndoorArSession(request, _localizer.MapCode, signLocalization);
+            _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
-            var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid")?.text;
-            _floor1Grid = IndoorWalkGrid.ForFloor(gridJson, 1);
-            _floor2Grid = IndoorWalkGrid.ForFloor(gridJson, 2);
+            _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);
+            _floorHeights = _grids.Select(entry => (entry.Key, entry.Value.FloorY)).ToArray();
             _walkGrid = int.TryParse(request.floor, out var floor) ? Grid(floor) : null;
             _route = null;
             _routeTried = false;
@@ -183,8 +186,6 @@ namespace IndoorAr
             _routeWrongFloor = false;
             _floorUnknown = false;
             _hereFloor = 0;
-            _directionsRoom = null;
-            _roomDirections = null;
             _baseline = new IndoorArBaseline();
             _baselineLog = null;
             _baseline.NoteSessionOpened(NowMs());
@@ -234,7 +235,7 @@ namespace IndoorAr
             if (_session.State == IndoorArState.Pinned)
             {
                 _pinnedFor += Time.unscaledDeltaTime;
-                _session.OnTrackedPose(CameraInMap().y, Floor1Y, Floor2Y);
+                _session.OnTrackedPose(CameraInMap().y, _floorHeights);
             }
             else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
@@ -246,7 +247,6 @@ namespace IndoorAr
                 if (!Application.isEditor)
                     Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)} attempts={_session.Queries} multisetFallback={MultiSetFallbackStatus()}");
             }
-            UpdatePin();
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
             if ((LiveDoorHud.AuthFailed(_session) || LiveDoorHud.StepFreeUnavailable(_session)) && _failureLeft < 0f)
                 _failureLeft = Application.isEditor ? 0f : 4f;
@@ -342,6 +342,12 @@ namespace IndoorAr
                 && match.Landmark.Id == _signs.Confirmed.Id)
             {
                 _session.OnSignConfirmed(_signs.Confirmed);
+                if (_session.State == IndoorArState.Arrived)
+                {
+                    UpdateSignOcr();
+                    UpdateHud();
+                    return;
+                }
                 if (_session.State == IndoorArState.Pinned && RejectMultiSetFloorConflict(CameraInMap()))
                     _session.OnTrackingLost();
                 _session.OnSignInView();
@@ -355,8 +361,8 @@ namespace IndoorAr
             var fromMultiSet = localizationMode == IndoorLocalizationMode.MultiSet
                 || _signFirst != null && !_signFirst.FromSigns;
             if (!fromMultiSet) return false;
-            if (!_session.PoseConflictsWithSign(cameraInMap.y, Floor1Y, Floor2Y)) return false;
-            var poseFloor = _session.PoseFloor(cameraInMap.y, Floor1Y, Floor2Y);
+            if (!_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights)) return false;
+            var poseFloor = _session.PoseFloor(cameraInMap.y, _floorHeights);
             var pose = poseFloor == -1 ? "unsupported" : poseFloor == 0 ? "unknown" : poseFloor.ToString();
             Debug.Log($"[IndoorAr] floor conflict sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose={pose}");
             if (_session.State == IndoorArState.Localizing) _session.OnNotLocalized();
@@ -367,12 +373,10 @@ namespace IndoorAr
         bool IsCandidateSignPoseAllowed(Vector3 cameraInMap)
         {
             if (_session == null || _session.State is not (IndoorArState.Localizing or IndoorArState.Pinned)) return false;
-            return !_session.PoseConflictsWithSign(cameraInMap.y, Floor1Y, Floor2Y);
+            return !_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights);
         }
 
-        IndoorWalkGrid Grid(int floor) => floor == 1 ? _floor1Grid : floor == 2 ? _floor2Grid : null;
-        float Floor1Y => _floor1Grid != null ? _floor1Grid.FloorY : float.NaN;
-        float Floor2Y => _floor2Grid != null ? _floor2Grid.FloorY : float.NaN;
+        IndoorWalkGrid Grid(int floor) => _grids.GetValueOrDefault(floor);
 
         bool IsCandidateMultiSetPoseAllowed(Transform candidateMapSpace)
         {
@@ -425,9 +429,11 @@ namespace IndoorAr
         void PostStatus()
         {
             if (_session == null || _delivered) return;
-            var localized = _session.State is IndoorArState.Pinned or IndoorArState.Arrived;
+            var localized = _session.State == IndoorArState.Pinned
+                || _session.State == IndoorArState.Arrived && !_session.ArrivedBySign;
             var tracking = ARSession.state == ARSessionState.SessionTracking;
-            var fallback = _session.State != IndoorArState.Done && !_session.FallbackExpired && (_signFirst != null
+            var fallback = _session.State is not (IndoorArState.Done or IndoorArState.Arrived) && !_session.FallbackExpired
+                && (_signFirst != null
                 ? _signFirst.FallbackAvailable : localizerBehaviour is MultiSetLocalizer multiSet && multiSet.FallbackAvailable);
             var room = _session.SignRoom;
             var key = $"{_session.State}|{tracking}|{room?.Id}|{localized}|{fallback}";
@@ -459,11 +465,18 @@ namespace IndoorAr
             if (_session.State == IndoorArState.Done
                 && !LiveDoorHud.LocalizationFailed(_session)
                 && !LiveDoorHud.AuthFailed(_session)
-                && !LiveDoorHud.StepFreeUnavailable(_session)) return;
-            var route = Route(CameraInMap());
-            var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor, route,
-                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), RoomDirections());
-            if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
+                && !LiveDoorHud.StepFreeUnavailable(_session))
+            {
+                if (_pin != null) _pin.gameObject.SetActive(false);
+                return;
+            }
+            var cameraInMap = CameraInMap();
+            var route = Route(cameraInMap);
+            var currentFloor = _session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived
+                ? _session.CurrentFloor(cameraInMap.y, _floorHeights) : 0;
+            var view = LiveDoorHud.Compose(_session, cameraInMap, CameraForwardInMap(), _pinnedFor, route,
+                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), currentFloor);
+            UpdatePin(view, currentFloor);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
                 && _signs != null && _signs.InView(Time.unscaledTime))
@@ -473,8 +486,7 @@ namespace IndoorAr
             if (view.State == IndoorHudState.Scanning)
             {
                 view.ScanTooFast = SampleScanMotion();
-                // Slow-down wins, except over room directions the user is walking by.
-                if (view.ScanTooFast && (_roomDirections == null || view.DetailOverride != _roomDirections))
+                if (view.ScanTooFast)
                     view.TitleOverride = view.DetailOverride = null;
             }
             else
@@ -511,7 +523,7 @@ namespace IndoorAr
                 _routeWrongFloor = false;
                 return _route = null;
             }
-            var currentFloor = _session.CurrentFloor(cameraInMap.y, Floor1Y, Floor2Y);
+            var currentFloor = _session.CurrentFloor(cameraInMap.y, _floorHeights);
             var wrongFloor = _session.IsWrongFloor(currentFloor);
             if (currentFloor != _routeFloor) _routeTried = false;
             var moved = new Vector2(cameraInMap.x - _routeFrom.x, cameraInMap.z - _routeFrom.z).magnitude;
@@ -531,7 +543,8 @@ namespace IndoorAr
             else
             {
                 var door = _session.Request.position;
-                if (_walkGrid == null || !_walkGrid.TryRoute(cameraInMap, new Vector3(door.x, door.y, door.z), out _route)) _route = null;
+                if (door == null || _walkGrid == null || !_walkGrid.TryRoute(cameraInMap,
+                    new Vector3(door.x, door.y, door.z), out _route)) _route = null;
             }
             _routeFrom = cameraInMap;
             _routeTried = true;
@@ -545,39 +558,43 @@ namespace IndoorAr
             return _route;
         }
 
-        string RoomDirections()
-        {
-            var room = _session.SignRoom;
-            if (room == _directionsRoom) return _roomDirections;
-            _directionsRoom = room;
-            _roomDirections = room == null ? null : LiveDoorHud.RoomDirections(room, _session.Request, Grid(room.Floor),
-                IndoorRoomIdentityMatcher.FloorMarkers(DirectoryJson, room.Floor));
-            // Room and whether a route was found: no position, no text.
-            if (room != null && !Application.isEditor)
-                Debug.Log($"[IndoorAr] room directions room={room.Id} status={(_roomDirections == null ? "none" : "found")}");
-            return _roomDirections;
-        }
-
         string DirectoryJson => _iosOcr != null ? _iosOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null;
 
         /// <summary>Shortest scan-grid route on the user's floor to a directory stairs or elevator marker.</summary>
         void RouteToFloorChange(Vector3 cameraInMap, int here)
         {
             _route = null;
-            if (here is not (1 or 2)) return;
+            var hereGrid = Grid(here);
+            var door = _session.Request.position;
+            if (hereGrid == null || _walkGrid == null || door == null) return;
             if (_hereFloor != here)
             {
                 _hereFloor = here;
-                _connectors = IndoorRoomIdentityMatcher.FloorConnectors(DirectoryJson, here);
+                var destinationFloor = int.Parse(_session.Request.floor);
+                var destination = new Vector3(door.x, door.y, door.z);
+                var directory = DirectoryJson;
+                var landings = IndoorRoomIdentityMatcher.FloorConnectors(directory, destinationFloor);
+                // Elevator markers can sit in blocked cells: stand at the nearest walkable cell and check the exit from there.
+                landings.RemoveAll(landing => !_walkGrid.TryApproach(landing.PositionInMap, out var approach)
+                    || !_walkGrid.TryRoute(approach, destination, out var onward)
+                    || !_walkGrid.TryNextWaypoint(onward, approach, LiveDoorHud.RouteLookAheadM, out _));
+                _connectors = IndoorRoomIdentityMatcher.FloorConnectors(directory, here).FindAll(connector =>
+                {
+                    var stem = connector.Type == "stairs" ? "VECstairsF" : "VECelev";
+                    var prefix = stem + here;
+                    if (connector.Id == null || !connector.Id.StartsWith(prefix, System.StringComparison.Ordinal)
+                        || connector.Id.Length == prefix.Length) return false;
+                    var landingId = stem + destinationFloor + connector.Id.Substring(prefix.Length);
+                    return landings.Exists(landing => landing.Type == connector.Type && landing.Id == landingId);
+                });
             }
-            var hereGrid = Grid(here);
-            if (hereGrid == null) return;
-            foreach (var (type, at) in _connectors)
+            foreach (var (_, type, at) in _connectors)
                 if (hereGrid.TryRoute(cameraInMap, at, out var route)
                     && (_route == null || IndoorWalkGrid.LengthM(route) < IndoorWalkGrid.LengthM(_route)))
                 {
                     _route = route;
                     _floorChange = type;
+                    _connectorPosition = at;
                 }
         }
 
@@ -595,34 +612,43 @@ namespace IndoorAr
             return _slowHoldLeft > 0f;
         }
 
-        void UpdatePin()
+        void UpdatePin(IndoorHudView view, int currentFloor)
         {
-            // The pin stays behind the arrival card.
-            var pinned = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived) && !_session.Request.LocalizeOnly;
-            if (pinned && _pin == null)
+            var request = _session.Request;
+            var door = request.position;
+            var showing = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived && !_session.ArrivedBySign)
+                && !request.LocalizeOnly && !request.stepFree && door != null && currentFloor > 0 && _walkGrid != null;
+            var connector = showing && _session.IsWrongFloor(currentFloor);
+            if (connector && view.FloorChange == null) showing = false;
+            WatchMapSpace(showing);
+            if (!showing)
             {
-                var door = _session.Request;
-                _pin = CreatePin(_localizer.MapSpace, out _pinAmberMaterial, out _pinCoreMaterial);
-                _pin.localPosition = new Vector3(door.position.x, door.position.y, door.position.z);
-                _pin.localRotation = Quaternion.Euler(0f, door.headingDeg, 0f);
+                if (_pin != null) _pin.gameObject.SetActive(false);
+                return;
             }
-            WatchMapSpace(pinned);
-            if (_pin != null)
+
+            var mapPoint = connector ? _connectorPosition : new Vector3(door.x, door.y, door.z);
+            var at = _localizer.MapSpace.TransformPoint(mapPoint);
+            if (_pin == null || _pinFloor != currentFloor || _pinMapPoint != mapPoint)
             {
-                _pin.gameObject.SetActive(pinned);
-                if (pinned)
-                {
-                    var direction = _pin.position - arCamera.transform.position;
-                    direction.y = 0f;
-                    if (direction.sqrMagnitude > 0.0001f) _pin.rotation = Quaternion.LookRotation(direction);
-                }
+                _pin ??= CreatePin(null, out _pinAmberMaterial, out _pinCoreMaterial);
+                _pin.position = _pinTarget = at;
+                _pinVelocity = Vector3.zero;
+                _pinFloor = currentFloor;
+                _pinMapPoint = mapPoint;
             }
+            _pin.position = IndoorHud.EasePin(_pin.position, at, ref _pinTarget, ref _pinVelocity, Time.unscaledDeltaTime);
+            view.WorldPin = _pin;
+            view.LabelAnchor = PinLabelAnchor(_pin);
+            if (connector)
+                view.PinLabel = (view.FloorChange == "stairs" ? "Stairs" : "Elevator") + " · to Floor " + view.Floor
+                    + " · " + IndoorHud.DistanceLabel(view.DistanceM);
         }
 
         public const float MapShiftMeters = 0.02f;
         public const float MapShiftDegrees = 0.5f;
 
-        /// <summary>The pin is a MapSpace child, so it only moves in the world if MapSpace itself is re-posed.</summary>
+        /// <summary>Thresholds for logging changes to the MapSpace alignment.</summary>
         public static bool MapShifted(Vector3 was, Quaternion wasRotation, Vector3 now, Quaternion nowRotation,
             out float meters, out float degrees)
         {

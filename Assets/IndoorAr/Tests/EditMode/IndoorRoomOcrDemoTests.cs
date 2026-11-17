@@ -18,7 +18,7 @@ public class IndoorRoomOcrDemoTests
     public void RecognizedRoomTextUsesExistingVECMatcherAndReturnsNoPose()
     {
         var directory = File.ReadAllText(Path.Combine(
-            Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+            Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
         var host = new GameObject("OCR adapter test");
         try
         {
@@ -26,7 +26,7 @@ public class IndoorRoomOcrDemoTests
             IndoorRoomMatch actual = null;
             string actualText = null;
             demo.Configure(null, File.ReadAllText(Path.Combine(
-                Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json")));
+                Application.dataPath, "IndoorNavigation/Data/vec_floors123.json")));
             demo.Result += (text, match, _, _) => { actualText = text; actual = match; };
 
             demo.OnMlKitText(IndoorRoomMlKitOcrTests.Reply(demo, "VEC 119"));

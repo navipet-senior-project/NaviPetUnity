@@ -31,7 +31,7 @@ namespace IndoorAr
         void Refresh()
         {
             var view = MockIndoorRoute.Snapshot(state, floor, pin == null ? (Vector3?)null : IndoorArRunner.PinLabelAnchor(pin));
-            if (pin != null) pin.gameObject.SetActive(view.LabelAnchor.HasValue);
+            view.WorldPin = pin;
             _hud.Show(view);
             _previousState = state; _previousFloor = floor;
         }

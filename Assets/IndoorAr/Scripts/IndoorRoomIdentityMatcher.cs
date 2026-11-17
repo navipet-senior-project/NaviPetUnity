@@ -122,20 +122,31 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// Reads a whole sign frame: the full text or any single line may name a VEC door on
-        /// either floor. Two different rooms in one frame are Ambiguous, never a guess.
+        /// Reads a whole sign frame for a VEC door in the directory.
+        /// Two different rooms in one frame are Ambiguous, never a guess.
         /// </summary>
         public static IndoorRoomMatch MatchSign(string recognizedText, string vecDirectoryJson)
         {
             if (string.IsNullOrWhiteSpace(recognizedText))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            const RegexOptions labelOptions = RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant;
             var numbers = new HashSet<string>();
-            foreach (Match number in Regex.Matches(recognizedText,
-                         @"(?<![A-Za-z0-9_])(?:(?:ROOM|VEC)[ \t-]*)?([0-9]{3})(?![A-Za-z0-9_])",
-                         RegexOptions.IgnoreCase))
-                numbers.Add(number.Groups[1].Value);
-            if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            foreach (Match labels in Regex.Matches(recognizedText,
+                         @"^[ \t]*(?:(VEC|ROOM)(?:[ \t-]*|[ \t]*\r?\n[ \t]*)([0-9]{3})(?:[ \t]+|(?=\r?$)))+\r?$",
+                         labelOptions))
+            {
+                // A label that is the middle of a wrapped notice ("... FOR THIS / ROOM 119 / PERSONS") is a count, not a sign.
+                var before = recognizedText.Substring(0, labels.Index).TrimEnd();
+                var after = recognizedText.Substring(labels.Index + labels.Length).TrimStart();
+                const RegexOptions wholeText = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+                if (Regex.IsMatch(before, @"(?:^|\s)(?:for|this|the|of|in|to|that|a|an|per|maximum|occupancy|capacity|limit|code)$", wholeText)
+                    || Regex.IsMatch(after, @"^(?:persons|people|occupants|students|seats)\b", wholeText))
+                    continue;
+                foreach (Capture number in labels.Groups[2].Captures)
+                    numbers.Add(number.Value);
+            }
             if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
+            if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
 
             var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson ?? "");
             if (directory == null || string.IsNullOrWhiteSpace(directory.buildingId))
@@ -158,9 +169,8 @@ namespace IndoorAr
         /// <summary>
         /// Stairs and elevators on one floor, as the directory marks them, in the MapSet frame.
         /// </summary>
-        public static List<(string Type, Vector3 PositionInMap)> FloorConnectors(string vecDirectoryJson, int floor) =>
-            FloorMarkers(vecDirectoryJson, floor).FindAll(m => m.Type is "elevator" or "stairs")
-                .ConvertAll(m => (m.Type, m.PositionInMap));
+        public static List<(string Id, string Type, Vector3 PositionInMap)> FloorConnectors(string vecDirectoryJson, int floor) =>
+            FloorMarkers(vecDirectoryJson, floor).FindAll(m => m.Type is "elevator" or "stairs");
 
         /// <summary>Every directory marker on one floor (doors, stairs, elevators, ...), in the MapSet frame.</summary>
         public static List<(string Id, string Type, Vector3 PositionInMap)> FloorMarkers(string vecDirectoryJson, int floor)

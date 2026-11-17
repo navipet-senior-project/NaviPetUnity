@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace IndoorAr
@@ -49,6 +50,7 @@ namespace IndoorAr
         public string ResultJson { get; private set; }
         /// <summary>Last room sign confirmed by OCR. Room identity only; never a camera pose.</summary>
         public IndoorRoomLandmark SignRoom { get; private set; }
+        public bool ArrivedBySign { get; private set; }
         /// <summary>
         /// SignRoom while it is still evidence of the user's floor: null once continuously tracked motion from an
         /// accepted pose reached another supported floor, until a sign is confirmed again.
@@ -94,55 +96,55 @@ namespace IndoorAr
             WasPinned = true;
         }
 
-        public int CurrentFloor(float cameraY, float floor1Y, float floor2Y)
+        public int CurrentFloor(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
-            if (FloorSign != null) return FloorSign.Floor is 1 or 2 ? FloorSign.Floor : 0;
-            if (!ValidFloorHeights(floor1Y, floor2Y)) return 0;
-            var floor1 = cameraY - floor1Y;
-            var floor2 = cameraY - floor2Y;
-            var on1 = floor1 >= MinEyeHeightM && floor1 <= MaxEyeHeightM;
-            var on2 = floor2 >= MinEyeHeightM && floor2 <= MaxEyeHeightM;
-            return on1 == on2 ? 0 : on1 ? 1 : 2;
+            if (FloorSign == null) return Mathf.Max(0, PoseFloor(cameraY, floors));
+            var signFloor = FloorSign.Floor;
+            foreach (var (floor, _) in floors)
+                if (floor == signFloor) return floor;
+            return 0;
         }
 
-        public bool PoseConflictsWithSign(float cameraY, float floor1Y, float floor2Y)
+        public bool PoseConflictsWithSign(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
-            var poseFloor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
-            if (poseFloor <= 0) return true;
-            return FloorSign != null && FloorSign.Floor > 0
-                && poseFloor != FloorSign.Floor;
+            var poseFloor = PoseFloor(cameraY, floors);
+            return poseFloor <= 0 || FloorSign != null && FloorSign.Floor > 0 && poseFloor != FloorSign.Floor;
         }
 
-        public int PoseFloor(float cameraY, float floor1Y, float floor2Y) =>
-            CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+        /// <summary>The unique floor in the camera's eye-height band. Gaps and overlaps give 0, outside gives -1.</summary>
+        public int PoseFloor(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
+        {
+            var match = 0;
+            var low = float.PositiveInfinity;
+            var high = float.NegativeInfinity;
+            foreach (var (floor, floorY) in floors)
+            {
+                low = Mathf.Min(low, floorY);
+                high = Mathf.Max(high, floorY);
+                var eyeHeight = cameraY - floorY;
+                if (eyeHeight >= MinEyeHeightM && eyeHeight <= MaxEyeHeightM)
+                {
+                    if (match != 0) return 0;
+                    match = floor;
+                }
+            }
+            if (match == 0 && floors.Count > 0 && (cameraY < low + MinEyeHeightM || cameraY > high + MaxEyeHeightM))
+                return -1;
+            return match;
+        }
 
         /// <summary>
         /// Camera height under the accepted pose while tracking holds. Walking it to another supported floor supersedes
         /// the last sign's floor; between floors, outside them or across a tracking gap nothing changes.
         /// </summary>
-        public void OnTrackedPose(float cameraY, float floor1Y, float floor2Y)
+        public void OnTrackedPose(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
             if (State != IndoorArState.Pinned) return;
-            var floor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+            var floor = PoseFloor(cameraY, floors);
             if (floor <= 0) return;
             if (_trackedFloor > 0 && floor != _trackedFloor && FloorSign?.Floor != floor) _signSuperseded = true;
             _trackedFloor = floor;
         }
-
-        int CurrentPoseFloor(float cameraY, float floor1Y, float floor2Y)
-        {
-            if (!ValidFloorHeights(floor1Y, floor2Y)) return 0;
-            var floor1 = cameraY - floor1Y;
-            var floor2 = cameraY - floor2Y;
-            var on1 = floor1 >= MinEyeHeightM && floor1 <= MaxEyeHeightM;
-            var on2 = floor2 >= MinEyeHeightM && floor2 <= MaxEyeHeightM;
-            if (on1 != on2) return on1 ? 1 : 2;
-            return cameraY < floor1Y + MinEyeHeightM || cameraY > floor2Y + MaxEyeHeightM ? -1 : 0;
-        }
-
-        static bool ValidFloorHeights(float floor1Y, float floor2Y) =>
-            !float.IsNaN(floor1Y) && !float.IsInfinity(floor1Y)
-            && !float.IsNaN(floor2Y) && !float.IsInfinity(floor2Y);
 
         public void OnStepFreeUnverified() =>
             Finish(IndoorArContract.Unavailable(Queries, ElapsedMs, IndoorArContract.StepFreeUnverified));
@@ -154,9 +156,22 @@ namespace IndoorAr
 
         public void OnSignConfirmed(IndoorRoomLandmark room)
         {
-            if (State == IndoorArState.Done || room == null) return;
+            if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;
             SignRoom = room;
             _signSuperseded = false;
+            if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
+                || Request.LocalizeOnly
+                || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
+                || !string.Equals(LiveDoorHud.RoomLabel(Request.doorKey), LiveDoorHud.RoomLabel(room.Id),
+                    StringComparison.OrdinalIgnoreCase)) return;
+            // The sign identifies the destination itself. A host with the signArrival capability gets no distance;
+            // a legacy host still requires the field, so it keeps getting 0. signRoom records the evidence and
+            // confidence stays unset because this arrival has no distance measurement.
+            _arrivalDistance = 0f;
+            _confidence = null;
+            ArrivedBySign = true;
+            State = IndoorArState.Arrived;
+            FallbackStopped?.Invoke();
         }
 
         /// <summary>
@@ -218,14 +233,16 @@ namespace IndoorAr
         /// <param name="cameraInMap">Camera position in the MapSet frame.</param>
         public void ImHere(Vector3 cameraInMap)
         {
-            if (State != IndoorArState.Pinned || Request.LocalizeOnly) return;
+            if (State != IndoorArState.Pinned || Request.LocalizeOnly || Request.position == null || Request.stepFree) return;
             _arrivalDistance = HorizontalDistance(cameraInMap);
             State = IndoorArState.Arrived;
         }
 
         public void ConfirmArrival()
         {
-            if (State == IndoorArState.Arrived)
+            if (State == IndoorArState.Arrived && ArrivedBySign && Request.SupportsSignArrival)
+                Finish(IndoorArContract.ArrivedBySign(Queries, ElapsedMs));
+            else if (State == IndoorArState.Arrived)
                 Finish(IndoorArContract.Arrived(_arrivalDistance, Queries, ElapsedMs, _confidence));
         }
 
