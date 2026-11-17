@@ -61,6 +61,10 @@ public class IndoorRoomIdentityMatcherTests
     [TestCase("VEC 215", "VEC215", "floor_2")]
     [TestCase("ROOM\nVEC 120\nCLASSROOM", "VEC120", "floor_1")]
     [TestCase("ROOM\r\n120", "VEC120", "floor_1")]
+    [TestCase("VEC 119\nMAXIMUM OCCUPANCY 215", "VEC119", "floor_1")]
+    [TestCase("VEC 215\nMAXIMUM OCCUPANCY\nROOM 119\nPERSONS", "VEC215", "floor_2")]
+    [TestCase("VEC 301\nMAXIMUM OCCUPANCY 119", "VEC301", "floor_3")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS\nROOM\n119\nPERSONS\nVEC\n301", "VEC301", "floor_3")]
     public void SignMatchesAnyFloorFromAnyLine(string text, string id, string floor)
     {
         var result = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
@@ -101,7 +105,7 @@ public class IndoorRoomIdentityMatcherTests
     }
 
     [TestCase("VEC 119 VEC 120")]
-    [TestCase("119 120")]
+    [TestCase("VEC 119 ROOM 120")]
     public void SignWithTwoRoomsOnOneLineIsAmbiguous(string text)
     {
         Assert.AreEqual(IndoorRoomMatchStatus.Ambiguous,
@@ -132,8 +136,12 @@ public class IndoorRoomIdentityMatcherTests
     }
 
     [TestCase("119")]
+    [TestCase("119 120")]
     [TestCase("MAXIMUM OCCUPANCY FOR THIS ROOM\n119")]
     [TestCase("MAXIMUM OCCUPANCY FOR THIS ROOM\n119 PERSONS")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS\nROOM\n119\nPERSONS")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS\nROOM 119\nPERSONS")]
+    [TestCase("ROOM\n119\nPERSONS")]
     [TestCase("THIS ROOM 119")]
     [TestCase("ROOM 119 PERSONS")]
     public void TextWithoutACompleteRoomLabelCannotIdentifyAFloor(string text)

@@ -351,6 +351,7 @@ namespace IndoorAr
             var pinWidth = pinHeight * .72f;
             var at = rect.center + Vector2.up * 72f;
             var labelAt = view.Outdoor ? at + Vector2.up * pinHeight : at;
+            var pinAngle = 0f;
             var showScreenPin = view.Outdoor;
             if (hasAnchor)
             {
@@ -389,6 +390,8 @@ namespace IndoorAr
                         screen.y = 2f * viewport.center.y - screen.y;
                     }
                     var edge = DockPin(screen, viewport);
+                    var edgeAt = ToHud(edge);
+                    pinAngle = Vector2.SignedAngle(Vector2.up, ToHud(viewport.center) - edgeAt);
                     var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(labelWidth, pinWidth) * .5f + 24f);
                     var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
                     var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
@@ -405,7 +408,6 @@ namespace IndoorAr
                         var overshoot = Mathf.Max(Mathf.Abs(screen.x - edge.x) / Mathf.Max(1f, viewport.width),
                             Mathf.Abs(screen.y - edge.y) / Mathf.Max(1f, viewport.height));
                         var blend = Mathf.SmoothStep(0f, 1f, overshoot / .12f);
-                        var edgeAt = ToHud(edge);
                         labelAt = Vector2.Lerp(labelAt + (edgeAt - at), dockedLabel, blend);
                         at = Vector2.Lerp(edgeAt, dockedAt, blend);
                     }
@@ -417,7 +419,7 @@ namespace IndoorAr
             var maxLabelY = Mathf.Max(rect.yMin, rect.yMax - labelHeight);
             if (labelAt.y > maxLabelY)
             {
-                var belowPin = Mathf.Clamp(at.y - labelHeight - labelGap, rect.yMin, maxLabelY);
+                var belowPin = Mathf.Clamp(at.y - pinHeight - labelHeight - labelGap, rect.yMin, maxLabelY);
                 var blend = Mathf.SmoothStep(0f, 1f, (labelAt.y - maxLabelY) / (pinHeight + labelHeight));
                 labelAt.y = Mathf.Lerp(maxLabelY, belowPin, blend);
             }
@@ -430,6 +432,7 @@ namespace IndoorAr
             _screenPin.gameObject.SetActive(showScreenPin);
             _screenPin.sizeDelta = new Vector2(pinWidth, pinHeight);
             _screenPin.anchoredPosition = at;
+            _screenPin.localEulerAngles = new Vector3(0f, 0f, pinAngle);
         }
 
         public static Vector2 DockPin(Vector2 projected, Rect limits)

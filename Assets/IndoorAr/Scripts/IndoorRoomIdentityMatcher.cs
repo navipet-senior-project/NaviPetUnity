@@ -129,16 +129,21 @@ namespace IndoorAr
         {
             if (string.IsNullOrWhiteSpace(recognizedText))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            const RegexOptions labelOptions = RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant;
+            var hasOccupancyText = Regex.IsMatch(recognizedText, @"\b(?:occupancy|capacity|persons|occupants|people)\b", labelOptions);
             var numbers = new HashSet<string>();
-            foreach (Match number in Regex.Matches(recognizedText,
-                         @"(?<![A-Za-z0-9_])(?:(?:ROOM|VEC)[ \t-]*)?([0-9]{3})(?![A-Za-z0-9_])",
-                         RegexOptions.IgnoreCase))
-                numbers.Add(number.Groups[1].Value);
+            foreach (Match labels in Regex.Matches(recognizedText,
+                         @"^[ \t]*(?:(VEC|ROOM)(?:[ \t-]*|[ \t]*\r?\n[ \t]*)([0-9]{3})(?:[ \t]+|(?=\r?$)))+\r?$",
+                         labelOptions))
+            {
+                var prefixes = labels.Groups[1].Captures;
+                var roomNumbers = labels.Groups[2].Captures;
+                for (var i = 0; i < roomNumbers.Count; i++)
+                    if (!hasOccupancyText || string.Equals(prefixes[i].Value, "VEC", StringComparison.OrdinalIgnoreCase))
+                        numbers.Add(roomNumbers[i].Value);
+            }
             if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
-            if (numbers.Count == 0 || !Regex.IsMatch(recognizedText,
-                    @"^[ \t]*(?:ROOM|VEC)(?:[ \t-]*|[ \t]*\r?\n[ \t]*)[0-9]{3}[ \t]*\r?$",
-                    RegexOptions.IgnoreCase | RegexOptions.Multiline))
-                return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
+            if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
 
             var directory = JsonUtility.FromJson<VecDirectory>(vecDirectoryJson ?? "");
             if (directory == null || string.IsNullOrWhiteSpace(directory.buildingId))

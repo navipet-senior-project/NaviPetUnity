@@ -1363,8 +1363,8 @@ public class IndoorArRunnerTests
         var directory = System.IO.File.ReadAllText(
             System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
         var started = Field<float>(runner, "_sessionStarted");
-        const string occupancy = "MAXIMUM OCCUPANCY FOR THIS ROOM\n119 PERSONS";
-        foreach (var text in new[] { occupancy, occupancy, "119", "119", "VEC\n119" })
+        const string occupancy = "MAXIMUM OCCUPANCY FOR THIS\nROOM\n119\nPERSONS";
+        foreach (var text in new[] { occupancy, occupancy, "119", "119" })
         {
             Call(runner, "OnSignRead", text, IndoorRoomIdentityMatcher.MatchSign(text, directory), started, null);
             Assert.AreEqual(IndoorArState.Localizing, session.State);
@@ -1374,6 +1374,22 @@ public class IndoorArRunnerTests
         var floorThreeEyeHeight = floors.Single(f => f.Floor == 3).Y + 1.5f;
         Assert.IsFalse(session.PoseConflictsWithSign(floorThreeEyeHeight, floors));
         Assert.AreEqual(3, session.CurrentFloor(floorThreeEyeHeight, floors));
+
+        const string floorThreePlacard = "VEC 301\nMAXIMUM OCCUPANCY 119";
+        var floorThreeMatch = IndoorRoomIdentityMatcher.MatchSign(floorThreePlacard, directory);
+        Call(runner, "OnSignRead", floorThreePlacard, floorThreeMatch, started, null);
+        Call(runner, "OnSignRead", floorThreePlacard, floorThreeMatch, started, null);
+        Call(runner, "UpdateHud");
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual("VEC301", session.FloorSign?.Id);
+        Assert.IsFalse(session.PoseConflictsWithSign(floorThreeEyeHeight, floors));
+        Assert.IsTrue(session.PoseConflictsWithSign(floors.Single(f => f.Floor == 1).Y + 1.5f, floors));
+        CollectionAssert.Contains(Labels(runner), "You're on Floor 3");
+        CollectionAssert.Contains(Labels(runner), "VEC 119 is on Floor 1");
+
+        const string firstRead = "VEC\n119";
+        Call(runner, "OnSignRead", firstRead, IndoorRoomIdentityMatcher.MatchSign(firstRead, directory), started, null);
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
         Call(runner, "OnSignRead", "ROOM 119", IndoorRoomIdentityMatcher.MatchSign("ROOM 119", directory), started, null);
         Assert.AreEqual(IndoorArState.Arrived, session.State);
         Assert.IsNull(Field<Vector3[]>(runner, "_route"));

@@ -239,6 +239,9 @@ namespace IndoorAr.Tests
         [TestCase(.5f, -.25f)]
         [TestCase(.5f, 1.25f)]
         [TestCase(-.25f, 1.25f)]
+        [TestCase(1.25f, 1.25f)]
+        [TestCase(-.25f, -.25f)]
+        [TestCase(1.25f, -.25f)]
         public void VisibleTipsStayProjectedAndDockSmoothlyInBothDirections(float x, float y)
         {
             var cameraObject = new GameObject("Camera", typeof(Camera));
@@ -289,11 +292,15 @@ namespace IndoorAr.Tests
                     Assert.That(Vector2.Distance(visiblePin, pin.anchoredPosition), Is.LessThan(12f));
                     Assert.That(Vector2.Distance(visibleLabel, pill.anchoredPosition), Is.LessThan(12f));
                     AssertLabelFits(area, pill);
+                    AssertPinCoreVisible(camera, pin);
 
+                    ShowAt(edge + step * 50f);
+                    AssertPinCoreVisible(camera, pin);
                     ShowAt(offscreen);
                     Assert.AreEqual(view.Destination, label.text);
                     Assert.That(Vector2.Distance(visiblePin, pin.anchoredPosition), Is.GreaterThan(12f));
                     AssertLabelFits(area, pill);
+                    AssertPinCoreVisible(camera, pin);
                     if (x > 1f)
                     {
                         var inset = Mathf.Max(pill.rect.width, pin.rect.width) * .5f + 24f;
@@ -301,6 +308,7 @@ namespace IndoorAr.Tests
                     }
                     ShowAt(edge + step);
                     Assert.That(Vector2.Distance(visiblePin, pin.anchoredPosition), Is.LessThan(12f));
+                    AssertPinCoreVisible(camera, pin);
                     ShowAt(edge - step);
                     Assert.AreEqual(visiblePin, pin.anchoredPosition);
                     Assert.AreEqual(visibleLabel, pill.anchoredPosition);
@@ -313,6 +321,17 @@ namespace IndoorAr.Tests
                 Object.DestroyImmediate(root);
                 Object.DestroyImmediate(cameraObject);
             }
+        }
+
+        static void AssertPinCoreVisible(Camera camera, RectTransform pin)
+        {
+            var sprite = pin.GetComponent<Image>().sprite;
+            var texel = new Vector2Int(sprite.texture.width / 2, Mathf.FloorToInt(sprite.texture.height * .65f));
+            Assert.That(sprite.texture.GetPixel(texel.x, texel.y).a, Is.GreaterThan(.9f));
+            var uv = new Vector2((texel.x + .5f) / sprite.texture.width, (texel.y + .5f) / sprite.texture.height);
+            var point = pin.TransformPoint(pin.rect.min + Vector2.Scale(pin.rect.size, uv));
+            Assert.IsTrue(camera.pixelRect.Contains(RectTransformUtility.WorldToScreenPoint(null, point)),
+                "The docked pin core must be inside the camera viewport.");
         }
 
         [TestCase(.05f)]
