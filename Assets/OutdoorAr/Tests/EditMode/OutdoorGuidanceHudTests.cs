@@ -20,6 +20,30 @@ namespace OutdoorAr.Tests
             bool pose = true, bool arrived = false, float readyFor = 5f, double distance = 80, double turn = 30) =>
             OutdoorGuidanceHud.Compose(request, state, pose, arrived, distance, 120, turn, false, readyFor, null);
 
+        [TestCase("VEC217")]
+        [TestCase("VEC 217")]
+        [TestCase("VEC · Room 217")]
+        public void VecPinTargetsBuildingCenterAndNamesTheRoom(string name)
+        {
+            var request = Request(name);
+            var target = OutdoorGuidanceHud.PinTarget(request.destination);
+            Assert.AreEqual(33.78282420612733, target.Latitude, 1e-9);
+            Assert.AreEqual(-118.11040173365433, target.Longitude, 1e-9);
+            var view = OutdoorGuidanceHud.Compose(request, OutdoorArState.Ready, true, false, 50, 60, 0,
+                false, 5f, Vector3.forward, pinBuilding: target.Building, topLabel: target.TopLabel, pinDistanceM: 30);
+            Assert.AreEqual("VEC · Room 217", view.TopLabel);
+            Assert.AreEqual("VEC · 98 ft", view.PinLabel);
+            Assert.AreEqual(50, view.DistanceM);
+        }
+
+        [Test]
+        public void PinUsesAtLeastOneFifthOfScreenHeightAndGrowsNearTheBuilding()
+        {
+            Assert.AreEqual(.2f, OutdoorGuidanceHud.PinHeight(200));
+            Assert.AreEqual(.2f, OutdoorGuidanceHud.PinHeight(30));
+            Assert.Greater(OutdoorGuidanceHud.PinHeight(10), .2f);
+        }
+
         [Test]
         public void NoPoseYetIsScanning()
         {

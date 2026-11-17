@@ -122,8 +122,8 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// Reads a whole sign frame: the full text or any single line may name a VEC door on
-        /// either floor. Two different rooms in one frame are Ambiguous, never a guess.
+        /// Reads a whole sign frame for a VEC door in the directory.
+        /// Two different rooms in one frame are Ambiguous, never a guess.
         /// </summary>
         public static IndoorRoomMatch MatchSign(string recognizedText, string vecDirectoryJson)
         {

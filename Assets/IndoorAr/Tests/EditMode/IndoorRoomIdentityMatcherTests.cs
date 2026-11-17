@@ -6,7 +6,7 @@ using UnityEngine;
 public class IndoorRoomIdentityMatcherTests
 {
     static readonly string VecDirectory = File.ReadAllText(
-        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
 
     [TestCase(" VEC 119 ")]
     [TestCase("Room 119")]

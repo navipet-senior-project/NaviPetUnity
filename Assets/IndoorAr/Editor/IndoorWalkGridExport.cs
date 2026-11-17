@@ -7,20 +7,22 @@ namespace IndoorAr.Editor
 {
     /// <summary>
     /// Rasterizes the building scan into Resources/IndoorWalkGrid.json. A cell is walkable when the scan has a floor
-    /// surface at floor level under it and nothing in the body band above it. The scan sits at identity, which is
-    /// the MapSet origin, so the grid is in the MapSet frame. Re-run after the scan or the MapSet alignment changes.
+    /// surface at floor level under it and nothing in the body band above it.
+    /// Re-run after the scan or the MapSet alignment changes.
     /// </summary>
     public static class IndoorWalkGridExport
     {
         public const string ScanPath = "Assets/building scans/floor 1 + 2.glb";
         public const string GridPath = "Assets/IndoorAr/Resources/IndoorWalkGrid.json";
-        const string DirectoryPath = "Assets/IndoorNavigation/Data/vec_floors1and2.json";
+        const string UpperScanPath = "Assets/building scans/floor 3 + 4.glb";
+        const string DirectoryPath = "Assets/IndoorNavigation/Data/vec_floors123.json";
         const float Cell = .25f;
         const float FloorToleranceM = .35f;
         const float BodyLowM = .4f;
         const float BodyHighM = 1.4f;
         // shortcut: floor heights read off the door rows (vec_destination_points), re-check if a floor is added.
-        static readonly (int floor, float y)[] Floors = { (1, -1.9f), (2, 2.3f) };
+        static readonly (int floor, float y)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
+        static readonly (int floor, float y)[] UpperFloors = { (3, 6f) };
 
         [MenuItem("Indoor AR/Rebuild Walk Grid From Scan")]
         public static void Export()
@@ -37,13 +39,26 @@ namespace IndoorAr.Editor
 
         public static IndoorWalkGridData Build()
         {
-            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ScanPath);
+            var floors = new List<IndoorWalkFloor>();
+            // SampleScene places this scan relative to BuildingOrigin, in the same frame as the catalog.
+            // Composing the floor 1 + 2 instance's scene pose with IndoorMapFrame gives identity.
+            var upperPosition = IndoorMapFrame.ToMapSet(new Vector3(23.693075f, 5.62f, 21.074951f));
+            var upperRotation = Quaternion.Euler(0f, IndoorMapFrame.HeadingToMapSet(2.671f), 0f);
+            if (!AddFloors(floors, ScanPath, Vector3.zero, Quaternion.identity, LowerFloors)
+                || !AddFloors(floors, UpperScanPath, upperPosition, upperRotation, UpperFloors)) return null;
+            return new IndoorWalkGridData { floors = floors.ToArray() };
+        }
+
+        static bool AddFloors(List<IndoorWalkFloor> output, string path, Vector3 position, Quaternion rotation,
+            (int floor, float y)[] floors)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (prefab == null)
             {
-                Debug.LogError($"[WalkGrid] {ScanPath} did not import as a GameObject.");
-                return null;
+                Debug.LogError($"[WalkGrid] {path} did not import as a GameObject.");
+                return false;
             }
-            var scan = Object.Instantiate(prefab); // identity transform = MapSet origin
+            var scan = Object.Instantiate(prefab, position, rotation);
             try
             {
                 var bounds = new Bounds();
@@ -57,9 +72,17 @@ namespace IndoorAr.Editor
                     any = true;
                 }
                 Physics.SyncTransforms();
-                var floors = new List<IndoorWalkFloor>();
-                foreach (var (floor, y) in Floors) floors.Add(Rasterize(floor, y, bounds));
-                return new IndoorWalkGridData { floors = floors.ToArray() };
+                foreach (var (floor, y) in floors)
+                {
+                    var grid = Rasterize(floor, y, bounds);
+                    if (grid == null)
+                    {
+                        Debug.LogError($"[WalkGrid] No walkable cells on floor {floor} of {path}.");
+                        return false;
+                    }
+                    output.Add(grid);
+                }
+                return true;
             }
             finally
             {
@@ -90,11 +113,12 @@ namespace IndoorAr.Editor
                 }
                 rows[z] = new string(row);
             }
+            if (heights.Count == 0) return null;
             heights.Sort();
             return new IndoorWalkFloor
             {
                 floor = floor,
-                floorY = heights.Count == 0 ? nominalY : heights[heights.Count / 2],
+                floorY = heights[heights.Count / 2],
                 cell = Cell,
                 originX = originX,
                 originZ = originZ,
@@ -108,8 +132,9 @@ namespace IndoorAr.Editor
         static void Report(string gridJson)
         {
             var directory = File.ReadAllText(DirectoryPath);
-            foreach (var (floor, _) in Floors)
+            foreach (var floorData in JsonUtility.FromJson<IndoorWalkGridData>(gridJson).floors)
             {
+                var floor = floorData.floor;
                 var grid = IndoorWalkGrid.ForFloor(gridJson, floor);
                 var doors = new List<IndoorRoomLandmark>();
                 for (var room = floor * 100; room < floor * 100 + 100; room++)

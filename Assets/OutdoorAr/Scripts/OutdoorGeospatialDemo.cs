@@ -35,6 +35,10 @@ namespace OutdoorAr
         ARGeospatialAnchor _anchor;
         ResolveAnchorOnTerrainPromise _terrainPromise;
         GameObject _cue;
+        Vector3? _pinPosition;
+        Vector3 _pinTarget;
+        Vector3 _pinVelocity;
+        (string Building, string TopLabel, double Latitude, double Longitude) _building;
         string _requestJson;
         IndoorArRequest _request;
         bool _finished;
@@ -157,7 +161,6 @@ namespace OutdoorAr
                         && _terrainPromise.Result.Anchor != null)
                     {
                         _anchor = _terrainPromise.Result.Anchor;
-                        CreateCue();
                     }
                     else _noPin = true;
                     _terrainPromise = null;
@@ -205,8 +208,8 @@ namespace OutdoorAr
                     if (_anchor != null) CreateCue();
                 }
                 else if (_terrainPromise == null && !_noPin)
-                    _terrainPromise = anchors.ResolveAnchorOnTerrainAsync(_request.destination.latitude,
-                        _request.destination.longitude, 1.5, Quaternion.identity);
+                    _terrainPromise = anchors.ResolveAnchorOnTerrainAsync(_building.Latitude,
+                        _building.Longitude, 1.5, Quaternion.identity);
             }
         }
 
@@ -216,7 +219,7 @@ namespace OutdoorAr
             _cue.name = "Geospatial tracking cue";
             _cue.transform.SetParent(_anchor.transform, false);
             _cue.transform.localPosition = Vector3.up * 1.5f;
-            _cue.transform.localScale = Vector3.one * (_request == null ? 0.3f : 1f);
+            _cue.transform.localScale = Vector3.one * 0.3f;
             _cue.GetComponent<Renderer>().material.color = Color.green;
         }
 
@@ -376,12 +379,14 @@ namespace OutdoorAr
         {
             if (_anchor != null) Destroy(_anchor.gameObject);
             _anchor = null;
+            _pinPosition = null;
             if (_cue != null) Destroy(_cue);
             _cue = null;
         }
 
         void AttachHud()
         {
+            _building = OutdoorGuidanceHud.PinTarget(_request.destination);
             _hud = new GameObject("Outdoor HUD").AddComponent<IndoorHud>();
             _hud.transform.SetParent(transform, false);
             _hud.Initialize(Camera.main);
@@ -407,9 +412,24 @@ namespace OutdoorAr
         void UpdateHud(bool hasPose)
         {
             if (_hud == null || _finished) return;
-            var anchor = _cue == null ? (Vector3?)null : _cue.transform.position + Vector3.up;
+            Vector3? anchor = null;
+            var pinDistance = double.NaN;
+            if (hasPose && _anchor != null && _anchor.trackingState == TrackingState.Tracking)
+            {
+                var fix = _anchor.transform.position;
+                if (!_pinPosition.HasValue)
+                {
+                    _pinPosition = _pinTarget = fix;
+                    _pinVelocity = Vector3.zero;
+                }
+                anchor = _pinPosition = IndoorHud.EasePin(_pinPosition.Value, fix, ref _pinTarget, ref _pinVelocity,
+                    Time.unscaledDeltaTime);
+                var pose = readiness.CurrentPose;
+                pinDistance = OutdoorGeospatialGate.DistanceM(pose.Latitude, pose.Longitude, _building.Latitude, _building.Longitude);
+            }
             _hud.Show(OutdoorGuidanceHud.Compose(_request, readiness.State, hasPose, _arrived, _distanceM,
-                _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor, _arrivalFeedback));
+                _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor, _arrivalFeedback, _building.Building,
+                _building.TopLabel, pinDistance));
             LogState();
         }
 

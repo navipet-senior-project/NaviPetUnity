@@ -277,8 +277,8 @@ public class IndoorArSessionTests
     public void FloorEvidenceNeverUsesDestinationOrUnknownHeight()
     {
         var session = new IndoorArSession(Vec119(), MapCode);
-        Assert.AreEqual(0, session.CurrentFloor(2.2f, -2f, 2.2f), "destination floor 1 is not inferred from height");
-        Assert.AreEqual(0, session.CurrentFloor(20f, -2f, 2.2f), "out-of-range height is unknown");
+        Assert.AreEqual(0, session.CurrentFloor(2.2f, new[] { (1, -2f), (2, 2.2f) }), "destination floor 1 is not inferred from height");
+        Assert.AreEqual(0, session.CurrentFloor(20f, new[] { (1, -2f), (2, 2.2f) }), "out-of-range height is unknown");
         Assert.IsFalse(session.IsWrongFloor(0));
         Assert.IsTrue(session.IsWrongFloor(2));
     }
@@ -304,11 +304,11 @@ public class IndoorArSessionTests
     {
         var session = Localizing(out _);
         var upstairsHeight = 4f;
-        Assert.AreEqual(2, session.CurrentFloor(upstairsHeight, -2f, 2.2f));
+        Assert.AreEqual(2, session.CurrentFloor(upstairsHeight, new[] { (1, -2f), (2, 2.2f) }));
         session.OnSignConfirmed(Sign120);
-        Assert.AreEqual(1, session.CurrentFloor(upstairsHeight, -2f, 2.2f), "confirmed sign wins over height");
+        Assert.AreEqual(1, session.CurrentFloor(upstairsHeight, new[] { (1, -2f), (2, 2.2f) }), "confirmed sign wins over height");
         session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
-        Assert.IsTrue(session.IsWrongFloor(session.CurrentFloor(0f, -2f, 2.2f)), "sign floor is current-floor evidence");
+        Assert.IsTrue(session.IsWrongFloor(session.CurrentFloor(0f, new[] { (1, -2f), (2, 2.2f) })), "sign floor is current-floor evidence");
         Assert.AreEqual(2, new IndoorRoomLandmark("VEC215", "VEC", "floor_2").Floor);
         Assert.AreEqual(0, new IndoorRoomLandmark("VEC1", "VEC", "lobby").Floor);
     }
@@ -319,29 +319,29 @@ public class IndoorArSessionTests
         const float floor1 = 0f, floor2 = 4f, between = 2f;
         var session = Localizing(out _);
         session.OnSignConfirmed(Sign120);
-        session.OnTrackedPose(floor2, -2f, 2.2f);
+        session.OnTrackedPose(floor2, new[] { (1, -2f), (2, 2.2f) });
         Assert.AreSame(Sign120, session.FloorSign, "no accepted pose yet: height is not tracked motion");
 
         session.OnLocalized();
-        session.OnTrackedPose(floor1, -2f, 2.2f);
-        session.OnTrackedPose(between, -2f, 2.2f);
-        session.OnTrackedPose(20f, -2f, 2.2f);
+        session.OnTrackedPose(floor1, new[] { (1, -2f), (2, 2.2f) });
+        session.OnTrackedPose(between, new[] { (1, -2f), (2, 2.2f) });
+        session.OnTrackedPose(20f, new[] { (1, -2f), (2, 2.2f) });
         Assert.AreSame(Sign120, session.FloorSign, "between or outside floors changes nothing");
-        session.OnTrackedPose(floor2, -2f, 2.2f);
+        session.OnTrackedPose(floor2, new[] { (1, -2f), (2, 2.2f) });
         Assert.IsNull(session.FloorSign, "tracked ascent supersedes the floor-1 sign");
         Assert.AreSame(Sign120, session.SignRoom, "the sign that was read is still shown");
-        Assert.AreEqual(2, session.CurrentFloor(floor2, -2f, 2.2f));
-        Assert.IsFalse(session.PoseConflictsWithSign(floor2, -2f, 2.2f));
+        Assert.AreEqual(2, session.CurrentFloor(floor2, new[] { (1, -2f), (2, 2.2f) }));
+        Assert.IsFalse(session.PoseConflictsWithSign(floor2, new[] { (1, -2f), (2, 2.2f) }));
 
         session.OnSignConfirmed(Sign120);
-        Assert.AreEqual(1, session.CurrentFloor(floor2, -2f, 2.2f), "a fresh sign wins again");
-        Assert.IsTrue(session.PoseConflictsWithSign(floor2, -2f, 2.2f));
+        Assert.AreEqual(1, session.CurrentFloor(floor2, new[] { (1, -2f), (2, 2.2f) }), "a fresh sign wins again");
+        Assert.IsTrue(session.PoseConflictsWithSign(floor2, new[] { (1, -2f), (2, 2.2f) }));
 
         // Tracked floor is 2. Tracking loss breaks continuity: the first height after the next pose is a new baseline.
         session.OnTrackingLost();
-        session.OnTrackedPose(floor1, -2f, 2.2f);
+        session.OnTrackedPose(floor1, new[] { (1, -2f), (2, 2.2f) });
         session.OnLocalized();
-        session.OnTrackedPose(floor1, -2f, 2.2f);
+        session.OnTrackedPose(floor1, new[] { (1, -2f), (2, 2.2f) });
         Assert.AreSame(Sign120, session.FloorSign, "a jump across a tracking gap is not a tracked walk");
     }
 
@@ -354,13 +354,13 @@ public class IndoorArSessionTests
         var fresh = new IndoorRoomLandmark("fresh", "VEC", "floor_" + to);
         session.OnSignConfirmed(original);
         session.OnLocalized();
-        session.OnTrackedPose(from == 1 ? 0f : 4f, -2f, 2.2f);
+        session.OnTrackedPose(from == 1 ? 0f : 4f, new[] { (1, -2f), (2, 2.2f) });
         session.OnSignConfirmed(fresh);
-        session.OnTrackedPose(to == 1 ? 0f : 4f, -2f, 2.2f);
+        session.OnTrackedPose(to == 1 ? 0f : 4f, new[] { (1, -2f), (2, 2.2f) });
         Assert.AreSame(fresh, session.FloorSign);
         session.OnTrackingLost();
-        Assert.IsTrue(session.PoseConflictsWithSign(from == 1 ? 0f : 4f, -2f, 2.2f));
-        Assert.IsFalse(session.PoseConflictsWithSign(to == 1 ? 0f : 4f, -2f, 2.2f));
+        Assert.IsTrue(session.PoseConflictsWithSign(from == 1 ? 0f : 4f, new[] { (1, -2f), (2, 2.2f) }));
+        Assert.IsFalse(session.PoseConflictsWithSign(to == 1 ? 0f : 4f, new[] { (1, -2f), (2, 2.2f) }));
     }
 
     [Test]
@@ -370,7 +370,7 @@ public class IndoorArSessionTests
         var retries = 0;
         session.LocalizeRequested += () => retries++;
         session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
-        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, -2f, 2.2f), "floor-3-height pose conflicts with floor-2 sign");
+        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, new[] { (1, -2f), (2, 2.2f) }), "floor-3-height pose conflicts with floor-2 sign");
         session.OnNotLocalized();
         session.OnSignInView();
         Assert.AreEqual(1, retries);
@@ -378,7 +378,7 @@ public class IndoorArSessionTests
 
         var agreeing = Localizing(out _);
         agreeing.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
-        Assert.IsFalse(agreeing.PoseConflictsWithSign(4f, -2f, 2.2f));
+        Assert.IsFalse(agreeing.PoseConflictsWithSign(4f, new[] { (1, -2f), (2, 2.2f) }));
         agreeing.OnLocalized();
         Assert.IsTrue(agreeing.WasPinned);
     }
@@ -387,17 +387,17 @@ public class IndoorArSessionTests
     public void UnsupportedSignAndUnmappedPoseCannotEstablishRouteFloor()
     {
         var session = Localizing(out _);
-        Assert.AreEqual(0, session.CurrentFloor(6.5f, -2f, 2.2f));
-        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, -2f, 2.2f), "a pose resolving above supported floors is rejected even without a sign");
-        Assert.AreEqual(0, session.CurrentFloor(-5f, -2f, 2.2f));
-        Assert.IsTrue(session.PoseConflictsWithSign(-5f, -2f, 2.2f), "a pose below Floor 1 is rejected");
+        Assert.AreEqual(0, session.CurrentFloor(6.5f, new[] { (1, -2f), (2, 2.2f) }));
+        Assert.IsTrue(session.PoseConflictsWithSign(6.5f, new[] { (1, -2f), (2, 2.2f) }), "a pose resolving above supported floors is rejected even without a sign");
+        Assert.AreEqual(0, session.CurrentFloor(-5f, new[] { (1, -2f), (2, 2.2f) }));
+        Assert.IsTrue(session.PoseConflictsWithSign(-5f, new[] { (1, -2f), (2, 2.2f) }), "a pose below Floor 1 is rejected");
         var inBand = Localizing(out _);
-        Assert.IsFalse(inBand.PoseConflictsWithSign(-0.4f, -2f, 2.2f), "a pose in Floor 1's eye-height band is accepted");
+        Assert.IsFalse(inBand.PoseConflictsWithSign(-0.4f, new[] { (1, -2f), (2, 2.2f) }), "a pose in Floor 1's eye-height band is accepted");
         inBand.OnLocalized();
         Assert.IsTrue(inBand.WasPinned);
         session.OnSignConfirmed(new IndoorRoomLandmark("VEC999", "VEC", "floor_3"));
-        Assert.AreEqual(0, session.CurrentFloor(0f, -2f, 2.2f));
-        Assert.IsTrue(session.PoseConflictsWithSign(0f, -2f, 2.2f));
+        Assert.AreEqual(0, session.CurrentFloor(0f, new[] { (1, -2f), (2, 2.2f) }));
+        Assert.IsTrue(session.PoseConflictsWithSign(0f, new[] { (1, -2f), (2, 2.2f) }));
     }
 
     [Test]
@@ -420,6 +420,27 @@ public class IndoorArSessionTests
         Assert.AreEqual("A step-free route to this destination cannot be confirmed.", view.DetailOverride);
     }
 
+
+    [TestCase("VEC119", "floor_1", true)]
+    [TestCase("VEC119", "floor_2", false)]
+    [TestCase("VEC120", "floor_1", false)]
+    public void OnlyMatchingDestinationSignStopsNavigation(string room, string floor, bool arrived)
+    {
+        var session = Localizing(out _);
+        session.OnSignConfirmed(new IndoorRoomLandmark(room, "VEC", floor));
+        var view = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f);
+        Assert.AreEqual(arrived ? IndoorHudState.Arrived : IndoorHudState.Scanning, view.State);
+        Assert.AreEqual(session.SignRoom.Floor, view.CurrentFloor);
+        Assert.IsFalse(view.FollowingRoute);
+        Assert.IsFalse(session.WasPinned);
+        if (arrived)
+        {
+            Assert.AreEqual("Found the VEC 119 sign · Floor 1", view.DetailOverride);
+            session.ConfirmArrival();
+            StringAssert.Contains("\"status\":\"arrived\"", session.ResultJson);
+            StringAssert.Contains("\"signRoom\":\"VEC119\"", session.ResultJson);
+        }
+    }
 
     [Test]
     public void ConfirmedSignIsReportedButNeverPins()
@@ -477,10 +498,10 @@ public class IndoorArSessionTests
     public void UnknownGapPoseIsRejectedWithOrWithoutSignEvidence()
     {
         var session = Localizing(out _);
-        Assert.AreEqual(0, session.PoseFloor(1f, -2f, 2.3f));
-        Assert.IsTrue(session.PoseConflictsWithSign(1f, -2f, 2.3f), "gap remains unsupported without a sign");
+        Assert.AreEqual(0, session.PoseFloor(1f, new[] { (1, -2f), (2, 2.3f) }));
+        Assert.IsTrue(session.PoseConflictsWithSign(1f, new[] { (1, -2f), (2, 2.3f) }), "gap remains unsupported without a sign");
         session.OnSignConfirmed(Sign120);
-        Assert.IsTrue(session.PoseConflictsWithSign(1f, -2f, 2.3f), "a sign cannot make an unknown pose acceptable");
-        Assert.IsFalse(session.PoseConflictsWithSign(-0.5f, -2f, 2.3f), "a supported floor-1 pose remains acceptable");
+        Assert.IsTrue(session.PoseConflictsWithSign(1f, new[] { (1, -2f), (2, 2.3f) }), "a sign cannot make an unknown pose acceptable");
+        Assert.IsFalse(session.PoseConflictsWithSign(-0.5f, new[] { (1, -2f), (2, 2.3f) }), "a supported floor-1 pose remains acceptable");
     }
 }

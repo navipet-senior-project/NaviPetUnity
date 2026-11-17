@@ -6,7 +6,7 @@ using UnityEngine;
 public class IndoorWalkGridTests
 {
     static readonly string Directory = File.ReadAllText(
-        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
     static readonly string Scan = Resources.Load<TextAsset>("IndoorWalkGrid").text;
 
     // 1 m cells, north is the last row. An L-shaped hallway with a wall between its two ends.
@@ -101,7 +101,7 @@ public class IndoorWalkGridTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void MissingOrUncheckedRouteHidesArrowAndKeepsRoomDirections(bool uncheckedRoute)
+    public void MissingOrUncheckedRouteHidesArrow(bool uncheckedRoute)
     {
         var grid = Hall();
         var camera = new Vector3(.5f, 0f, 2.5f);
@@ -116,13 +116,11 @@ public class IndoorWalkGridTests
         session.OnAuthenticated();
         session.OnLocalized();
         if (uncheckedRoute) route = new[] { camera, door };
-        const string directions = "From the room sign, follow the hallway toward VEC 119.";
-        var view = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route,
-            roomDirections: directions);
+        var view = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route);
         Assert.IsTrue(view.RouteBlocked);
         Assert.IsFalse(view.FollowingRoute);
         Assert.AreEqual("Route unavailable", view.TitleOverride);
-        Assert.AreEqual(directions, view.DetailOverride);
+        Assert.AreEqual("No clear hallway route from your position.", view.DetailOverride);
         var host = new GameObject("Unreachable route HUD");
         try
         {

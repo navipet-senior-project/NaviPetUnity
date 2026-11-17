@@ -193,7 +193,7 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void RoomLabelFollowsThePinOnlyWhileItIsInFrontOfTheCamera()
+        public void RoomLabelDocksWhenThePinIsBehindTheCamera()
         {
             var cameraObject = new GameObject("Camera", typeof(Camera));
             var root = new GameObject("HUD");
@@ -205,15 +205,39 @@ namespace IndoorAr.Tests
                 hud.Show(view);
                 var label = root.transform.Find("HUD Canvas/Safe area/Pin label");
                 Assert.IsTrue(label.gameObject.activeSelf);
-                Assert.AreEqual("VEC 119", label.GetComponentInChildren<Text>().text);
-                view.LabelAnchor = new Vector3(0f, 0f, -5f);
+                StringAssert.Contains("VEC 119", label.GetComponentInChildren<Text>().text);
+                view.LabelAnchor = new Vector3(5f, 0f, -5f);
                 hud.Show(view);
-                Assert.IsFalse(label.gameObject.activeSelf);
+                Assert.IsTrue(label.gameObject.activeSelf);
+                StringAssert.Contains("›", label.GetComponentInChildren<Text>().text);
                 view.LabelAnchor = null;
                 hud.Show(view);
                 Assert.IsFalse(label.gameObject.activeSelf);
             }
             finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
+        }
+
+        [Test]
+        public void EdgeDockKeepsTheDirectionInsideTheAvailableArea()
+        {
+            var limits = Rect.MinMaxRect(-200f, -300f, 200f, 300f);
+            Assert.AreEqual(new Vector2(200f, 100f), IndoorHud.DockPin(new Vector2(400f, 200f), limits));
+            Assert.AreEqual(new Vector2(0f, -300f), IndoorHud.DockPin(new Vector2(0f, -900f), limits));
+            Assert.AreEqual(new Vector2(200f, 0f), IndoorHud.DockPin(Vector2.zero, limits));
+        }
+
+        [Test]
+        public void PinIgnoresTinyCorrectionsAndEasesLargerOnes()
+        {
+            var at = Vector3.zero;
+            var target = at;
+            var velocity = Vector3.zero;
+            Assert.AreEqual(at, IndoorHud.EasePin(at, Vector3.right * .01f, ref target, ref velocity, .1f));
+            at = IndoorHud.EasePin(at, Vector3.right, ref target, ref velocity, .1f);
+            Assert.That(at.x, Is.InRange(.01f, .99f));
+            for (var i = 0; i < 20; i++)
+                at = IndoorHud.EasePin(at, Vector3.right, ref target, ref velocity, .1f);
+            Assert.AreEqual(1f, at.x, .001f);
         }
 
         [Test]
@@ -435,7 +459,7 @@ namespace IndoorAr.Tests
             var near = SignView("VEC120", "floor_1");
             Assert.AreEqual(IndoorHudState.Scanning, near.State, "a sign never shows the arrow");
             Assert.AreEqual("Room VEC 120 detected · Floor 1", near.TitleOverride);
-            Assert.AreEqual("From the room sign. Keep scanning for the arrow", near.DetailOverride);
+            Assert.AreEqual("From the room sign. AR is still aligning", near.DetailOverride);
 
             var upstairs = SignView("VEC215", "floor_2");
             Assert.AreEqual("Room VEC 215 detected · Floor 2", upstairs.TitleOverride);
@@ -443,8 +467,8 @@ namespace IndoorAr.Tests
             Assert.IsTrue(upstairs.WrongFloor, "the sign's floor, not the camera height, decides");
 
             var door = SignView("VEC119", "floor_1");
-            Assert.AreEqual("Room VEC 119 detected", door.TitleOverride);
-            Assert.AreEqual("Keep scanning so AR can confirm the door", door.DetailOverride);
+            Assert.AreEqual(IndoorHudState.Arrived, door.State);
+            Assert.AreEqual("Found the VEC 119 sign · Floor 1", door.DetailOverride);
 
             var localize = SignView("VEC215", "floor_2", localizeOnly: true);
             Assert.AreEqual("Room VEC 215 detected · Floor 2", localize.TitleOverride, "localize mode has no wrong floor");

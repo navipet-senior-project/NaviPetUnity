@@ -37,14 +37,19 @@ namespace IndoorAr
 
         public float FloorY => _floor.floorY;
 
-        public static IndoorWalkGrid ForFloor(string json, int floor)
+        public static IndoorWalkGrid ForFloor(string json, int floor) =>
+            LoadFloors(json).GetValueOrDefault(floor);
+
+        public static Dictionary<int, IndoorWalkGrid> LoadFloors(string json)
         {
-            if (string.IsNullOrEmpty(json)) return null;
-            var data = JsonUtility.FromJson<IndoorWalkGridData>(json);
-            if (data?.floors == null) return null;
-            foreach (var f in data.floors)
-                if (f.floor == floor && f.rows != null && f.rows.Length == f.height) return new IndoorWalkGrid(f);
-            return null;
+            var grids = new Dictionary<int, IndoorWalkGrid>();
+            if (!string.IsNullOrEmpty(json) && JsonUtility.FromJson<IndoorWalkGridData>(json)?.floors is { } floors)
+                foreach (var f in floors)
+                    if (f != null && f.floor > 0 && f.cell > 0f && f.width > 0 && f.height > 0
+                        && f.rows != null && f.rows.Length == f.height && Array.TrueForAll(f.rows, row => row?.Length == f.width)
+                        && !float.IsNaN(f.floorY) && !float.IsInfinity(f.floorY))
+                        grids[f.floor] = new IndoorWalkGrid(f);
+            return grids;
         }
 
         public bool IsWalkable(int x, int z) =>
