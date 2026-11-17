@@ -65,7 +65,7 @@ namespace IndoorAr.Editor
                         canvas.planeDistance = .5f;
                         Canvas.ForceUpdateCanvases();
                         var view = MockIndoorRoute.Snapshot(states[index], 1, IndoorArRunner.PinLabelAnchor(pin));
-                        pin.gameObject.SetActive(view.LabelAnchor.HasValue);
+                        view.WorldPin = pin;
                         hud.Show(view);
                     }
                     Canvas.ForceUpdateCanvases();

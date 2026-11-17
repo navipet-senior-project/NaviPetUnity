@@ -17,7 +17,6 @@ namespace IndoorAr
         public string Destination;
         public int Floor;
         public int CurrentFloor;
-        public string TopLabel;
         public float ArrowYaw;
         public bool ScanTooFast;
         public bool LocalizeOnly;
@@ -26,6 +25,7 @@ namespace IndoorAr
         public string DetailOverride;
         // World position the room label floats over; null hides the label.
         public Vector3? LabelAnchor;
+        public Transform WorldPin;
         public string PinLabel;
         public float PinScreenHeight;
         // Outdoor guidance reuses this HUD: no floor, and a distance because the walk is long.
@@ -89,7 +89,7 @@ namespace IndoorAr
         RectTransform _lookLeft;
         RectTransform _lookRight;
         RectTransform _pinLabel;
-        RectTransform _buildingPin;
+        RectTransform _screenPin;
         Text _pinText;
         public event Action ExitRequested;
         public event Action HereRequested;
@@ -123,7 +123,7 @@ namespace IndoorAr
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             FitSafeArea();
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.CurrentFloor + "|" + view.TopLabel + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.CurrentFloor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
             if (_chrome != chrome)
             {
                 Build(view);
@@ -145,7 +145,7 @@ namespace IndoorAr
         void Build(IndoorHudView view)
         {
             _title = _detail = null;
-            _arrow = _lookLeft = _lookRight = _pinLabel = _buildingPin = null;
+            _arrow = _lookLeft = _lookRight = _pinLabel = _screenPin = null;
             _pinText = null;
             while (_root.childCount > 0)
             {
@@ -167,7 +167,7 @@ namespace IndoorAr
             Label(exit, "Exit label", "×", 60, Navy, TextAnchor.MiddleCenter);
             Lift(exit);
             OnTap(exit, () => ExitRequested?.Invoke());
-            Pill("Room pill", view.TopLabel ?? (view.LocalizeOnly ? "Location check" : RoomLine(view)), 34,
+            Pill("Room pill", view.LocalizeOnly ? "Location check" : RoomLine(view), 34,
                 new Vector2(0f, 1f), new Vector2(40f, -36f), 84f);
             if (view.CurrentFloor > 0)
             {
@@ -178,13 +178,11 @@ namespace IndoorAr
             }
             if (!view.LocalizeOnly)
             {
-                if (view.Outdoor)
-                {
-                    _pinSprite ??= BuildingPinSprite();
-                    _buildingPin = At(Box(_root, "Building pin", _pinSprite, White), Center, Vector2.zero, Vector2.zero);
-                    _buildingPin.GetComponent<Image>().type = Image.Type.Simple;
-                    _buildingPin.pivot = new Vector2(.5f, 0f);
-                }
+                _pinSprite ??= PinSprite();
+                _screenPin = At(Box(_root, view.Outdoor ? "Building pin" : "Docked pin", _pinSprite, White),
+                    Center, Vector2.zero, Vector2.zero);
+                _screenPin.GetComponent<Image>().type = Image.Type.Simple;
+                _screenPin.pivot = new Vector2(.5f, 0f);
                 _pinLabel = Pill("Pin label", view.Destination, 30, Center, Vector2.zero, 64f);
                 _pinText = _pinLabel.GetComponentInChildren<Text>();
                 _pinLabel.pivot = new Vector2(.5f, 0f);
@@ -321,50 +319,56 @@ namespace IndoorAr
             if (_pinLabel == null) return;
             var hasAnchor = view.LabelAnchor.HasValue && _camera != null;
             _pinLabel.gameObject.SetActive(hasAnchor);
-            if (_buildingPin != null) _buildingPin.gameObject.SetActive(hasAnchor);
-            if (!hasAnchor) return;
+            if (!hasAnchor)
+            {
+                _screenPin.gameObject.SetActive(false);
+                if (view.WorldPin != null) view.WorldPin.gameObject.SetActive(false);
+                return;
+            }
 
-            var screen = _camera.WorldToScreenPoint(view.LabelAnchor.Value);
+            var anchor = view.WorldPin != null ? view.WorldPin.position : view.LabelAnchor.Value;
+            var screen = _camera.WorldToScreenPoint(anchor);
+            var viewport = _camera.pixelRect;
             var behind = screen.z <= 0f;
-            if (behind)
+            var dock = behind || !viewport.Contains(screen);
+            if (view.WorldPin != null) view.WorldPin.gameObject.SetActive(!dock);
+            _screenPin.gameObject.SetActive(view.Outdoor || dock);
+            if (screen.z == 0f)
+                screen = _camera.WorldToScreenPoint(anchor + _camera.transform.forward);
+            else if (behind && !_camera.orthographic)
             {
                 // Perspective projection reverses x and y behind the camera.
-                var center = _camera.pixelRect.center;
+                var center = viewport.center;
                 screen.x = 2f * center.x - screen.x;
                 screen.y = 2f * center.y - screen.y;
             }
             var uiCamera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, uiCamera, out var local);
-            var pinHeight = view.PinScreenHeight * Screen.height / _canvas.scaleFactor;
-            var pinWidth = pinHeight * .72f;
+            var labelScreen = !dock && !view.Outdoor ? _camera.WorldToScreenPoint(view.LabelAnchor.Value) : screen;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, labelScreen, uiCamera, out var at);
             var label = view.PinLabel ?? view.Destination;
             var labelHeight = _pinLabel.sizeDelta.y;
-            var labelWidth = _pinText.cachedTextGeneratorForLayout.GetPreferredWidth(label + "  ›",
-                _pinText.GetGenerationSettings(Vector2.zero)) / _pinText.pixelsPerUnit + labelHeight * .8f;
-            const float margin = 24f;
+            var pinHeight = view.Outdoor ? view.PinScreenHeight * Screen.height / _canvas.scaleFactor : dock ? labelHeight : 0f;
+            var pinWidth = pinHeight * .72f;
             const float labelGap = 12f;
             var rect = _root.rect;
-            var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(labelWidth, pinWidth) * .5f + margin);
-            var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
-            var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
-            var limits = Rect.MinMaxRect(rect.xMin + insetX, bottom, rect.xMax - insetX, top);
-            var dock = behind || !limits.Contains(local);
-            var at = dock ? DockPin(local, limits) : local;
-            var toward = local - limits.center;
-            var dockLabel = label;
             if (dock)
             {
-                if (Mathf.Abs(toward.y) > Mathf.Abs(toward.x)) dockLabel += toward.y > 0f ? "  ↑" : "  ↓";
-                else dockLabel = toward.x < 0f ? "‹  " + label : label + "  ›";
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, viewport.center, uiCamera, out var center);
+                var toward = at - center;
+                if (Mathf.Abs(toward.y) > Mathf.Abs(toward.x)) label += toward.y > 0f ? "  ↑" : "  ↓";
+                else label = toward.x < 0f ? "‹  " + label : label + "  ›";
+                _pinText.text = label;
+                var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(_pinText.preferredWidth + labelHeight * .8f, pinWidth) * .5f + 24f);
+                var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
+                var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
+                var limits = Rect.MinMaxRect(rect.xMin + insetX, bottom, rect.xMax - insetX, top);
+                at = DockPin(limits.center + toward, limits);
             }
-            _pinText.text = dockLabel;
+            else _pinText.text = label;
             _pinLabel.sizeDelta = new Vector2(Mathf.Min(rect.width, _pinText.preferredWidth + labelHeight * .8f), labelHeight);
             _pinLabel.anchoredPosition = at + Vector2.up * (pinHeight + labelGap);
-            if (_buildingPin != null)
-            {
-                _buildingPin.sizeDelta = new Vector2(pinWidth, pinHeight);
-                _buildingPin.anchoredPosition = at;
-            }
+            _screenPin.sizeDelta = new Vector2(pinWidth, pinHeight);
+            _screenPin.anchoredPosition = at;
         }
 
         public static Vector2 DockPin(Vector2 projected, Rect limits)
@@ -492,7 +496,7 @@ namespace IndoorAr
             texture.Apply(); return Keep(Sprite.Create(texture, new Rect(0, 0, size, size), Center, 100, 0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius)));
         }
 
-        Sprite BuildingPinSprite()
+        Sprite PinSprite()
         {
             const int width = 184;
             const int height = 256;

@@ -111,11 +111,10 @@ namespace IndoorAr
             return poseFloor <= 0 || FloorSign != null && FloorSign.Floor > 0 && poseFloor != FloorSign.Floor;
         }
 
-        /// <summary>The closest floor in the camera's eye-height band. A gap gives 0, outside the building gives -1.</summary>
+        /// <summary>The unique floor in the camera's eye-height band. Gaps and overlaps give 0, outside gives -1.</summary>
         public int PoseFloor(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
-            var best = 0;
-            var bestEyeHeight = float.PositiveInfinity;
+            var match = 0;
             var low = float.PositiveInfinity;
             var high = float.NegativeInfinity;
             foreach (var (floor, floorY) in floors)
@@ -123,15 +122,15 @@ namespace IndoorAr
                 low = Mathf.Min(low, floorY);
                 high = Mathf.Max(high, floorY);
                 var eyeHeight = cameraY - floorY;
-                if (eyeHeight >= MinEyeHeightM && eyeHeight <= MaxEyeHeightM && eyeHeight < bestEyeHeight)
+                if (eyeHeight >= MinEyeHeightM && eyeHeight <= MaxEyeHeightM)
                 {
-                    best = floor;
-                    bestEyeHeight = eyeHeight;
+                    if (match != 0) return 0;
+                    match = floor;
                 }
             }
-            if (best == 0 && floors.Count > 0 && (cameraY < low + MinEyeHeightM || cameraY > high + MaxEyeHeightM))
+            if (match == 0 && floors.Count > 0 && (cameraY < low + MinEyeHeightM || cameraY > high + MaxEyeHeightM))
                 return -1;
-            return best;
+            return match;
         }
 
         /// <summary>
@@ -161,7 +160,7 @@ namespace IndoorAr
             SignRoom = room;
             _signSuperseded = false;
             if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
-                || Request.LocalizeOnly || Request.stepFree
+                || Request.LocalizeOnly
                 || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
                 || !string.Equals(LiveDoorHud.RoomLabel(Request.doorKey), LiveDoorHud.RoomLabel(room.Id),
                     StringComparison.OrdinalIgnoreCase)) return;

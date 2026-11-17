@@ -158,9 +158,8 @@ namespace IndoorAr
         /// <summary>
         /// Stairs and elevators on one floor, as the directory marks them, in the MapSet frame.
         /// </summary>
-        public static List<(string Type, Vector3 PositionInMap)> FloorConnectors(string vecDirectoryJson, int floor) =>
-            FloorMarkers(vecDirectoryJson, floor).FindAll(m => m.Type is "elevator" or "stairs")
-                .ConvertAll(m => (m.Type, m.PositionInMap));
+        public static List<(string Id, string Type, Vector3 PositionInMap)> FloorConnectors(string vecDirectoryJson, int floor) =>
+            FloorMarkers(vecDirectoryJson, floor).FindAll(m => m.Type is "elevator" or "stairs");
 
         /// <summary>Every directory marker on one floor (doors, stairs, elevators, ...), in the MapSet frame.</summary>
         public static List<(string Id, string Type, Vector3 PositionInMap)> FloorMarkers(string vecDirectoryJson, int floor)

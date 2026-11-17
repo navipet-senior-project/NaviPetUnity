@@ -20,20 +20,35 @@ namespace OutdoorAr.Tests
             bool pose = true, bool arrived = false, float readyFor = 5f, double distance = 80, double turn = 30) =>
             OutdoorGuidanceHud.Compose(request, state, pose, arrived, distance, 120, turn, false, readyFor, null);
 
+        [TestCase(" VEC ")]
         [TestCase("VEC217")]
         [TestCase("VEC 217")]
         [TestCase("VEC · Room 217")]
-        public void VecPinTargetsBuildingCenterAndNamesTheRoom(string name)
+        public void VecPinTargetsBuildingCenterAndKeepsTheRequestName(string name)
         {
             var request = Request(name);
             var target = OutdoorGuidanceHud.PinTarget(request.destination);
             Assert.AreEqual(33.78282420612733, target.Latitude, 1e-9);
             Assert.AreEqual(-118.11040173365433, target.Longitude, 1e-9);
             var view = OutdoorGuidanceHud.Compose(request, OutdoorArState.Ready, true, false, 50, 60, 0,
-                false, 5f, Vector3.forward, pinBuilding: target.Building, topLabel: target.TopLabel, pinDistanceM: 30);
-            Assert.AreEqual("VEC · Room 217", view.TopLabel);
-            Assert.AreEqual("VEC · 98 ft", view.PinLabel);
+                false, 5f, Vector3.forward, pinBuilding: target.Building, pinDistanceM: 10);
+            Assert.AreEqual(name.Trim(), view.Destination);
+            Assert.AreEqual("VEC · 33 ft", view.PinLabel);
+            Assert.AreEqual(OutdoorGuidanceHud.PinHeight(10), view.PinScreenHeight);
             Assert.AreEqual(50, view.DistanceM);
+        }
+
+        [TestCase("VEC - North Entrance")]
+        [TestCase("VEC217 West")]
+        [TestCase("VEC · Room 217 West")]
+        [TestCase("VEC-WEST")]
+        public void OtherDestinationsKeepTheirSuppliedCoordinates(string name)
+        {
+            var destination = Request(name).destination;
+            var target = OutdoorGuidanceHud.PinTarget(destination);
+            Assert.IsNull(target.Building);
+            Assert.AreEqual(destination.latitude, target.Latitude);
+            Assert.AreEqual(destination.longitude, target.Longitude);
         }
 
         [Test]

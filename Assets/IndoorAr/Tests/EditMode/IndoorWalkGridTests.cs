@@ -306,13 +306,13 @@ public class IndoorWalkGridTests
         var connectors = IndoorRoomIdentityMatcher.FloorConnectors(Directory, floor);
         Assert.AreEqual(4, connectors.Count, "two stairs and two elevators per floor");
         var reachable = "";
-        foreach (var (type, at) in connectors)
+        foreach (var (_, type, at) in connectors)
             reachable += grid.TryRoute(Door(rooms[0]), at, out _) ? type + " " : "- ";
         TestContext.WriteLine($"floor {floor} from {rooms[0]}: {reachable}");
         foreach (var room in rooms)
         {
             var any = false;
-            foreach (var (_, at) in connectors) any |= grid.TryRoute(Door(room), at, out _);
+            foreach (var (_, _, at) in connectors) any |= grid.TryRoute(Door(room), at, out _);
             Assert.IsTrue(any, room);
         }
     }

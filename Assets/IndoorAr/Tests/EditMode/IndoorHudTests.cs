@@ -193,26 +193,85 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void RoomLabelDocksWhenThePinIsBehindTheCamera()
+        public void RoomPinAndLabelDockTogetherWhenBehindTheCamera()
+        {
+            var cameraObject = new GameObject("Camera", typeof(Camera));
+            var root = new GameObject("HUD");
+            var worldPin = new GameObject("World pin");
+            try
+            {
+                var hud = root.AddComponent<IndoorHud>();
+                hud.Initialize(cameraObject.GetComponent<Camera>());
+                worldPin.transform.position = new Vector3(0f, 0f, 5f);
+                var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1, worldPin.transform.position);
+                view.WorldPin = worldPin.transform;
+                hud.Show(view);
+                var label = root.transform.Find("HUD Canvas/Safe area/Pin label");
+                var dockedPin = root.transform.Find("HUD Canvas/Safe area/Docked pin");
+                Assert.IsTrue(label.gameObject.activeSelf);
+                Assert.IsTrue(worldPin.activeSelf);
+                Assert.IsFalse(dockedPin.gameObject.activeSelf);
+                StringAssert.Contains("VEC 119", label.GetComponentInChildren<Text>().text);
+                worldPin.transform.position = new Vector3(5f, 0f, -5f);
+                view.LabelAnchor = worldPin.transform.position;
+                hud.Show(view);
+                Assert.IsTrue(label.gameObject.activeSelf);
+                Assert.IsFalse(worldPin.activeSelf);
+                Assert.IsTrue(dockedPin.gameObject.activeSelf);
+                Assert.Greater(((RectTransform)dockedPin).rect.height, 0f);
+                StringAssert.Contains("›", label.GetComponentInChildren<Text>().text);
+                view.LabelAnchor = null;
+                hud.Show(view);
+                Assert.IsFalse(label.gameObject.activeSelf);
+                Assert.IsFalse(dockedPin.gameObject.activeSelf);
+            }
+            finally
+            {
+                Object.DestroyImmediate(worldPin);
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(cameraObject);
+            }
+        }
+
+        [TestCase(.01f, .5f, "‹")]
+        [TestCase(.99f, .5f, "›")]
+        [TestCase(.5f, .01f, "↓")]
+        [TestCase(.5f, .99f, "↑")]
+        public void PinDocksOnlyAfterCrossingTheCameraViewport(float x, float y, string cue)
         {
             var cameraObject = new GameObject("Camera", typeof(Camera));
             var root = new GameObject("HUD");
             try
             {
+                var camera = cameraObject.GetComponent<Camera>();
                 var hud = root.AddComponent<IndoorHud>();
-                hud.Initialize(cameraObject.GetComponent<Camera>());
-                var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1, new Vector3(0f, 0f, 5f));
-                hud.Show(view);
-                var label = root.transform.Find("HUD Canvas/Safe area/Pin label");
-                Assert.IsTrue(label.gameObject.activeSelf);
-                StringAssert.Contains("VEC 119", label.GetComponentInChildren<Text>().text);
-                view.LabelAnchor = new Vector3(5f, 0f, -5f);
-                hud.Show(view);
-                Assert.IsTrue(label.gameObject.activeSelf);
-                StringAssert.Contains("›", label.GetComponentInChildren<Text>().text);
-                view.LabelAnchor = null;
-                hud.Show(view);
-                Assert.IsFalse(label.gameObject.activeSelf);
+                hud.Initialize(camera);
+                Canvas.ForceUpdateCanvases();
+                var area = (RectTransform)root.transform.Find("HUD Canvas/Safe area");
+                var visible = new Vector3(x, y, 5f);
+                var offscreen = new Vector3(2f * x - .5f, 2f * y - .5f, 5f);
+                foreach (var outdoor in new[] { true, false })
+                {
+                    var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1, camera.ViewportToWorldPoint(visible));
+                    view.Outdoor = outdoor;
+                    view.PinScreenHeight = .2f;
+                    hud.Show(view);
+                    var pin = (RectTransform)area.Find(outdoor ? "Building pin" : "Docked pin");
+                    var label = area.Find("Pin label").GetComponentInChildren<Text>();
+                    Assert.AreEqual(view.Destination, label.text);
+                    Assert.AreEqual(outdoor, pin.gameObject.activeSelf);
+                    if (outdoor)
+                    {
+                        RectTransformUtility.ScreenPointToLocalPointInRectangle(area,
+                            camera.WorldToScreenPoint(view.LabelAnchor.Value), null, out var projected);
+                        Assert.That(Vector2.Distance(projected, pin.anchoredPosition), Is.LessThan(.01f));
+                    }
+
+                    view.LabelAnchor = camera.ViewportToWorldPoint(offscreen);
+                    hud.Show(view);
+                    Assert.IsTrue(pin.gameObject.activeSelf);
+                    StringAssert.Contains(cue, label.text);
+                }
             }
             finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
         }

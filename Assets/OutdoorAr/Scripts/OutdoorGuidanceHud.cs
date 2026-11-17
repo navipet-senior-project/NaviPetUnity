@@ -16,16 +16,14 @@ namespace OutdoorAr
         // Mean of the four surveyed corners in vec_building_corners.json.
         public const double VecLatitude = 33.78282420612733;
         public const double VecLongitude = -118.11040173365433;
-        static readonly Regex VecName = new Regex(@"^VEC(?=\d|\W|$)\s*(?:·\s*)?(?:Room\s+)?(\d+)?",
+        static readonly Regex VecName = new Regex(@"\AVEC(?:\s*[0-9]{3}|\s*·\s*Room\s+[0-9]{3})?\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        public static (string Building, string TopLabel, double Latitude, double Longitude) PinTarget(IndoorArDestination destination)
+        public static (string Building, double Latitude, double Longitude) PinTarget(IndoorArDestination destination)
         {
             var name = destination.name?.Trim() ?? "";
-            var match = VecName.Match(name);
-            if (!match.Success) return (null, null, destination.latitude, destination.longitude);
-            var room = match.Groups[1].Value;
-            return ("VEC", room.Length > 0 ? "VEC · Room " + room : null, VecLatitude, VecLongitude);
+            return VecName.IsMatch(name) ? ("VEC", VecLatitude, VecLongitude)
+                : (null, destination.latitude, destination.longitude);
         }
 
         public static float PinHeight(double distanceM) =>
@@ -34,16 +32,15 @@ namespace OutdoorAr
         public static IndoorHudView Compose(IndoorArRequest request, OutdoorArState state, bool hasPose,
             bool arrived, double distanceM, double routeRemainingM, double turnDeg, bool offRoute,
             float readyForS, Vector3? labelAnchor, string arrivalFeedback = null,
-            string pinBuilding = null, string topLabel = null, double pinDistanceM = double.NaN)
+            string pinBuilding = null, double pinDistanceM = double.NaN)
         {
             var view = new IndoorHudView
             {
                 Outdoor = true,
                 Destination = Name(request),
-                TopLabel = topLabel,
                 PinLabel = double.IsNaN(pinDistanceM) ? null
                     : (pinBuilding ?? Name(request)) + " · " + IndoorHud.DistanceLabel(pinDistanceM),
-                PinScreenHeight = PinHeight(double.IsNaN(pinDistanceM) ? distanceM : pinDistanceM),
+                PinScreenHeight = PinHeight(pinDistanceM),
                 FollowingRoute = request.HasRoute,
                 OffRoute = offRoute,
                 ArrowYaw = (float)turnDeg,

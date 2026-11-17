@@ -314,6 +314,24 @@ public class IndoorArSessionTests
     }
 
     [Test]
+    public void OverlappingEyeHeightBandsCannotAcceptAPoseOrChangeTheTrackedFloor()
+    {
+        var floors = new[] { (1, -2f), (3, 3f), (2, 2.2f) };
+        var session = Localizing(out _);
+        const float overlap = 4.3f;
+        Assert.AreEqual(0, session.CurrentFloor(overlap, floors));
+        Assert.IsTrue(session.PoseConflictsWithSign(overlap, floors));
+        session.OnSignConfirmed(Sign120);
+        session.OnLocalized();
+        session.OnTrackedPose(0f, floors);
+        session.OnTrackedPose(overlap, floors);
+        Assert.AreSame(Sign120, session.FloorSign);
+        session.OnTrackedPose(5f, floors);
+        Assert.IsNull(session.FloorSign);
+        Assert.AreEqual(3, session.CurrentFloor(5f, floors));
+    }
+
+    [Test]
     public void TrackedWalkToAnotherFloorSupersedesTheLastSignUntilASignIsReadAgain()
     {
         const float floor1 = 0f, floor2 = 4f, between = 2f;

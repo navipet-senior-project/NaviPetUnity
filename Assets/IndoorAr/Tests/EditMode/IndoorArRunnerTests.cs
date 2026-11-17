@@ -209,25 +209,43 @@ public class IndoorArRunnerTests
         Assert.IsNull(session.SignRoom);
     }
 
-    [Test]
-    public void PinUsesWorldPoseAndHidesOnTrackingLoss()
+    [TestCase(true)]
+    [TestCase(false)]
+    public void PinEasesAfterTrackingOrFloorReturns(bool trackingLoss)
     {
         var runner = Runner();
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        var camera = new GameObject("AR Camera", typeof(Camera)).GetComponent<Camera>();
+        camera.transform.SetParent(_host.transform, false);
+        runner.Configure(localizer, _pinPrefab, camera);
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         var session = Field<IndoorArSession>(runner, "_session");
         session.OnArSupport(true);
         session.OnAuthenticated();
-        Call(runner, "UpdatePin");
+        Call(runner, "UpdateHud");
         var pin = Field<Transform>(runner, "_pin");
+        var original = new Vector3(-5.7651f, -1.8186f, 22.6689f);
         Assert.IsNull(pin.parent);
-        Assert.AreEqual(new Vector3(-5.7651f, -1.8186f, 22.6689f), pin.position);
+        Assert.AreEqual(original, pin.position);
         Assert.IsNotNull(pin.Find("Amber pin"));
         Assert.IsNotNull(pin.Find("White core"));
         Assert.IsTrue(pin.gameObject.activeSelf);
-        _host.GetComponent<RunnerFakeLocalizer>().Succeed = false;
-        session.OnTrackingLost();
-        Call(runner, "UpdatePin");
+        if (trackingLoss)
+        {
+            localizer.DeferAnswer = true;
+            session.OnTrackingLost();
+        }
+        else camera.transform.localPosition = Vector3.up;
+        Call(runner, "UpdateHud");
         Assert.IsFalse(pin.gameObject.activeSelf);
+
+        localizer.transform.position += Vector3.right;
+        camera.transform.localPosition = Vector3.zero;
+        if (trackingLoss) localizer.CompleteLocalized(0.73f);
+        Call(runner, "UpdateHud");
+        Assert.IsTrue(pin.gameObject.activeSelf);
+        Assert.That(pin.position.x, Is.GreaterThanOrEqualTo(original.x).And.LessThan(original.x + 1f));
+        Assert.AreEqual(original + Vector3.right, Field<Vector3>(runner, "_pinTarget"));
     }
 
     [Test]
@@ -238,6 +256,7 @@ public class IndoorArRunnerTests
         camObject.transform.SetParent(_host.transform, false);
         // One meter short of the door, facing it.
         camObject.transform.localPosition = new Vector3(-5.7651f, -0.4f, 21.6689f);
+        camObject.transform.LookAt(new Vector3(-5.7651f, -1.8186f, 22.6689f));
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
         var arState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
@@ -560,7 +579,7 @@ public class IndoorArRunnerTests
         Field<IIndoorArLocalizer>(runner, "_localizer").Authenticate();
         session.OnSignConfirmed(new IndoorRoomLandmark("VEC120", "VEC", "floor_1"));
         session.OnLocalized();
-        Call(runner, "UpdatePin");
+        Call(runner, "UpdateHud");
         var localizer = Field<SignFirstLocalizer>(runner, "_signFirst");
         localizer.Localize();
         var root = localizer.MapSpace;
@@ -944,12 +963,12 @@ public class IndoorArRunnerTests
             LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportLocalized(manager, true);
             Assert.AreEqual(IndoorArState.Pinned, session.State);
-            Call(runner, "UpdatePin");
+            Call(runner, "UpdateHud");
 
             if (candidateKind == "signConflict")
                 session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
             session.OnTrackingLost();
-            Call(runner, "UpdatePin");
+            Call(runner, "UpdateHud");
             var pin = Field<Transform>(runner, "_pin");
             var hud = Field<IndoorHud>(runner, "_hud").transform;
             var beforeRootPosition = mapRoot.position;
@@ -1254,8 +1273,10 @@ public class IndoorArRunnerTests
         Assert.AreEqual(1, localizer.AttemptCount);
     }
 
-    [Test]
-    public void FloorThreeNavigationPinsTheConnectorThenTheDoor()
+    [TestCase(2, "VECstairsF2B", 3, "VEC301")]
+    [TestCase(3, "VECstairsF3A", 2, "VEC217")]
+    public void FloorThreeNavigationFollowsTheSelectedConnectorThroughItsLanding(
+        int fromFloor, string startId, int toFloor, string room)
     {
         var directory = System.IO.File.ReadAllText(
             System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
@@ -1263,10 +1284,10 @@ public class IndoorArRunnerTests
         ocr.Configure(null, new TextAsset(directory));
         var runner = Runner();
         var request = JsonUtility.FromJson<IndoorArRequest>(_request);
-        var door = IndoorRoomIdentityMatcher.MatchSign("VEC301", directory).Landmark.DoorPositionInMap;
-        request.floor = "3";
-        request.room = "301";
-        request.doorKey = "VEC301";
+        var door = IndoorRoomIdentityMatcher.MatchSign(room, directory).Landmark.DoorPositionInMap;
+        request.floor = toFloor.ToString();
+        request.room = room.Substring(3);
+        request.doorKey = room;
         request.position = new IndoorArVector3 { x = door.x, y = door.y, z = door.z };
         IndoorArBridge.EditorRequestJson = JsonUtility.ToJson(request);
         var grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid").text);
@@ -1274,34 +1295,63 @@ public class IndoorArRunnerTests
         camera.transform.SetParent(_host.transform, false);
         runner.Configure(_host.GetComponent<RunnerFakeLocalizer>(), _pinPrefab, camera);
 
-        foreach (var floor in new[] { 2, 3 })
-        {
-            var (_, connector) = IndoorRoomIdentityMatcher.FloorConnectors(directory, floor)
-                .First(c => grids[floor].TrySnap(c.PositionInMap, out _, out _));
-            Assert.IsTrue(grids[floor].TrySnap(connector, out var x, out var z));
-            camera.transform.position = grids[floor].CenterOf(x, z) + Vector3.up * 1.5f;
-            if (floor == 2)
-            {
-                ((IEnumerator)Call(runner, "Start")).MoveNext();
-                var session = Field<IndoorArSession>(runner, "_session");
-                session.OnArSupport(true);
-                session.OnAuthenticated();
-                Assert.AreEqual(IndoorArState.Pinned, session.State);
-            }
-            Call(runner, "UpdateHud");
-            Assert.IsNotNull(Field<Vector3[]>(runner, "_route"));
-            var pin = Field<Transform>(runner, "_pin");
-            Assert.IsTrue(pin.gameObject.activeSelf);
-            var expected = floor == 2 ? Field<Vector3>(runner, "_connectorPosition") : door;
-            Assert.AreEqual(expected, pin.position);
-            Assert.AreEqual(floor == 2, Field<string>(runner, "_floorChange") != null);
-            CollectionAssert.Contains(Labels(runner), "You're on Floor " + floor);
-        }
+        var connectors = IndoorRoomIdentityMatcher.FloorConnectors(directory, fromFloor);
+        var origin = connectors.Single(c => c.Id == startId).PositionInMap;
+        Assert.IsTrue(grids[fromFloor].TrySnap(origin, out var x, out var z));
+        var start = grids[fromFloor].CenterOf(x, z) + Vector3.up * 1.5f;
+        camera.transform.position = start;
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+            .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+
+        Call(runner, "UpdateHud");
+        var route = Field<Vector3[]>(runner, "_route");
+        Assert.IsNotNull(route);
+        var pin = Field<Transform>(runner, "_pin");
+        var selected = connectors.Single(c => c.PositionInMap == pin.position);
+        var connectorId = selected.Id.Replace(fromFloor.ToString(), toFloor.ToString());
+        var hudArea = Field<IndoorHud>(runner, "_hud").transform.Find("HUD Canvas/Safe area");
+        StringAssert.Contains(" · to Floor " + toFloor, hudArea.Find("Pin label")
+            .GetComponentInChildren<UnityEngine.UI.Text>().text);
+        Assert.IsNotNull(hudArea.Find("Guide arrow"));
+        CollectionAssert.Contains(Labels(runner), "You're on Floor " + fromFloor);
+
+        Assert.IsFalse(grids[fromFloor].IsWalkable(x + 1, z));
+        camera.transform.position = grids[fromFloor].CenterOf(x + 1, z) + Vector3.up * 1.5f;
+        Call(runner, "UpdateHud");
+        Assert.AreSame(route, Field<Vector3[]>(runner, "_route"));
+        Assert.IsNull(hudArea.Find("Guide arrow"));
+        Assert.IsFalse(pin.gameObject.activeSelf);
+        Assert.IsFalse(hudArea.Find("Docked pin").gameObject.activeSelf);
+        Assert.IsFalse(hudArea.Find("Pin label").gameObject.activeSelf);
+        camera.transform.position = start;
+        Call(runner, "UpdateHud");
+        Assert.IsNotNull(hudArea.Find("Guide arrow"));
+        Assert.IsTrue(hudArea.Find("Pin label").gameObject.activeSelf);
+
+        var landing = IndoorRoomIdentityMatcher.FloorConnectors(directory, toFloor)
+            .Single(c => c.Id == connectorId).PositionInMap;
+        Assert.IsTrue(grids[toFloor].TrySnap(landing, out x, out z));
+        camera.transform.position = grids[toFloor].CenterOf(x, z) + Vector3.up * 1.5f;
+        camera.transform.LookAt(door);
+        Call(runner, "UpdateHud");
+        Assert.IsNotNull(Field<Vector3[]>(runner, "_route"));
+        Assert.IsNull(Field<string>(runner, "_floorChange"));
+        Assert.AreEqual(door, pin.position);
+        Assert.IsTrue(pin.gameObject.activeSelf);
+        CollectionAssert.Contains(Labels(runner), "You're on Floor " + toFloor);
     }
 
-    [Test]
-    public void ReadingDestinationTwiceStopsTheRouteAndReportsArrivalWithoutAPose()
+    [TestCase(false)]
+    [TestCase(true)]
+    public void ReadingDestinationTwiceStopsTheRouteAndReportsArrivalWithoutAPose(bool stepFree)
     {
+        if (stepFree)
+            IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"stepFree\":true");
         var runner = Runner();
         _host.GetComponent<RunnerFakeLocalizer>().DeferAnswer = true;
         ((IEnumerator)Call(runner, "Start")).MoveNext();

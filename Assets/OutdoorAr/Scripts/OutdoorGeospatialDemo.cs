@@ -38,7 +38,7 @@ namespace OutdoorAr
         Vector3? _pinPosition;
         Vector3 _pinTarget;
         Vector3 _pinVelocity;
-        (string Building, string TopLabel, double Latitude, double Longitude) _building;
+        (string Building, double Latitude, double Longitude) _building;
         string _requestJson;
         IndoorArRequest _request;
         bool _finished;
@@ -429,7 +429,7 @@ namespace OutdoorAr
             }
             _hud.Show(OutdoorGuidanceHud.Compose(_request, readiness.State, hasPose, _arrived, _distanceM,
                 _routeRemainingM, _turnDeg, _offRoute, _readyFor, anchor, _arrivalFeedback, _building.Building,
-                _building.TopLabel, pinDistance));
+                pinDistance));
             LogState();
         }
 
