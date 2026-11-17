@@ -135,6 +135,7 @@ public class IndoorRoomIdentityMatcherTests
         Assert.AreEqual("VEC119", result.Landmark.Id);
     }
 
+    [TestCase("FIRE CODE LIMIT FOR THIS\nROOM\n119")]
     [TestCase("119")]
     [TestCase("119 120")]
     [TestCase("MAXIMUM OCCUPANCY FOR THIS ROOM\n119")]
@@ -149,5 +150,22 @@ public class IndoorRoomIdentityMatcherTests
         var match = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
         Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber, match.Status);
         Assert.IsNull(match.Landmark);
+    }
+
+    [TestCase("ROOM 119\nMAXIMUM OCCUPANCY 40 PERSONS")]
+    [TestCase("MAXIMUM OCCUPANCY 40 PERSONS\nROOM 119")]
+    [TestCase("ROOM\n119\nMAXIMUM OCCUPANCY 40 PERSONS")]
+    public void RoomLabelBesideASeparateOccupancyNoticeStillMatches(string text)
+    {
+        var match = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
+        Assert.AreEqual(IndoorRoomMatchStatus.Matched, match.Status);
+        Assert.AreEqual("VEC119", match.Landmark.Id);
+    }
+
+    [Test]
+    public void RoomLabelAndAnotherRoomLabelBesideOccupancyNoticeAreAmbiguous()
+    {
+        Assert.AreEqual(IndoorRoomMatchStatus.Ambiguous,
+            IndoorRoomIdentityMatcher.MatchSign("ROOM 119\nMAXIMUM OCCUPANCY 40 PERSONS\nVEC 120", VecDirectory).Status);
     }
 }

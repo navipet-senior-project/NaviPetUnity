@@ -574,8 +574,10 @@ namespace IndoorAr
                 var destination = new Vector3(door.x, door.y, door.z);
                 var directory = DirectoryJson;
                 var landings = IndoorRoomIdentityMatcher.FloorConnectors(directory, destinationFloor);
-                landings.RemoveAll(landing => !_walkGrid.TryRoute(landing.PositionInMap, destination, out var onward)
-                    || !_walkGrid.TryNextWaypoint(onward, landing.PositionInMap, LiveDoorHud.RouteLookAheadM, out _));
+                // Elevator markers can sit in blocked cells: stand at the nearest walkable cell and check the exit from there.
+                landings.RemoveAll(landing => !_walkGrid.TryApproach(landing.PositionInMap, out var approach)
+                    || !_walkGrid.TryRoute(approach, destination, out var onward)
+                    || !_walkGrid.TryNextWaypoint(onward, approach, LiveDoorHud.RouteLookAheadM, out _));
                 _connectors = IndoorRoomIdentityMatcher.FloorConnectors(directory, here).FindAll(connector =>
                 {
                     var stem = connector.Type == "stairs" ? "VECstairsF" : "VECelev";
@@ -587,8 +589,7 @@ namespace IndoorAr
                 });
             }
             foreach (var (_, type, at) in _connectors)
-                if (hereGrid.IsWalkable(hereGrid.ColumnOf(at.x), hereGrid.RowOf(at.z))
-                    && hereGrid.TryRoute(cameraInMap, at, out var route)
+                if (hereGrid.TryRoute(cameraInMap, at, out var route)
                     && (_route == null || IndoorWalkGrid.LengthM(route) < IndoorWalkGrid.LengthM(_route)))
                 {
                     _route = route;

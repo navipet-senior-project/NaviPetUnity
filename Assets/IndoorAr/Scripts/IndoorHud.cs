@@ -333,9 +333,8 @@ namespace IndoorAr
         {
             if (_pinLabel == null) return;
             var hasAnchor = view.LabelAnchor.HasValue && _camera != null;
-            var pending = view.Outdoor && view.PinLabel != null && !hasAnchor;
-            _pinLabel.gameObject.SetActive(hasAnchor || pending);
-            if (!hasAnchor && !pending)
+            _pinLabel.gameObject.SetActive(hasAnchor);
+            if (!hasAnchor)
             {
                 _screenPin.gameObject.SetActive(false);
                 if (view.WorldPin != null) view.WorldPin.gameObject.SetActive(false);
@@ -391,7 +390,8 @@ namespace IndoorAr
                     }
                     var edge = DockPin(screen, viewport);
                     var edgeAt = ToHud(edge);
-                    pinAngle = Vector2.SignedAngle(Vector2.up, ToHud(viewport.center) - edgeAt);
+                    var dockAngle = Vector2.SignedAngle(Vector2.up, ToHud(viewport.center) - edgeAt);
+                    pinAngle = dockAngle;
                     var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(labelWidth, pinWidth) * .5f + 24f);
                     var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
                     var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
@@ -410,6 +410,14 @@ namespace IndoorAr
                         var blend = Mathf.SmoothStep(0f, 1f, overshoot / .12f);
                         labelAt = Vector2.Lerp(labelAt + (edgeAt - at), dockedLabel, blend);
                         at = Vector2.Lerp(edgeAt, dockedAt, blend);
+                        // Upright at the edge, turning with the blend, unless that upright body would sit above the screen: then flip it inward.
+                        var uprightCoreVisible = edgeAt.y + .65f * pinHeight <= rect.yMax;
+                        pinAngle = uprightCoreVisible ? dockAngle * blend : dockAngle;
+                        // Keep the visible core a few pixels inside the screen at the handoff; the tip moves by the same few pixels.
+                        var core = at + (Vector2)(Quaternion.Euler(0f, 0f, pinAngle) * Vector3.up) * (.65f * pinHeight);
+                        const float coreMargin = 6f;
+                        at += new Vector2(Mathf.Clamp(core.x, rect.xMin + coreMargin, rect.xMax - coreMargin) - core.x,
+                            Mathf.Clamp(core.y, rect.yMin + coreMargin, rect.yMax - coreMargin) - core.y);
                     }
                 }
             }

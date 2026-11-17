@@ -289,6 +289,8 @@ namespace IndoorAr.Tests
                     var visibleLabel = pill.anchoredPosition;
                     ShowAt(edge + step);
                     Assert.IsTrue(pin.gameObject.activeSelf);
+                    if (y <= 1f) // a pin docking at the top edge must flip to hang below its tip; its upright core was already off screen
+                        Assert.That(Mathf.Abs(Mathf.DeltaAngle(0f, pin.localEulerAngles.z)), Is.LessThan(5f), "the body does not snap on crossing a side or bottom edge");
                     Assert.That(Vector2.Distance(visiblePin, pin.anchoredPosition), Is.LessThan(12f));
                     Assert.That(Vector2.Distance(visibleLabel, pill.anchoredPosition), Is.LessThan(12f));
                     AssertLabelFits(area, pill);
@@ -399,7 +401,7 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void UnplacedOutdoorPinIsVisibleWithoutACameraAnchor()
+        public void OutdoorPinStaysHiddenUntilItHasACameraAnchor()
         {
             var root = new GameObject("HUD");
             try
@@ -407,15 +409,13 @@ namespace IndoorAr.Tests
                 var hud = root.AddComponent<IndoorHud>();
                 hud.Initialize(null);
                 Canvas.ForceUpdateCanvases();
-                var view = new IndoorHudView { Outdoor = true, Destination = "VEC", PinLabel = "VEC building center · Pin unplaced", PinScreenHeight = .2f };
+                var view = new IndoorHudView { Outdoor = true, Destination = "VEC", PinLabel = "VEC building center", PinScreenHeight = .2f };
                 hud.Show(view);
                 var area = (RectTransform)root.transform.Find("HUD Canvas/Safe area");
                 var pin = (RectTransform)area.Find("Building pin");
                 var label = (RectTransform)area.Find("Pin label");
-                Assert.IsTrue(pin.gameObject.activeSelf);
-                Assert.AreEqual(.2f * Screen.height, pin.rect.height * root.GetComponentInChildren<Canvas>().scaleFactor, .01f);
-                Assert.AreEqual(view.PinLabel, label.GetComponentInChildren<Text>().text);
-                AssertLabelFits(area, label);
+                Assert.IsFalse(pin.gameObject.activeSelf);
+                Assert.IsFalse(label.gameObject.activeSelf);
             }
             finally { Object.DestroyImmediate(root); }
         }

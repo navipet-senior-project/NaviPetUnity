@@ -83,6 +83,15 @@ namespace IndoorAr
             return cx >= 0;
         }
 
+        /// <summary>The walkable cell centre a marker stands next to, for markers (elevators) that sit in blocked cells.</summary>
+        public bool TryApproach(Vector3 world, out Vector3 approach)
+        {
+            approach = default;
+            if (!TrySnap(world, out var cx, out var cz)) return false;
+            approach = CenterOf(cx, cz);
+            return true;
+        }
+
         /// <summary>
         /// A* over 8-connected walkable cells, no corner cutting, then straightened by line of sight.
         /// The first point is where the camera snapped onto the floor and the last is where the goal snapped.

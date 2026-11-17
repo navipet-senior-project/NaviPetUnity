@@ -1273,11 +1273,14 @@ public class IndoorArRunnerTests
         Assert.AreEqual(1, localizer.AttemptCount);
     }
 
-    [TestCase(2, "VECstairsF2B", 3, "VEC301", 1)]
-    [TestCase(2, "VECelev2B", 3, "VEC301", -1)]
-    [TestCase(3, "VECstairsF3A", 2, "VEC217", 1)]
+    [TestCase(2, "VECstairsF2B", 3, "VEC301", "stairs")]
+    [TestCase(2, "VECelev2B", 3, "VEC301", "elevator")]
+    [TestCase(2, "VECelev2B", 1, "VEC119", "elevator")]
+    [TestCase(1, "VECelev1B", 2, "VEC217", "elevator")]
+    [TestCase(3, "VECelev3B", 2, "VEC217", "elevator")]
+    [TestCase(3, "VECstairsF3A", 2, "VEC217", "stairs")]
     public void FloorThreeNavigationFollowsTheSelectedConnectorThroughItsLanding(
-        int fromFloor, string startId, int toFloor, string room, int blockedOffset)
+        int fromFloor, string startId, int toFloor, string room, string connectorType)
     {
         var directory = System.IO.File.ReadAllText(
             System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
@@ -1300,7 +1303,9 @@ public class IndoorArRunnerTests
         var origin = connectors.Single(c => c.Id == startId).PositionInMap;
         var x = grids[fromFloor].ColumnOf(origin.x);
         var z = grids[fromFloor].RowOf(origin.z);
-        var start = new Vector3(origin.x, grids[fromFloor].FloorY + 1.5f, origin.z);
+        // Elevator markers sit in blocked cells: a person waits at the nearest walkable cell.
+        Assert.IsTrue(grids[fromFloor].TryApproach(origin, out var startCell));
+        var start = startCell + Vector3.up * 1.5f;
         camera.transform.position = start;
         ((IEnumerator)Call(runner, "Start")).MoveNext();
         var session = Field<IndoorArSession>(runner, "_session");
@@ -1315,6 +1320,8 @@ public class IndoorArRunnerTests
         Assert.IsNotNull(route);
         var pin = Field<Transform>(runner, "_pin");
         var selected = connectors.Single(c => c.PositionInMap == pin.position);
+        if (connectorType == "elevator") // stairs may legitimately win beside both, so only an elevator case proves the landing check
+            Assert.AreEqual(startId, selected.Id, "the elevator the user stands at is not skipped for the stairs");
         var connectorId = selected.Id.Replace(fromFloor.ToString(), toFloor.ToString());
         var hudArea = Field<IndoorHud>(runner, "_hud").transform.Find("HUD Canvas/Safe area");
         StringAssert.Contains(" · to Floor " + toFloor, hudArea.Find("Pin label")
@@ -1322,8 +1329,9 @@ public class IndoorArRunnerTests
         Assert.IsNotNull(hudArea.Find("Guide arrow"));
         CollectionAssert.Contains(Labels(runner), "You're on Floor " + fromFloor);
 
-        Assert.IsFalse(grids[fromFloor].IsWalkable(x + blockedOffset, z));
-        camera.transform.position = grids[fromFloor].CenterOf(x + blockedOffset, z) + Vector3.up * 1.5f;
+        Assert.IsTrue(grids[fromFloor].TrySnap(startCell, out var sx, out var sz));
+        var blocked = new[] { (1, 0), (-1, 0), (0, 1), (0, -1) }.First(o => !grids[fromFloor].IsWalkable(sx + o.Item1, sz + o.Item2));
+        camera.transform.position = grids[fromFloor].CenterOf(sx + blocked.Item1, sz + blocked.Item2) + Vector3.up * 1.5f;
         Call(runner, "UpdateHud");
         Assert.AreSame(route, Field<Vector3[]>(runner, "_route"));
         Assert.IsNull(hudArea.Find("Guide arrow"));
@@ -1337,7 +1345,8 @@ public class IndoorArRunnerTests
 
         var landing = IndoorRoomIdentityMatcher.FloorConnectors(directory, toFloor)
             .Single(c => c.Id == connectorId).PositionInMap;
-        camera.transform.position = new Vector3(landing.x, grids[toFloor].FloorY + 1.5f, landing.z);
+        Assert.IsTrue(grids[toFloor].TryApproach(landing, out var landingCell));
+        camera.transform.position = landingCell + Vector3.up * 1.5f;
         camera.transform.LookAt(door);
         Call(runner, "UpdateHud");
         Assert.IsNotNull(Field<Vector3[]>(runner, "_route"));

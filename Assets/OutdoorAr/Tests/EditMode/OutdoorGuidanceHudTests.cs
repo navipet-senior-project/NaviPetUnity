@@ -60,12 +60,11 @@ namespace OutdoorAr.Tests
             Assert.Greater(OutdoorGuidanceHud.PinHeight(10), .2f);
         }
 
-        [TestCase(OutdoorArState.Approximate, false, " · approx. 33 ft · Pin unplaced")]
-        [TestCase(OutdoorArState.Approximate, true, " · approx. 33 ft")]
-        [TestCase(OutdoorArState.Ready, false, " · 33 ft · Pin unplaced")]
-        public void BuildingDistanceUsesThePoseEvenWhenThePinIsUnplaced(OutdoorArState state, bool anchored, string suffix)
+        [TestCase(OutdoorArState.Approximate, " · approx. 33 ft")]
+        [TestCase(OutdoorArState.Ready, " · 33 ft")]
+        public void BuildingDistanceUsesThePoseOnceThePinIsAnchored(OutdoorArState state, string suffix)
         {
-            Vector3? anchor = anchored ? Vector3.forward : null;
+            Vector3? anchor = Vector3.forward;
             var view = OutdoorGuidanceHud.Compose(Request("VEC", route: true), state, true,
                 false, 80, 120, 30, false, 2f, anchor, pinBuilding: "VEC", pinDistanceM: 10);
             Assert.AreEqual(IndoorHudState.Straight, view.State);
@@ -73,6 +72,16 @@ namespace OutdoorAr.Tests
             Assert.AreEqual("VEC building center" + suffix, view.PinLabel);
             Assert.AreEqual(OutdoorGuidanceHud.PinHeight(10), view.PinScreenHeight);
             Assert.AreEqual(120, view.DistanceM);
+        }
+
+        [TestCase(OutdoorArState.Approximate)]
+        [TestCase(OutdoorArState.Ready)]
+        public void NoPinLabelUntilTheAnchorResolves(OutdoorArState state)
+        {
+            var view = OutdoorGuidanceHud.Compose(Request("VEC", route: true), state, true,
+                false, 80, 120, 30, false, 2f, null, pinBuilding: "VEC", pinDistanceM: 10);
+            Assert.IsNull(view.LabelAnchor);
+            Assert.IsNull(view.PinLabel);
         }
 
         [TestCase(OutdoorArState.VpsCheckRequired)]

@@ -130,17 +130,20 @@ namespace IndoorAr
             if (string.IsNullOrWhiteSpace(recognizedText))
                 return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
             const RegexOptions labelOptions = RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant;
-            var hasOccupancyText = Regex.IsMatch(recognizedText, @"\b(?:occupancy|capacity|persons|occupants|people)\b", labelOptions);
             var numbers = new HashSet<string>();
             foreach (Match labels in Regex.Matches(recognizedText,
                          @"^[ \t]*(?:(VEC|ROOM)(?:[ \t-]*|[ \t]*\r?\n[ \t]*)([0-9]{3})(?:[ \t]+|(?=\r?$)))+\r?$",
                          labelOptions))
             {
-                var prefixes = labels.Groups[1].Captures;
-                var roomNumbers = labels.Groups[2].Captures;
-                for (var i = 0; i < roomNumbers.Count; i++)
-                    if (!hasOccupancyText || string.Equals(prefixes[i].Value, "VEC", StringComparison.OrdinalIgnoreCase))
-                        numbers.Add(roomNumbers[i].Value);
+                // A label that is the middle of a wrapped notice ("... FOR THIS / ROOM 119 / PERSONS") is a count, not a sign.
+                var before = recognizedText.Substring(0, labels.Index).TrimEnd();
+                var after = recognizedText.Substring(labels.Index + labels.Length).TrimStart();
+                const RegexOptions wholeText = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+                if (Regex.IsMatch(before, @"(?:^|\s)(?:for|this|the|of|in|to|that|a|an|per|maximum|occupancy|capacity|limit|code)$", wholeText)
+                    || Regex.IsMatch(after, @"^(?:persons|people|occupants|students|seats)\b", wholeText))
+                    continue;
+                foreach (Capture number in labels.Groups[2].Captures)
+                    numbers.Add(number.Value);
             }
             if (numbers.Count > 1) return new IndoorRoomMatch(IndoorRoomMatchStatus.Ambiguous);
             if (numbers.Count == 0) return new IndoorRoomMatch(IndoorRoomMatchStatus.InvalidRoomNumber);
