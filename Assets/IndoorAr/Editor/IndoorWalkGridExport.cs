@@ -24,10 +24,32 @@ namespace IndoorAr.Editor
         static readonly (int floor, float y)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
         static readonly (int floor, float y)[] UpperFloors = { (3, 6f) };
 
+        /// <summary>
+        /// A reviewed doorway the body-band raycast blocks: cells whose centre is inside the rectangle (MapSet metres)
+        /// are forced walkable. Add one only after the mesh or a walk-through shows the opening is passable.
+        /// </summary>
+        public readonly struct DoorwayOverride
+        {
+            public readonly int Floor;
+            public readonly float MinX, MinZ, MaxX, MaxZ;
+            public readonly string Reason;
+
+            public DoorwayOverride(int floor, float minX, float minZ, float maxX, float maxZ, string reason)
+            {
+                Floor = floor; MinX = minX; MinZ = minZ; MaxX = maxX; MaxZ = maxZ; Reason = reason;
+            }
+        }
+
+        // Empty on purpose. The F2 stairs-A strip (VECstairsF2A) is not forced walkable: a mesh probe found the floor
+        // level equal on both sides (+-0.02 m) and the body band clear, but no floor surface in the ~0.5 m gap and a
+        // vertical face 0.1-0.3 m high at its hallway edge. That cannot show a step-free opening. Confirm on site first.
+        public static readonly DoorwayOverride[] Overrides = { };
+
         [MenuItem("Indoor AR/Rebuild Walk Grid From Scan")]
         public static void Export()
         {
             var data = Build();
+            if (data != null) WarnOffRegionMarkers(data, File.ReadAllText(DirectoryPath));
             if (data != null)
             {
                 File.WriteAllText(GridPath, JsonUtility.ToJson(data, true) + "\n");
@@ -80,6 +102,7 @@ namespace IndoorAr.Editor
                         Debug.LogError($"[WalkGrid] No walkable cells on floor {floor} of {path}.");
                         return false;
                     }
+                    ApplyOverrides(grid, Overrides);
                     output.Add(grid);
                 }
                 return true;
@@ -126,6 +149,50 @@ namespace IndoorAr.Editor
                 height = height,
                 rows = rows,
             };
+        }
+
+        /// <summary>Forces every cell whose centre lies in an override rectangle for this floor to walkable.</summary>
+        public static void ApplyOverrides(IndoorWalkFloor floor, IEnumerable<DoorwayOverride> overrides)
+        {
+            foreach (var o in overrides)
+            {
+                if (o.Floor != floor.floor) continue;
+                var forced = 0;
+                for (var z = 0; z < floor.height; z++)
+                {
+                    var centerZ = floor.originZ + (z + .5f) * floor.cell;
+                    if (centerZ < o.MinZ || centerZ > o.MaxZ) continue;
+                    var row = floor.rows[z].ToCharArray();
+                    for (var x = 0; x < floor.width; x++)
+                    {
+                        var centerX = floor.originX + (x + .5f) * floor.cell;
+                        if (centerX < o.MinX || centerX > o.MaxX || row[x] == '1') continue;
+                        row[x] = '1';
+                        forced++;
+                    }
+                    floor.rows[z] = new string(row);
+                }
+                Debug.Log($"[WalkGrid] floor={floor.floor} doorway override forced {forced} cells: {o.Reason}");
+            }
+        }
+
+        /// <summary>Ids of directory markers that do not snap onto the largest walkable region of their floor's grid.</summary>
+        public static List<string> OffRegionMarkers(IndoorWalkGridData data, string directoryJson)
+        {
+            var flagged = new List<string>();
+            var grids = IndoorWalkGrid.LoadFloors(JsonUtility.ToJson(data));
+            foreach (var floor in data.floors)
+                if (grids.TryGetValue(floor.floor, out var grid))
+                    foreach (var (id, _, at) in IndoorRoomIdentityMatcher.FloorMarkers(directoryJson, floor.floor))
+                        if (!grid.IsOnMainRegion(at)) flagged.Add(id);
+            return flagged;
+        }
+
+        public static void WarnOffRegionMarkers(IndoorWalkGridData data, string directoryJson)
+        {
+            var flagged = OffRegionMarkers(data, directoryJson);
+            if (flagged.Count > 0)
+                Debug.LogWarning($"[WalkGrid] Markers off their floor's main walk region: {string.Join(", ", flagged)}.");
         }
 
         /// <summary>Logs what the grid covers: which mapped doors sit on it and which pairs it connects.</summary>

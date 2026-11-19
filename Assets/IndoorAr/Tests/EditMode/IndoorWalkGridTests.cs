@@ -1,7 +1,9 @@
 using System.IO;
 using IndoorAr;
+using IndoorAr.Editor;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 public class IndoorWalkGridTests
 {
@@ -350,5 +352,78 @@ public class IndoorWalkGridTests
             }
         }
         Assert.IsFalse(grid.TryRoute(new Vector3(-30f, 0f, 5f), to, out _), "a point outside the scanned hallway has no route");
+    }
+
+    // 1 m cells, origin 0, floor 1. Two walkable blocks split by a blocked column at x = 3; the left block is bigger.
+    static IndoorWalkFloor Split() => new IndoorWalkFloor
+    {
+        floor = 1, cell = 1f, width = 6, height = 3,
+        rows = new[] { "111011", "111011", "111011" }
+    };
+
+    // Directory JSON with one marker per MapSet point, written in the exporter frame the file really uses.
+    static string Markers(params (string id, float x, float z)[] markers)
+    {
+        var objects = "";
+        foreach (var (id, x, z) in markers)
+        {
+            var p = Quaternion.Inverse(Quaternion.Euler(0f, IndoorMapFrame.YawDeg, 0f)) * (new Vector3(x, 0f, z) - IndoorMapFrame.Offset);
+            objects += (objects == "" ? "" : ",") + "{\"id\":\"" + id + "\",\"type\":\"door\",\"floorId\":\"floor_1\"," +
+                "\"position\":{\"x\":" + p.x.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                ",\"y\":0,\"z\":" + p.z.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "},\"rotationY\":0}";
+        }
+        return "{\"buildingId\":\"T\",\"objects\":[" + objects + "]}";
+    }
+
+    [Test]
+    public void ExportGateFlagsAMarkerThatSnapsOntoAnIslandOrOffTheFloor()
+    {
+        var data = new IndoorWalkGridData { floors = new[] { Split() } };
+        var directory = Markers(("MAIN", .5f, 1.5f), ("ISLAND", 5.5f, 1.5f), ("OFF", 40f, 40f));
+        var flagged = IndoorWalkGridExport.OffRegionMarkers(data, directory);
+        CollectionAssert.AreEquivalent(new[] { "ISLAND", "OFF" }, flagged);
+        LogAssert.Expect(LogType.Warning, "[WalkGrid] Markers off their floor's main walk region: ISLAND, OFF.");
+        IndoorWalkGridExport.WarnOffRegionMarkers(data, directory);
+    }
+
+    [Test]
+    public void DiagonalOnlyContactDoesNotJoinARegionBecauseRoutingCannotCutCorners()
+    {
+        var floor = Split();
+        floor.width = 4;
+        floor.rows = new[] { "1100", "1100", "0011" };
+        var data = new IndoorWalkGridData { floors = new[] { floor } };
+        CollectionAssert.AreEquivalent(new[] { "SMALL" },
+            IndoorWalkGridExport.OffRegionMarkers(data, Markers(("BIG", .5f, 1.5f), ("SMALL", 3.5f, 2.5f))));
+        Assert.IsFalse(IndoorWalkGrid.ForFloor(JsonUtility.ToJson(data), 1).TryRoute(
+            new Vector3(.5f, 0f, 1.5f), new Vector3(3.5f, 0f, 2.5f), out _));
+    }
+
+    [Test]
+    public void DoorwayOverrideJoinsTheIslandAndTheGateClears()
+    {
+        var floor = Split();
+        var data = new IndoorWalkGridData { floors = new[] { floor } };
+        var directory = Markers(("MAIN", .5f, 1.5f), ("ISLAND", 5.5f, 1.5f));
+        Assert.IsFalse(IndoorWalkGrid.ForFloor(JsonUtility.ToJson(data), 1).TryRoute(
+            new Vector3(.5f, 0f, 1.5f), new Vector3(5.5f, 0f, 1.5f), out _), "blocked doorway");
+        // A doorway one cell wide at row z = 1, and an override for another floor that must not touch this one.
+        IndoorWalkGridExport.ApplyOverrides(floor, new[]
+        {
+            new IndoorWalkGridExport.DoorwayOverride(1, 3.4f, 1.4f, 3.6f, 1.6f, "test doorway"),
+            new IndoorWalkGridExport.DoorwayOverride(2, 0f, 0f, 9f, 9f, "other floor"),
+        });
+        CollectionAssert.AreEqual(new[] { "111011", "111111", "111011" }, floor.rows, "only the doorway cell changed");
+        Assert.IsEmpty(IndoorWalkGridExport.OffRegionMarkers(data, directory));
+        Assert.IsTrue(IndoorWalkGrid.ForFloor(JsonUtility.ToJson(data), 1).TryRoute(
+            new Vector3(.5f, 0f, 1.5f), new Vector3(5.5f, 0f, 1.5f), out _));
+    }
+
+    [Test]
+    public void ShippedGridFlagsStairsAAndEntranceCMarkers()
+    {
+        var data = JsonUtility.FromJson<IndoorWalkGridData>(Scan);
+        CollectionAssert.AreEquivalent(new[] { "VECstairsF2A", "VECentr1C" },
+            IndoorWalkGridExport.OffRegionMarkers(data, Directory));
     }
 }

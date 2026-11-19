@@ -83,6 +83,56 @@ namespace IndoorAr
             return cx >= 0;
         }
 
+        /// <summary>
+        /// True when the point snaps onto the floor's largest region of walkable cells, joined the way TryRoute
+        /// joins them. A snap onto a smaller island, or no snap, means routes to or from the point cannot work.
+        /// </summary>
+        public bool IsOnMainRegion(Vector3 world)
+        {
+            if (!TrySnap(world, out var cx, out var cz)) return false;
+            if (_region == null) LabelRegions();
+            return _region[cz * _floor.width + cx] == _mainRegion;
+        }
+
+        int[] _region;
+        int _mainRegion;
+
+        void LabelRegions()
+        {
+            var w = _floor.width;
+            _region = new int[w * _floor.height];
+            var sizes = new List<int> { 0 };
+            var pending = new Stack<int>();
+            for (var start = 0; start < _region.Length; start++)
+            {
+                if (_region[start] != 0 || !IsWalkable(start % w, start / w)) continue;
+                var label = sizes.Count;
+                sizes.Add(0);
+                _region[start] = label;
+                pending.Push(start);
+                while (pending.Count > 0)
+                {
+                    var id = pending.Pop();
+                    var x = id % w;
+                    var z = id / w;
+                    sizes[label]++;
+                    for (var dz = -1; dz <= 1; dz++)
+                        for (var dx = -1; dx <= 1; dx++)
+                        {
+                            if (dx == 0 && dz == 0) continue;
+                            var nx = x + dx;
+                            var nz = z + dz;
+                            if (!IsWalkable(nx, nz) || _region[nz * w + nx] != 0) continue;
+                            if (dx != 0 && dz != 0 && (!IsWalkable(x + dx, z) || !IsWalkable(x, z + dz))) continue;
+                            _region[nz * w + nx] = label;
+                            pending.Push(nz * w + nx);
+                        }
+                }
+            }
+            for (var label = 1; label < sizes.Count; label++)
+                if (sizes[label] > sizes[_mainRegion]) _mainRegion = label;
+        }
+
         /// <summary>The walkable cell centre a marker stands next to, for markers (elevators) that sit in blocked cells.</summary>
         public bool TryApproach(Vector3 world, out Vector3 approach)
         {
