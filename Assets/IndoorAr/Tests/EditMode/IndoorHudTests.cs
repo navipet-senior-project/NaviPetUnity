@@ -678,7 +678,7 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void FrozenFlagChangesNothingBeforeThePinOrAfterArrival()
+        public void FrozenFlagPromptsRestartAfterArrivalButNotBeforePin()
         {
             var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
             var session = new IndoorArSession(request, request.mapCode);
@@ -693,8 +693,14 @@ namespace IndoorAr.Tests
             session.ImHere(camera);
             Assert.AreEqual(IndoorArState.Arrived, session.State);
             var arrived = LiveDoorHud.Compose(session, camera, Vector3.forward, 0f, cameraFrozen: true);
-            Assert.AreEqual(IndoorHudState.Arrived, arrived.State);
-            Assert.AreNotEqual(LiveDoorHud.CameraFrozenTitle, arrived.TitleOverride);
+            Assert.AreEqual(IndoorHudState.Localized, arrived.State);
+            Assert.IsFalse(arrived.FollowingRoute);
+            Assert.IsFalse(arrived.RouteBlocked);
+            Assert.AreEqual(-1, arrived.RouteWaypointIndex);
+            Assert.AreEqual(0f, arrived.ArrowYaw);
+            Assert.AreEqual(LiveDoorHud.CameraFrozenTitle, arrived.TitleOverride);
+            Assert.AreEqual(LiveDoorHud.CameraFrozenDetail, arrived.DetailOverride);
+            Assert.AreEqual(IndoorHudState.Arrived, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
         }
 
         static IndoorHudView SignView(string id, string floor, bool localizeOnly = false)

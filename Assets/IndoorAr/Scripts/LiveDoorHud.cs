@@ -31,14 +31,14 @@ namespace IndoorAr
 
         /// <param name="route">Hallway waypoints from the camera to the door in the MapSet frame, or null for none.</param>
         /// <param name="floorChange">"stairs" or "elevator" when the route ends there instead of at the door.</param>
-        /// <param name="cameraFrozen">The camera pose has stopped following the phone. While pinned, the arrow goes and AR restart is asked for.</param>
+        /// <param name="cameraFrozen">The camera pose has stopped following the phone.</param>
         public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap,
             float pinnedForS, Vector3[] route = null, string floorChange = null, bool floorUnknown = false,
             bool wrongFloorEvidence = false, IndoorWalkGrid routeGrid = null, int currentFloor = 0, bool cameraFrozen = false)
         {
             var request = session.Request;
             var door = request.position;
-            cameraFrozen &= session.State == IndoorArState.Pinned;
+            cameraFrozen &= session.State is IndoorArState.Pinned or IndoorArState.Arrived;
             if (cameraFrozen) route = null;
             var target = Vector3.zero;
             var wrongFloor = wrongFloorEvidence || session.FloorSign != null && session.IsWrongFloor(session.FloorSign.Floor);
