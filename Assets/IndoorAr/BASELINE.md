@@ -20,6 +20,8 @@
 
 Editor play mode does not emit this line. On a phone, filter logcat or the Xcode console for `IndoorArBaseline`. One line is printed each time a field changes.
 
+Indoor AR also emits `[ArDiag]` XR input counts at an explicit loader restart or active-loader entry and again one second later. `[IndoorAr]` diagnostic lines report frozen-camera changes, floor transitions and eye-height buckets, Limited tracking episodes, waypoint-index churn, route-block causes, and re-pin shift and turn. These lines use fixed labels, counts, and categories; they do not include positions, images, credentials, or recognized text. Filter for `ArDiag` and `IndoorAr` to capture them alongside the baseline.
+
 ## What a device run still has to measure
 
 These numbers are not produced by this instrumentation. Do not fill them in from the log.
