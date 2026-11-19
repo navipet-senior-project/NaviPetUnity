@@ -1143,13 +1143,10 @@ public class IndoorArRunnerTests
         camera.transform.localPosition = position;
         Call(runner, "UpdateHud");
         Assert.AreSame(cached, Field<Vector3[]>(runner, "_route"));
-        Assert.IsTrue(grid.TryNextWaypoint(cached, position, 1f, out var target));
-        Assert.AreEqual(cached[0], target);
-        var arrow = Field<RectTransform>(hud, "_arrow");
-        Assert.IsNotNull(arrow);
+        Assert.IsFalse(grid.TryNextWaypoint(cached, position, 1f, out _));
+        Assert.IsNull(Field<RectTransform>(hud, "_arrow"));
+        CollectionAssert.Contains(Labels(runner), "Route unavailable");
         Assert.IsNotNull(Field<IndoorArBaseline>(runner, "_baseline").ArrowShownMs);
-        var yaw = GuidanceCue.ArrowYawDegrees(Vector3.forward, position, target);
-        Assert.AreEqual(0f, Mathf.DeltaAngle(-yaw, arrow.localEulerAngles.z), .01f);
 
         camera.transform.localPosition = position + new Vector3(0f, 0f, -.1f);
         Call(runner, "UpdateHud");
@@ -1160,7 +1157,8 @@ public class IndoorArRunnerTests
         camera.transform.localPosition = position;
         Call(runner, "UpdateHud");
         Assert.AreSame(cached, Field<Vector3[]>(runner, "_route"));
-        Assert.IsNotNull(Field<RectTransform>(hud, "_arrow"));
+        Assert.IsNull(Field<RectTransform>(hud, "_arrow"));
+        CollectionAssert.Contains(Labels(runner), "Route unavailable");
         Assert.AreEqual(IndoorArState.Pinned, session.State);
     }
 
