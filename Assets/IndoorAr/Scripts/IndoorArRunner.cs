@@ -719,7 +719,7 @@ namespace IndoorAr
         // DX4: how long tracking stayed Limited after a pin, and whether the session went back to localizing.
         void NoteLimitedTracking(bool tracking, bool wasPinned)
         {
-            var phase = _limited.Observe(tracking, wasPinned, _session.State == IndoorArState.Localizing, Time.unscaledDeltaTime);
+            var phase = _limited.Observe(tracking, wasPinned, _session.State == IndoorArState.Localizing, Time.realtimeSinceStartup);
             if (phase == LimitedEpisodePhase.Begin)
             {
                 _limitedReason = ARSession.notTrackingReason.ToString();
@@ -735,6 +735,7 @@ namespace IndoorAr
         void EndLimitedEpisode(LimitedEpisodeEnd end)
         {
             if (!_limited.Active) return;
+            _limited.End(Time.realtimeSinceStartup);
             LogLimitedEnd(end);
             _limited.Reset();
         }

@@ -198,15 +198,29 @@ public class IndoorArDiagnosticsTests
         var t = new LimitedEpisodeTracker();
         Assert.AreEqual(LimitedEpisodePhase.None, t.Observe(false, false, false, .1f), "not pinned: no episode");
         Assert.AreEqual(LimitedEpisodePhase.Begin, t.Observe(false, true, false, .1f));
-        Assert.AreEqual(LimitedEpisodePhase.None, t.Observe(false, false, false, .5f));
-        Assert.AreEqual(LimitedEpisodePhase.None, t.Observe(false, false, true, .5f));
-        Assert.AreEqual(LimitedEpisodePhase.End, t.Observe(true, false, true, .1f));
-        Assert.AreEqual(1000, t.DurationMs);
+        Assert.AreEqual(LimitedEpisodePhase.None, t.Observe(false, false, false, .6f));
+        Assert.AreEqual(LimitedEpisodePhase.None, t.Observe(false, false, true, 1.1f));
+        Assert.AreEqual(LimitedEpisodePhase.End, t.Observe(true, false, true, 1.2f));
+        Assert.AreEqual(1100, t.DurationMs, 1);
         Assert.IsTrue(t.Relocalized);
         Assert.AreEqual(LimitedEpisodePhase.None, t.Observe(true, true, false, .1f));
-        t.Observe(false, true, false, .1f);
-        t.Observe(true, false, false, .1f);
+        t.Observe(false, true, false, 2f);
+        t.Observe(true, false, false, 2.1f);
+        Assert.AreEqual(100, t.DurationMs, 1);
         Assert.IsFalse(t.Relocalized, "a short dip that never relocalized");
+    }
+
+    [Test]
+    public void LimitedEpisodeEndCountsElapsedTimeWithoutDoubleCounting()
+    {
+        var tracker = new LimitedEpisodeTracker();
+        tracker.Observe(false, true, false, 10f);
+        tracker.Observe(false, false, true, 10.5f);
+        tracker.End(11f);
+        Assert.AreEqual(1000, tracker.DurationMs);
+        Assert.IsTrue(tracker.Relocalized);
+        tracker.End(12f);
+        Assert.AreEqual(1000, tracker.DurationMs);
     }
 
     [Test]
@@ -256,14 +270,16 @@ public class IndoorArDiagnosticsTests
         var lines = new List<string>();
         runner.DiagnosticSink = lines.Add;
         var tracker = Field<LimitedEpisodeTracker>(runner, "_limited");
-        tracker.Observe(false, true, false, .1f);
-        tracker.Observe(false, false, true, 1f);
+        var now = Time.realtimeSinceStartup;
+        tracker.Observe(false, true, false, now - 1f);
+        tracker.Observe(false, false, true, now - .5f);
         try
         {
             if (boundary == "OnDestroy") Call(runner, boundary);
             else Call(runner, boundary, (object)null);
             var line = lines.Single();
-            StringAssert.Contains("durationMs=1000 relocalize=true", line);
+            StringAssert.Contains("relocalize=true", line);
+            Assert.GreaterOrEqual(long.Parse(line.Split(' ').Single(part => part.StartsWith("durationMs=")).Substring(11)), 999);
             StringAssert.Contains("end=" + end, line);
             AssertFilterSafe(line);
             if (host != null) Object.DestroyImmediate(host);

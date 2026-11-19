@@ -204,15 +204,19 @@ namespace IndoorAr
     /// </summary>
     public sealed class LimitedEpisodeTracker
     {
-        float _durationS;
+        float _startedAt, _durationS;
 
         public bool Active { get; private set; }
         public bool Relocalized { get; private set; }
         public long DurationMs => (long)(_durationS * 1000f);
 
-        public LimitedEpisodePhase Observe(bool tracking, bool pinned, bool relocalizationStarted, float dt)
+        public LimitedEpisodePhase Observe(bool tracking, bool pinned, bool relocalizationStarted, float now)
         {
-            if (Active) Relocalized |= relocalizationStarted;
+            if (Active)
+            {
+                _durationS = Mathf.Max(0f, now - _startedAt);
+                Relocalized |= relocalizationStarted;
+            }
             if (tracking)
             {
                 if (!Active) return LimitedEpisodePhase.None;
@@ -224,12 +228,17 @@ namespace IndoorAr
                 if (!pinned) return LimitedEpisodePhase.None;
                 Active = true;
                 Relocalized = relocalizationStarted;
+                _startedAt = now;
                 _durationS = 0f;
                 return LimitedEpisodePhase.Begin;
             }
-            _durationS += dt;
-            Relocalized |= relocalizationStarted;
             return LimitedEpisodePhase.None;
+        }
+
+        public void End(float now)
+        {
+            if (Active) _durationS = Mathf.Max(0f, now - _startedAt);
+            Active = false;
         }
 
         public void Reset()
