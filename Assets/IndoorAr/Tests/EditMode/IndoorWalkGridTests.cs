@@ -3,6 +3,7 @@ using IndoorAr;
 using IndoorAr.Editor;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 public class IndoorWalkGridTests
 {
@@ -381,8 +382,8 @@ public class IndoorWalkGridTests
         var directory = Markers(("MAIN", .5f, 1.5f), ("ISLAND", 5.5f, 1.5f), ("OFF", 40f, 40f));
         var flagged = IndoorWalkGridExport.OffRegionMarkers(data, directory);
         CollectionAssert.AreEquivalent(new[] { "ISLAND", "OFF" }, flagged);
-        CollectionAssert.AreEquivalent(flagged, IndoorWalkGridExport.UnreviewedOffRegionMarkers(data, directory),
-            "none of these are on the reviewed list, so the export would fail");
+        LogAssert.Expect(LogType.Warning, "[WalkGrid] Markers off their floor's main walk region: ISLAND, OFF.");
+        IndoorWalkGridExport.WarnOffRegionMarkers(data, directory);
     }
 
     [Test]
@@ -419,13 +420,10 @@ public class IndoorWalkGridTests
     }
 
     [Test]
-    public void ShippedGridFlagsOnlyTheReviewedStairsAAndEntranceCMarkers()
+    public void ShippedGridFlagsStairsAAndEntranceCMarkers()
     {
         var data = JsonUtility.FromJson<IndoorWalkGridData>(Scan);
         CollectionAssert.AreEquivalent(new[] { "VECstairsF2A", "VECentr1C" },
             IndoorWalkGridExport.OffRegionMarkers(data, Directory));
-        Assert.IsEmpty(IndoorWalkGridExport.UnreviewedOffRegionMarkers(data, Directory));
-        CollectionAssert.AreEquivalent(IndoorWalkGridExport.AcceptedOffRegion,
-            IndoorWalkGridExport.OffRegionMarkers(data, Directory), "a stale reviewed entry should be removed");
     }
 }

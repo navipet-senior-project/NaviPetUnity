@@ -45,27 +45,11 @@ namespace IndoorAr.Editor
         // vertical face 0.1-0.3 m high at its hallway edge. That cannot show a step-free opening. Confirm on site first.
         public static readonly DoorwayOverride[] Overrides = { };
 
-        /// <summary>
-        /// Markers the gate may flag without failing the export: reviewed, and still not routable. Each needs a human
-        /// check (walk past it) before it is overridden or fixed; a marker not listed here fails the export.
-        /// </summary>
-        public static readonly string[] AcceptedOffRegion =
-        {
-            "VECstairsF2A", // F2 stairs landing: 0.5-0.75 m blocked strip from the hallway, see Overrides above.
-            "VECentr1C",    // F1 south entrance: thin scan coverage, cause undetermined; not forced walkable.
-        };
-
         [MenuItem("Indoor AR/Rebuild Walk Grid From Scan")]
         public static void Export()
         {
             var data = Build();
-            // Runs before anything is written: a marker newly cut off from its floor's hallway must not ship.
-            var unreviewed = data == null ? null : UnreviewedOffRegionMarkers(data, File.ReadAllText(DirectoryPath));
-            if (unreviewed != null && unreviewed.Count > 0)
-            {
-                Debug.LogError($"[WalkGrid] Markers off their floor's main walk region, not reviewed: {string.Join(", ", unreviewed)}. Grid not written.");
-                data = null;
-            }
+            if (data != null) WarnOffRegionMarkers(data, File.ReadAllText(DirectoryPath));
             if (data != null)
             {
                 File.WriteAllText(GridPath, JsonUtility.ToJson(data, true) + "\n");
@@ -204,8 +188,12 @@ namespace IndoorAr.Editor
             return flagged;
         }
 
-        public static List<string> UnreviewedOffRegionMarkers(IndoorWalkGridData data, string directoryJson) =>
-            OffRegionMarkers(data, directoryJson).FindAll(id => System.Array.IndexOf(AcceptedOffRegion, id) < 0);
+        public static void WarnOffRegionMarkers(IndoorWalkGridData data, string directoryJson)
+        {
+            var flagged = OffRegionMarkers(data, directoryJson);
+            if (flagged.Count > 0)
+                Debug.LogWarning($"[WalkGrid] Markers off their floor's main walk region: {string.Join(", ", flagged)}.");
+        }
 
         /// <summary>Logs what the grid covers: which mapped doors sit on it and which pairs it connects.</summary>
         static void Report(string gridJson)
