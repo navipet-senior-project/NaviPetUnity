@@ -678,18 +678,28 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void FrozenFlagPromptsRestartAfterArrivalButNotBeforePin()
+        public void FrozenFlagPromptsRestartInEverySessionState()
         {
             var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
             var session = new IndoorArSession(request, request.mapCode);
             var camera = new Vector3(1f, 4f, 3f);
-            var scanning = LiveDoorHud.Compose(session, camera, Vector3.forward, 0f, cameraFrozen: true);
-            Assert.AreEqual(IndoorHudState.Scanning, scanning.State);
-            Assert.IsNull(scanning.TitleOverride);
-
+            void AssertFrozen(IndoorArState state)
+            {
+                Assert.AreEqual(state, session.State);
+                var view = LiveDoorHud.Compose(session, camera, Vector3.forward, 0f, cameraFrozen: true);
+                Assert.AreEqual(IndoorHudState.Localized, view.State);
+                Assert.IsFalse(view.FollowingRoute);
+                Assert.IsFalse(view.RouteBlocked);
+                Assert.AreEqual(LiveDoorHud.CameraFrozenTitle, view.TitleOverride);
+                Assert.AreEqual(LiveDoorHud.CameraFrozenDetail, view.DetailOverride);
+            }
+            AssertFrozen(IndoorArState.Init);
             session.OnArSupport(true);
+            AssertFrozen(IndoorArState.Auth);
             session.OnAuthenticated();
+            AssertFrozen(IndoorArState.Localizing);
             session.OnLocalized(0.5f);
+            AssertFrozen(IndoorArState.Pinned);
             session.ImHere(camera);
             Assert.AreEqual(IndoorArState.Arrived, session.State);
             var arrived = LiveDoorHud.Compose(session, camera, Vector3.forward, 0f, cameraFrozen: true);
@@ -701,6 +711,22 @@ namespace IndoorAr.Tests
             Assert.AreEqual(LiveDoorHud.CameraFrozenTitle, arrived.TitleOverride);
             Assert.AreEqual(LiveDoorHud.CameraFrozenDetail, arrived.DetailOverride);
             Assert.AreEqual(IndoorHudState.Arrived, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
+            session.ConfirmArrival();
+            AssertFrozen(IndoorArState.Done);
+        }
+
+        [Test]
+        public void FrozenFlagOverridesVisibleFailureUntilCameraMoves()
+        {
+            var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
+            var session = new IndoorArSession(request, request.mapCode);
+            session.OnArSupport(true);
+            session.OnAuthFailed(false);
+            var frozen = LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f, cameraFrozen: true);
+            Assert.AreEqual(IndoorHudState.Localized, frozen.State);
+            Assert.AreEqual(LiveDoorHud.CameraFrozenTitle, frozen.TitleOverride);
+            Assert.AreEqual(LiveDoorHud.CameraFrozenDetail, frozen.DetailOverride);
+            Assert.AreEqual("AR sign-in failed", LiveDoorHud.Compose(session, Vector3.zero, Vector3.forward, 0f).TitleOverride);
         }
 
         static IndoorHudView SignView(string id, string floor, bool localizeOnly = false)

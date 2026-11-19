@@ -38,7 +38,6 @@ namespace IndoorAr
         {
             var request = session.Request;
             var door = request.position;
-            cameraFrozen &= session.State is IndoorArState.Pinned or IndoorArState.Arrived;
             if (cameraFrozen) route = null;
             var target = Vector3.zero;
             var wrongFloor = wrongFloorEvidence || session.FloorSign != null && session.IsWrongFloor(session.FloorSign.Floor);
@@ -58,8 +57,8 @@ namespace IndoorAr
             var stepFreeUnavailable = StepFreeUnavailable(session);
             var view = new IndoorHudView
             {
-                State = stepFreeUnavailable ? IndoorHudState.NotFound
-                    : cameraFrozen || floorUnknown && session.State == IndoorArState.Pinned ? IndoorHudState.Localized : StateFor(session, pinnedForS),
+                State = cameraFrozen ? IndoorHudState.Localized : stepFreeUnavailable ? IndoorHudState.NotFound
+                    : floorUnknown && session.State == IndoorArState.Pinned ? IndoorHudState.Localized : StateFor(session, pinnedForS),
                 Destination = Destination(request),
                 CurrentFloor = session.FloorSign?.Floor ?? currentFloor,
                 Floor = int.TryParse(request.floor, out var floor) ? floor : 0,
@@ -72,10 +71,10 @@ namespace IndoorAr
                 RouteBlockedCause = routeBlocked ? cause : IndoorRouteBlockedCause.None,
                 FloorChange = route == null ? null : floorChange,
                 DistanceM = route == null ? double.NaN : IndoorWalkGrid.LengthM(route),
-                TitleOverride = stepFreeUnavailable ? "Step-free route unavailable" : authFailed ? "AR sign-in failed"
-                    : cameraFrozen ? CameraFrozenTitle : routeBlocked ? "Route unavailable" : null,
-                DetailOverride = stepFreeUnavailable ? "A step-free route to this destination cannot be confirmed."
-                    : cameraFrozen ? CameraFrozenDetail
+                TitleOverride = cameraFrozen ? CameraFrozenTitle : stepFreeUnavailable ? "Step-free route unavailable"
+                    : authFailed ? "AR sign-in failed" : routeBlocked ? "Route unavailable" : null,
+                DetailOverride = cameraFrozen ? CameraFrozenDetail
+                    : stepFreeUnavailable ? "A step-free route to this destination cannot be confirmed."
                     : floorUnknown && session.State == IndoorArState.Pinned ? "Your floor could not be confirmed."
                     : routeBlocked ? "No clear hallway route from your position."
                     : session.ArrivedBySign ? "Found the " + RoomLabel(session.SignRoom.Id) + " sign · Floor " + session.SignRoom.Floor
