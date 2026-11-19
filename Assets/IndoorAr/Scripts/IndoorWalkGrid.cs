@@ -265,8 +265,8 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// Advances nearby waypoints only with grid clearance from the camera, then falls back to a reachable
-        /// earlier waypoint that is not behind the user. A camera in a blocked cell is checked from the nearest
+        /// Selects a reachable waypoint ahead, advancing nearby waypoints only with grid clearance from the camera.
+        /// A camera in a blocked cell is checked from the nearest
         /// walkable cell instead. Returns false when no such waypoint has a clear segment.
         /// </summary>
         public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint) =>
@@ -289,19 +289,14 @@ namespace IndoorAr
             }
             var ahead = FirstAhead(route, camera);
             var next = ahead;
+            while (next < route.Length && !LineIsClear(origin, route[next])) next++;
+            if (next == route.Length) return false;
             while (next < route.Length - 1
                 && new Vector2(route[next].x - camera.x, route[next].z - camera.z).magnitude <= lookAhead
                 && LineIsClear(origin, route[next + 1])) next++;
-            for (; next >= ahead; next--)
-            {
-                if (LineIsClear(origin, route[next]))
-                {
-                    waypoint = route[next];
-                    index = next;
-                    return true;
-                }
-            }
-            return false;
+            waypoint = route[next];
+            index = next;
+            return true;
         }
 
         /// <summary>Index of the first waypoint the user has not passed: the far end of the route leg nearest the camera.</summary>
