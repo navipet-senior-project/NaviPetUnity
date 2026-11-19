@@ -116,6 +116,31 @@ public class IndoorArSessionTests
     }
 
     [Test]
+    public void NoPoseAnswerSpendsTheOneRetrySoonInsteadOfAtTheTimeout()
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        var requests = 0;
+        session.LocalizeRequested += () => requests++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnAttemptStarted();
+        session.Tick(1f);
+        session.OnNotLocalized();
+
+        session.Tick(IndoorArSession.NoPoseRetryS - 0.1f);
+        Assert.AreEqual(1, requests, "the retry waits for a new view");
+        session.Tick(0.2f);
+        Assert.AreEqual(2, requests);
+
+        session.OnNotLocalized();
+        session.Tick(IndoorArSession.NoPoseRetryS);
+        Assert.AreEqual(2, requests, "the attempt budget is unchanged");
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        StringAssert.StartsWith("{\"status\":\"localizationFailed\"", session.ResultJson);
+    }
+
+    [Test]
     public void SignRecoveryOutlivesVpsBudgetWithoutRetryingFallback()
     {
         var session = new IndoorArSession(Vec119(), MapCode, allowSignRecovery: true);

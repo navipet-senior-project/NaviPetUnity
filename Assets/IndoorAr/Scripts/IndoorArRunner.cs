@@ -50,6 +50,7 @@ namespace IndoorAr
         IndoorArState _loggedState;
         bool _stateLogged;
         bool _armingEntry;
+        bool _localizeWhenTracking;
         float _sessionStarted;
         IndoorArBaseline _baseline;
         string _baselineLog;
@@ -157,6 +158,7 @@ namespace IndoorAr
             _statusSeq = 0;
             _statusSent = null;
             _sessionAttempts.Clear();
+            _localizeWhenTracking = false;
             // Localizers outlive a warm launch; nothing they held belongs to this session's AR world.
             _signFirst?.Reset();
             if (restart && localizerBehaviour is MultiSetLocalizer multiSet) multiSet.AbandonPending();
@@ -226,6 +228,8 @@ namespace IndoorAr
             if (_session == null || _delivered) return;
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
+            if (_localizeWhenTracking && _session.State == IndoorArState.Localizing
+                && ARSession.state == ARSessionState.SessionTracking) RequestLocalization();
             if (_session.State == IndoorArState.Pinned && ARSession.state != ARSessionState.SessionTracking)
             {
                 _session.OnTrackingLost();
@@ -285,6 +289,10 @@ namespace IndoorAr
         void RequestLocalization()
         {
             if (_session.FallbackExpired && _signFirst == null) return;
+            // On device MultiSet never answered a frame sent before ARKit tracked, and that query holds the process lock.
+            // The session timeouts keep running while this waits, so a session that never tracks still fails on schedule.
+            _localizeWhenTracking = ARSession.state != ARSessionState.SessionTracking;
+            if (_localizeWhenTracking) return;
             _baseline?.NoteAttemptStarted(NowMs());
             if (!Application.isEditor)
                 Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");

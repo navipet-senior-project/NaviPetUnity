@@ -15,6 +15,8 @@ namespace IndoorAr
     {
         public const float StartupTimeoutS = 20f;
         public const float LocalizeTimeoutS = 30f;
+        // After a no-pose answer the one retry waits this long for a new view, not the whole timeout.
+        public const float NoPoseRetryS = 3f;
         public const float MinEyeHeightM = 1f;
         public const float MaxEyeHeightM = 2.2f;
 
@@ -151,7 +153,9 @@ namespace IndoorAr
 
         public void OnNotLocalized()
         {
-            if (State == IndoorArState.Localizing) _noPose = true;
+            if (State != IndoorArState.Localizing) return;
+            _noPose = true;
+            if (!_retried) _localizingS = Math.Max(_localizingS, LocalizeTimeoutS - NoPoseRetryS);
         }
 
         public void OnSignConfirmed(IndoorRoomLandmark room)
