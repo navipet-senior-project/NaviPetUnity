@@ -187,7 +187,7 @@ namespace IndoorAr
             var dt = Mathf.Max(0f, deltaTime);
             var currentRequest = _requestInFlight && _requestGeneration == _generation;
             if (currentRequest) _requestElapsed += dt;
-            else if (_queuedAttemptId != 0) _queueElapsed += dt;
+            else if (_queuedAttemptId != 0 && s_requestLive) _queueElapsed += dt;
             else return;
             if ((currentRequest ? _requestElapsed : _queueElapsed) < RequestTimeoutS) return;
             _fallbackUnavailable = true;

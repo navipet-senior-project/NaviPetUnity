@@ -788,9 +788,10 @@ public class MultiSetLocalizerTests
         first.Tick(SignFirstLocalizer.HoldS);
         if (delayedAuth) authenticated();
         ReportFailureAndStartDeferredRequest();
-        _adapter.Tick(0f);
+        _adapter.Tick(MultiSetLocalizer.RequestTimeoutS + 1f);
         Assert.AreEqual(1, attempts);
         Assert.IsFalse(_adapter.HasLiveRequest);
+        Assert.IsTrue(_adapter.FallbackAvailable);
         tracking = true;
         LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
         TickWithoutEditorFailure(0f);
