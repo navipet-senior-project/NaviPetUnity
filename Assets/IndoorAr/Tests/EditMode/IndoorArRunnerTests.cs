@@ -1136,8 +1136,9 @@ public class IndoorArRunnerTests
         var cached = Field<Vector3[]>(runner, "_route");
         Assert.AreEqual(2, cached.Length);
         var hud = Field<IndoorHud>(runner, "_hud");
-        Assert.IsNull(Field<RectTransform>(hud, "_arrow"));
-        Assert.IsNull(Field<IndoorArBaseline>(runner, "_baseline").ArrowShownMs);
+        // The blocked cell snaps to the nearest walkable cell, so guidance continues instead of going blank.
+        Assert.IsNotNull(Field<RectTransform>(hud, "_arrow"));
+        Assert.IsNotNull(Field<IndoorArBaseline>(runner, "_baseline").ArrowShownMs);
 
         camera.transform.localPosition = position;
         Call(runner, "UpdateHud");
@@ -1153,9 +1154,8 @@ public class IndoorArRunnerTests
         camera.transform.localPosition = position + new Vector3(0f, 0f, -.1f);
         Call(runner, "UpdateHud");
         Assert.AreSame(cached, Field<Vector3[]>(runner, "_route"));
-        Assert.IsNull(Field<RectTransform>(hud, "_arrow"));
-        CollectionAssert.Contains(Labels(runner), "Route unavailable");
-        Assert.IsNotNull(hud.transform.Find("HUD Canvas/Safe area/Here"));
+        Assert.IsNotNull(Field<RectTransform>(hud, "_arrow"));
+        CollectionAssert.DoesNotContain(Labels(runner), "Route unavailable");
 
         camera.transform.localPosition = position;
         Call(runner, "UpdateHud");
@@ -1362,11 +1362,10 @@ public class IndoorArRunnerTests
         Assert.IsNotNull(hudArea.Find("Guide arrow"));
         CollectionAssert.Contains(Labels(runner), "You're on Floor " + fromFloor);
 
-        Assert.IsTrue(grids[fromFloor].TrySnap(startCell, out var sx, out var sz));
-        var blocked = new[] { (1, 0), (-1, 0), (0, 1), (0, -1) }.First(o => !grids[fromFloor].IsWalkable(sx + o.Item1, sz + o.Item2));
-        camera.transform.position = grids[fromFloor].CenterOf(sx + blocked.Item1, sz + blocked.Item2) + Vector3.up * 1.5f;
+        // Far off the scan the camera cannot snap to a walkable cell, so there is no route and no guidance.
+        camera.transform.position = startCell + new Vector3(200f, 1.5f, 0f);
         Call(runner, "UpdateHud");
-        Assert.AreSame(route, Field<Vector3[]>(runner, "_route"));
+        Assert.IsNull(Field<Vector3[]>(runner, "_route"));
         Assert.IsNull(hudArea.Find("Guide arrow"));
         Assert.IsFalse(pin.gameObject.activeSelf);
         Assert.IsFalse(hudArea.Find("Docked pin").gameObject.activeSelf);

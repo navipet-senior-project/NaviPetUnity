@@ -299,6 +299,35 @@ public class IndoorWalkGridTests
         Assert.IsFalse(view.FollowingRoute);
     }
 
+    [Test]
+    public void BlockedWaypointAheadNeverFallsBackToOneBehindTheUser()
+    {
+        var grid = Corner(
+            "11111",
+            "00001",
+            "00001",
+            "00000",
+            "00001");
+        var route = new[] { new Vector3(.5f, 0f, .5f), new Vector3(4.5f, 0f, .5f), new Vector3(4.5f, 0f, 4.5f) };
+        // Past the corner on the way to the goal, which a blocked cell cuts off: the corner is clear but behind.
+        Assert.IsFalse(grid.TryNextWaypoint(route, new Vector3(4.5f, 1.5f, 2.5f), 1f, out _));
+        // Still on the first leg, the corner is ahead and is chosen.
+        Assert.IsTrue(grid.TryNextWaypoint(route, new Vector3(2.5f, 1.5f, .5f), 1f, out var target));
+        Assert.AreEqual(route[1], target);
+    }
+
+    [Test]
+    public void CameraInABlockedCellSteersFromTheNearestWalkableCell()
+    {
+        var hall = Hall();
+        hall.TryRoute(new Vector3(.5f, 0f, .5f), new Vector3(4.5f, 0f, 4.5f), out var route);
+        var camera = new Vector3(1.5f, 1.5f, 1.2f);
+        Assert.IsFalse(hall.IsWalkable(hall.ColumnOf(camera.x), hall.RowOf(camera.z)));
+        Assert.IsTrue(hall.TryNextWaypoint(route, camera, 1f, out var target));
+        Assert.AreEqual(route[1], target);
+        Assert.IsFalse(hall.TryNextWaypoint(route, new Vector3(-9f, 1.5f, .5f), 1f, out _), "off the scan stays unrouted");
+    }
+
     // Every mapped door on a floor reaches stairs or an elevator on the scan, so a wrong-floor user gets a route.
     [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
     [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
