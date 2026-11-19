@@ -37,7 +37,7 @@ public class IndoorArDiagnosticsTests
         };
         var lines = IndoorArDiagnostics.XrInputLines("1s", devices, 1, 1, 0, 3, -1);
         lines.Add(IndoorArDiagnostics.CameraFrozenLine(true, 2100, 340));
-        lines.Add(IndoorArDiagnostics.FloorChangeLine(1, 0, IndoorArDiagnostics.EyeHeightBucket(1.7f, floors)));
+        lines.Add(IndoorArDiagnostics.FloorChangeLine(1, 0, IndoorArDiagnostics.EyeHeightBucket(1.7f, 1, floors)));
         lines.Add(IndoorArDiagnostics.TrackingLimitedBeginLine("Relocalizing"));
         lines.Add(IndoorArDiagnostics.TrackingLimitedEndLine(1800, true, "Relocalizing", LimitedEpisodeEnd.TrackingRestored));
         lines.Add(IndoorArDiagnostics.WaypointChurnLine(4));
@@ -116,14 +116,16 @@ public class IndoorArDiagnosticsTests
     }
 
     [Test]
-    public void EyeHeightBucketIsAHeightAboveTheNearestFloorBelow()
+    public void EyeHeightBucketUsesTheReportedFloor()
     {
         var floors = new List<(int Floor, float Y)> { (1, 0f), (2, 4f) };
-        Assert.AreEqual("1.5-2.0", IndoorArDiagnostics.EyeHeightBucket(1.7f, floors));
-        Assert.AreEqual("0.5-1.0", IndoorArDiagnostics.EyeHeightBucket(4.6f, floors));
-        Assert.AreEqual("4.0-up", IndoorArDiagnostics.EyeHeightBucket(4.1f, new List<(int, float)> { (1, 0f) }));
-        Assert.AreEqual("below", IndoorArDiagnostics.EyeHeightBucket(-1f, floors));
-        Assert.AreEqual("below", IndoorArDiagnostics.EyeHeightBucket(1f, new List<(int, float)>()));
+        Assert.AreEqual("1.5-2.0", IndoorArDiagnostics.EyeHeightBucket(1.7f, 1, floors));
+        Assert.AreEqual("0.5-1.0", IndoorArDiagnostics.EyeHeightBucket(4.6f, 2, floors));
+        Assert.AreEqual("4.0-up", IndoorArDiagnostics.EyeHeightBucket(4.1f, 1, new List<(int, float)> { (1, 0f) }));
+        Assert.AreEqual("below", IndoorArDiagnostics.EyeHeightBucket(-1f, 1, floors));
+        Assert.AreEqual("below", IndoorArDiagnostics.EyeHeightBucket(1f, 2, floors));
+        Assert.AreEqual("unknown", IndoorArDiagnostics.EyeHeightBucket(1f, 3, floors));
+        Assert.AreEqual("unknown", IndoorArDiagnostics.EyeHeightBucket(1f, 0, floors));
     }
 
     [Test]
@@ -224,19 +226,19 @@ public class IndoorArDiagnosticsTests
     }
 
     [Test]
-    public void ChurnCountsIndexChangesPerRouteAndWindow()
+    public void ChurnCountsVisibleIndexChangesAcrossReroutes()
     {
         var m = new WaypointChurnMeter();
-        var routeA = new Vector3[3];
-        var routeB = new Vector3[3];
         int n;
-        Assert.IsFalse(m.Observe(routeA, 1, .25f, out n));
-        Assert.IsFalse(m.Observe(routeA, 2, .25f, out n));
-        Assert.IsFalse(m.Observe(routeA, 1, .25f, out n));
-        Assert.IsTrue(m.Observe(routeA, 2, .25f, out n));
+        Assert.IsFalse(m.Observe(1, .25f, out n));
+        Assert.IsFalse(m.Observe(2, .25f, out n));
+        Assert.IsFalse(m.Observe(1, .25f, out n));
+        Assert.IsTrue(m.Observe(2, .25f, out n));
         Assert.AreEqual(3, n);
-        Assert.IsFalse(m.Observe(routeB, 0, .5f, out n), "a new route's first index is not churn");
-        Assert.IsFalse(m.Observe(routeB, 0, .5f, out n), "a quiet window logs nothing");
+        Assert.IsFalse(m.Observe(-1, .25f, out n));
+        Assert.IsFalse(m.Observe(0, .25f, out n));
+        Assert.IsTrue(m.Observe(1, .5f, out n));
+        Assert.AreEqual(1, n);
     }
 
     [Test]

@@ -89,16 +89,17 @@ namespace IndoorAr
         static string FloorName(int floor) => floor > 0 ? floor.ToString(CultureInfo.InvariantCulture) : "unknown";
 
         /// <summary>
-        /// The eye height above the highest supported floor at or below the camera, in 0.5 m buckets ("1.5-2.0").
+        /// The eye height above the reported floor, in 0.5 m buckets ("1.5-2.0").
         /// A height, not a position: it says nothing about where in the building the camera is.
         /// </summary>
-        public static string EyeHeightBucket(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
+        public static string EyeHeightBucket(float cameraY, int floor, IReadOnlyList<(int Floor, float Y)> floors)
         {
             var floorY = float.NegativeInfinity;
-            foreach (var (_, y) in floors)
-                if (y <= cameraY && y > floorY) floorY = y;
-            if (float.IsNegativeInfinity(floorY)) return "below";
+            foreach (var (number, y) in floors)
+                if (floor > 0 && number == floor) { floorY = y; break; }
+            if (float.IsNegativeInfinity(floorY)) return "unknown";
             var height = cameraY - floorY;
+            if (height < 0f) return "below";
             if (height >= 4f) return "4.0-up";
             var low = Mathf.Floor(height / .5f) * .5f;
             return Number(low, "0.0") + "-" + Number(low + .5f, "0.0");
@@ -249,30 +250,20 @@ namespace IndoorAr
         }
     }
 
-    /// <summary>DX5. Counts changes of the waypoint index the arrow aims at, per second, along one route.</summary>
+    /// <summary>DX5. Counts changes of the waypoint index the arrow aims at, per second.</summary>
     public sealed class WaypointChurnMeter
     {
         public const float WindowS = 1f;
-        object _route;
         int _index = -1;
         int _changes;
         float _windowS;
 
         /// <summary>True once per window that saw at least one change; changesPerS is that count.</summary>
-        public bool Observe(object route, int index, float dt, out int changesPerS)
+        public bool Observe(int index, float dt, out int changesPerS)
         {
             changesPerS = 0;
-            // A new route array numbers its waypoints afresh, so its first index is not a change.
-            if (!ReferenceEquals(route, _route) || index < 0 || _index < 0)
-            {
-                _route = route;
-                _index = index;
-            }
-            else if (index != _index)
-            {
-                _changes++;
-                _index = index;
-            }
+            if (index >= 0 && _index >= 0 && index != _index) _changes++;
+            _index = index;
             _windowS += dt;
             if (_windowS < WindowS) return false;
             changesPerS = _changes;
@@ -283,7 +274,6 @@ namespace IndoorAr
 
         public void Reset()
         {
-            _route = null;
             _index = -1;
             _changes = 0;
             _windowS = 0f;

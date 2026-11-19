@@ -521,7 +521,7 @@ namespace IndoorAr
                 ? _session.CurrentFloor(cameraInMap.y, _floorHeights) : 0;
             var view = LiveDoorHud.Compose(_session, cameraInMap, CameraForwardInMap(), _pinnedFor, route,
                 _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), currentFloor);
-            NoteRoute(view, route);
+            NoteRoute(view);
             UpdatePin(view, currentFloor);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
@@ -713,7 +713,7 @@ namespace IndoorAr
         {
             var floor = _session.CurrentFloor(cameraY, _floorHeights);
             if (_floorTransitions.Observe(floor, out var from))
-                Diag(IndoorArDiagnostics.FloorChangeLine(from, floor, IndoorArDiagnostics.EyeHeightBucket(cameraY, _floorHeights)));
+                Diag(IndoorArDiagnostics.FloorChangeLine(from, floor, IndoorArDiagnostics.EyeHeightBucket(cameraY, floor, _floorHeights)));
         }
 
         // DX4: how long tracking stayed Limited after a pin, and whether the session went back to localizing.
@@ -741,11 +741,11 @@ namespace IndoorAr
         }
 
         // DX5: waypoint index changes per second, and route-blocked transitions with the cause.
-        void NoteRoute(IndoorHudView view, Vector3[] route)
+        void NoteRoute(IndoorHudView view)
         {
             if (_routeBlock.Observe(view.RouteBlocked, view.RouteBlockedCause))
                 Diag(IndoorArDiagnostics.RouteBlockedLine(view.RouteBlocked, view.RouteBlockedCause));
-            if (_churn.Observe(route, view.RouteWaypointIndex, Time.unscaledDeltaTime, out var changesPerS))
+            if (_churn.Observe(view.RouteWaypointIndex, Time.unscaledDeltaTime, out var changesPerS))
                 Diag(IndoorArDiagnostics.WaypointChurnLine(changesPerS));
         }
 
