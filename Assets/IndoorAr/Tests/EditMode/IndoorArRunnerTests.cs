@@ -53,9 +53,16 @@ public class IndoorArRunnerTests
     static T Field<T>(object target, string name) => (T)target.GetType().GetField(name,
         BindingFlags.Instance | BindingFlags.NonPublic).GetValue(target);
 
+    static readonly MethodInfo SetArState =
+        typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+    UnityEngine.XR.ARFoundation.ARSessionState _arState;
+
     [SetUp]
     public void SetUp()
     {
+        // Queries wait for AR tracking, so tests start from a tracking session unless they set another state.
+        _arState = UnityEngine.XR.ARFoundation.ARSession.state;
+        SetArState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
         _request = "{\"schemaVersion\":1,\"room\":\"119\",\"doorKey\":\"VEC119\",\"floor\":\"1\"," +
             "\"position\":{\"x\":-5.7651,\"y\":-1.8186,\"z\":22.6689},\"headingDeg\":185.36," +
             "\"mapCode\":\"MSET_XTBY7AM7ZK77\",\"frame\":\"multiset-mapset\"}";
@@ -67,6 +74,7 @@ public class IndoorArRunnerTests
     [TearDown]
     public void TearDown()
     {
+        SetArState.Invoke(null, new object[] { _arState });
         IndoorArBridge.EditorRequestJson = _request;
         UnityEngine.Object.DestroyImmediate(_host);
         UnityEngine.Object.DestroyImmediate(_pinPrefab);
@@ -481,6 +489,27 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void LocalizationQueryWaitsForArTracking()
+    {
+        SetArState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionInitializing });
+        var runner = Runner();
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        Call(runner, "Update");
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual(0, localizer.AttemptCount, "MultiSet never answers a frame sent before tracking");
+
+        SetArState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        Call(runner, "Update");
+        Call(runner, "Update");
+        Assert.AreEqual(1, localizer.AttemptCount, "one query, not one per frame");
+    }
+
+    [Test]
     public void ExitDeliversCancelledWhenTrackingIsLost()
     {
         var state = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
@@ -553,6 +582,9 @@ public class IndoorArRunnerTests
             state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.None });
             Call(runner, "Update");
             Assert.AreEqual(1, baseline.TrackingLosses);
+            Assert.AreEqual(1, baseline.Attempts, "the retry waits for tracking to return");
+            state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+            Call(runner, "Update");
             Assert.AreEqual(2, baseline.Attempts);
             Assert.AreEqual(1, baseline.Retries);
             Assert.AreEqual(1, baseline.UnansweredAttempts);
@@ -920,6 +952,7 @@ public class IndoorArRunnerTests
         var localizerObject = new GameObject("MultiSet Localizer");
         localizerObject.SetActive(false);
         var localizer = localizerObject.AddComponent<MultiSetLocalizer>();
+        localizer.TrackingReady = () => true;
         var mapRoot = new GameObject("Navigation Map Space").transform;
         mapRoot.SetPositionAndRotation(new Vector3(7f, 2f, 9f), Quaternion.Euler(0f, 20f, 0f));
         localizer.Configure(sdk, manager, mapRoot);
