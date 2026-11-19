@@ -265,8 +265,9 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// Advances nearby waypoints only with grid clearance from the actual camera position, then falls back to
-        /// a reachable earlier waypoint. Returns false when no waypoint has a clear segment from the camera.
+        /// Selects a reachable waypoint ahead, advancing nearby waypoints only with grid clearance from the camera.
+        /// A camera in a blocked cell is checked from the nearest
+        /// walkable cell instead. Returns false when no such waypoint has a clear segment.
         /// </summary>
         public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint) =>
             TryNextWaypoint(route, camera, lookAhead, out waypoint, out _);
@@ -280,18 +281,41 @@ namespace IndoorAr
             waypoint = default;
             index = -1;
             if (route == null || route.Length < 2) return false;
-            var next = 1;
+            var origin = camera;
+            if (!IsWalkable(ColumnOf(camera.x), RowOf(camera.z)))
+            {
+                if (!TrySnap(camera, out var cx, out var cz)) return false;
+                origin = CenterOf(cx, cz);
+            }
+            var ahead = FirstAhead(route, camera);
+            var next = ahead;
+            while (next < route.Length && !LineIsClear(origin, route[next])) next++;
+            if (next == route.Length) return false;
             while (next < route.Length - 1
                 && new Vector2(route[next].x - camera.x, route[next].z - camera.z).magnitude <= lookAhead
-                && LineIsClear(camera, route[next + 1])) next++;
-            for (; next >= 0; next--)
-                if (LineIsClear(camera, route[next]))
-                {
-                    waypoint = route[next];
-                    index = next;
-                    return true;
-                }
-            return false;
+                && LineIsClear(origin, route[next + 1])) next++;
+            waypoint = route[next];
+            index = next;
+            return true;
+        }
+
+        /// <summary>Index of the first waypoint the user has not passed: the far end of the route leg nearest the camera.</summary>
+        static int FirstAhead(Vector3[] route, Vector3 camera)
+        {
+            var p = new Vector2(camera.x, camera.z);
+            var best = float.MaxValue;
+            var leg = 0;
+            for (var i = 0; i < route.Length - 1; i++)
+            {
+                var a = new Vector2(route[i].x, route[i].z);
+                var ab = new Vector2(route[i + 1].x, route[i + 1].z) - a;
+                var t = ab.sqrMagnitude > 0f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+                var d = (a + ab * t - p).sqrMagnitude;
+                if (d > best) continue;
+                best = d;
+                leg = i; // a tie at a shared waypoint means the user stands on it, so the later leg wins
+            }
+            return leg + 1;
         }
     }
 }
