@@ -5,11 +5,11 @@
 | Field | Origin | Meaning |
 | --- | --- | --- |
 | `arStartupMs` | session opened | `BeginSession` until `OnArSupport`. Includes `ARSession.CheckAvailability`. Excludes the Unity splash and the Flutter tap. |
-| `requestLatencyMs` | localization requested | Latest session localization request before the first accepted sign or MultiSet pose, until that pose. Includes any sign hold, authentication or SDK queue wait. With no request or accepted pose this stays `na`; it is not an SDK response latency or the 30 s timeout. |
+| `requestLatencyMs` | localization dispatched after tracking | Latest dispatched session localization request before the first accepted sign or MultiSet pose, until that pose. Includes any sign hold, authentication or SDK queue wait, but excludes the initial wait for tracking. With no request or accepted pose this stays `na`; it is not an SDK response latency or the 30 s timeout. |
 | `timeToFirstLocalizationMs` | session opened | First accepted sign or MultiSet pose. Later poses do not replace it. |
 | `arrowShownMs` | session opened | HUD first enters the guide-arrow state, after the 1.5 s “Location found” hold. It records display timing, not a rendered-frame timestamp. |
 | `arrowAlignment` | — | Always `unmeasured`. Arrow display is not evidence the arrow matches the real doorway. |
-| `attempts` | — | Session localization requests through `IndoorArRunner.RequestLocalization`, including requests held for signs or queued for MultiSet. Not SDK calls; the result's `localizationQueries` separately counts actual SDK starts. |
+| `attempts` | — | Session localization requests dispatched after tracking through `IndoorArRunner.RequestLocalization`, including requests held for signs or queued for MultiSet. Not SDK calls; the result's `localizationQueries` separately counts actual SDK starts. |
 | `retries` | — | Session localization requests after the first, including the timeout retry, tracking-loss restart, and Try again. |
 | `trackingLosses` | — | Pinned sessions that left `SessionTracking`. |
 | `unansweredAttempts` | — | Requests superseded without a recorded first pose, plus any open request. Only the first accepted pose closes a request in this baseline; this is not the number of outstanding SDK requests. |
