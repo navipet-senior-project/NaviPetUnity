@@ -655,6 +655,48 @@ namespace IndoorAr.Tests
             Assert.AreEqual(IndoorHudState.NotFound, LiveDoorHud.Compose(session, camera, Vector3.forward, 0f).State);
         }
 
+        [Test]
+        public void FrozenCameraHidesTheArrowAndAsksForARestartWhilePinned()
+        {
+            var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
+            var session = new IndoorArSession(request, request.mapCode);
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            session.OnLocalized(0.5f);
+            var camera = new Vector3(1f, 4f, 3f);
+            Assert.AreEqual(IndoorHudState.Straight, LiveDoorHud.Compose(session, camera, Vector3.forward, LiveDoorHud.LocationFoundHoldS).State);
+
+            var frozen = LiveDoorHud.Compose(session, camera, Vector3.forward, LiveDoorHud.LocationFoundHoldS, cameraFrozen: true);
+            Assert.AreEqual(IndoorHudState.Localized, frozen.State, "no arrow and no I'm here button outside Straight");
+            Assert.IsFalse(frozen.FollowingRoute);
+            Assert.IsFalse(frozen.RouteBlocked, "a frozen camera is not a route fault");
+            Assert.AreEqual(IndoorRouteBlockedCause.None, frozen.RouteBlockedCause);
+            Assert.AreEqual(-1, frozen.RouteWaypointIndex);
+            Assert.AreEqual(0f, frozen.ArrowYaw);
+            Assert.AreEqual(LiveDoorHud.CameraFrozenTitle, frozen.TitleOverride);
+            StringAssert.Contains("open it again", frozen.DetailOverride);
+        }
+
+        [Test]
+        public void FrozenFlagChangesNothingBeforeThePinOrAfterArrival()
+        {
+            var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);
+            var session = new IndoorArSession(request, request.mapCode);
+            var camera = new Vector3(1f, 4f, 3f);
+            var scanning = LiveDoorHud.Compose(session, camera, Vector3.forward, 0f, cameraFrozen: true);
+            Assert.AreEqual(IndoorHudState.Scanning, scanning.State);
+            Assert.IsNull(scanning.TitleOverride);
+
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            session.OnLocalized(0.5f);
+            session.ImHere(camera);
+            Assert.AreEqual(IndoorArState.Arrived, session.State);
+            var arrived = LiveDoorHud.Compose(session, camera, Vector3.forward, 0f, cameraFrozen: true);
+            Assert.AreEqual(IndoorHudState.Arrived, arrived.State);
+            Assert.AreNotEqual(LiveDoorHud.CameraFrozenTitle, arrived.TitleOverride);
+        }
+
         static IndoorHudView SignView(string id, string floor, bool localizeOnly = false)
         {
             var request = JsonUtility.FromJson<IndoorArRequest>(IndoorArBridge.EditorRequestJson);

@@ -12,6 +12,8 @@ namespace IndoorAr
         public const float LocationFoundHoldS = 1.5f;
         // The arrow aims at the first route point at least this far away, so it does not flip at a corner point.
         public const float RouteLookAheadM = 1f;
+        public const string CameraFrozenTitle = "Camera stopped updating";
+        public const string CameraFrozenDetail = "Close AR and open it again to restart.";
 
         public static bool LocalizationFailed(IndoorArSession session) =>
             session.State == IndoorArState.Done
@@ -29,12 +31,15 @@ namespace IndoorAr
 
         /// <param name="route">Hallway waypoints from the camera to the door in the MapSet frame, or null for none.</param>
         /// <param name="floorChange">"stairs" or "elevator" when the route ends there instead of at the door.</param>
+        /// <param name="cameraFrozen">The camera pose has stopped following the phone. While pinned, the arrow goes and AR restart is asked for.</param>
         public static IndoorHudView Compose(IndoorArSession session, Vector3 cameraInMap, Vector3 cameraForwardInMap,
             float pinnedForS, Vector3[] route = null, string floorChange = null, bool floorUnknown = false,
-            bool wrongFloorEvidence = false, IndoorWalkGrid routeGrid = null, int currentFloor = 0)
+            bool wrongFloorEvidence = false, IndoorWalkGrid routeGrid = null, int currentFloor = 0, bool cameraFrozen = false)
         {
             var request = session.Request;
             var door = request.position;
+            cameraFrozen &= session.State == IndoorArState.Pinned;
+            if (cameraFrozen) route = null;
             var target = Vector3.zero;
             var wrongFloor = wrongFloorEvidence || session.FloorSign != null && session.IsWrongFloor(session.FloorSign.Floor);
             var waypointIndex = -1;
@@ -48,13 +53,13 @@ namespace IndoorAr
                 route = null;
                 cause = routeGrid.IsWalkableAt(cameraInMap) ? IndoorRouteBlockedCause.NoClearLine : IndoorRouteBlockedCause.CameraCellBlocked;
             }
-            var routeBlocked = session.State == IndoorArState.Pinned && !request.LocalizeOnly && route == null;
+            var routeBlocked = session.State == IndoorArState.Pinned && !request.LocalizeOnly && route == null && !cameraFrozen;
             var authFailed = AuthFailed(session);
             var stepFreeUnavailable = StepFreeUnavailable(session);
             var view = new IndoorHudView
             {
                 State = stepFreeUnavailable ? IndoorHudState.NotFound
-                    : floorUnknown && session.State == IndoorArState.Pinned ? IndoorHudState.Localized : StateFor(session, pinnedForS),
+                    : cameraFrozen || floorUnknown && session.State == IndoorArState.Pinned ? IndoorHudState.Localized : StateFor(session, pinnedForS),
                 Destination = Destination(request),
                 CurrentFloor = session.FloorSign?.Floor ?? currentFloor,
                 Floor = int.TryParse(request.floor, out var floor) ? floor : 0,
@@ -68,8 +73,9 @@ namespace IndoorAr
                 FloorChange = route == null ? null : floorChange,
                 DistanceM = route == null ? double.NaN : IndoorWalkGrid.LengthM(route),
                 TitleOverride = stepFreeUnavailable ? "Step-free route unavailable" : authFailed ? "AR sign-in failed"
-                    : routeBlocked ? "Route unavailable" : null,
+                    : cameraFrozen ? CameraFrozenTitle : routeBlocked ? "Route unavailable" : null,
                 DetailOverride = stepFreeUnavailable ? "A step-free route to this destination cannot be confirmed."
+                    : cameraFrozen ? CameraFrozenDetail
                     : floorUnknown && session.State == IndoorArState.Pinned ? "Your floor could not be confirmed."
                     : routeBlocked ? "No clear hallway route from your position."
                     : session.ArrivedBySign ? "Found the " + RoomLabel(session.SignRoom.Id) + " sign · Floor " + session.SignRoom.Floor

@@ -297,6 +297,51 @@ public class IndoorArRunnerTests
     }
 
     [Test]
+    public void FrozenCameraHidesPinLabelAndArrowThenReleasesWhenThePoseMoves()
+    {
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        var camObject = new GameObject("AR Camera", typeof(Camera));
+        camObject.transform.SetParent(_host.transform, false);
+        camObject.transform.localPosition = new Vector3(-5.625f, -0.4f, 23.625f); // has a hallway route, so an arrow
+        camObject.transform.LookAt(new Vector3(-5.7651f, -1.8186f, 22.6689f)); // facing the door keeps the pin in view
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
+        SetArState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+        ((IEnumerator)Call(runner, "Start")).MoveNext();
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.OnLocalized(0.5f);
+        runner.GetType().GetField("_pinnedFor", BindingFlags.Instance | BindingFlags.NonPublic)
+            .SetValue(runner, LiveDoorHud.LocationFoundHoldS);
+        Call(runner, "Update");
+        var hud = _host.GetComponentInChildren<IndoorHud>();
+        var pin = Field<Transform>(runner, "_pin");
+        Assert.IsTrue(pin.gameObject.activeSelf);
+        Assert.IsNotNull(hud.transform.Find("HUD Canvas/Safe area/Guide arrow"));
+        Assert.IsTrue(hud.transform.Find("HUD Canvas/Safe area/Pin label").gameObject.activeSelf);
+
+        var detector = Field<FrozenCameraDetector>(runner, "_frozenCamera");
+        var frames = 0;
+        for (var i = 0; i < 25; i++) detector.Observe(.1f, Vector3.one, Quaternion.identity, ++frames, true);
+        Assert.IsTrue(detector.Frozen);
+        Call(runner, "UpdateHud");
+        Assert.IsFalse(pin.gameObject.activeSelf, "no world pin");
+        Assert.IsFalse(hud.transform.Find("HUD Canvas/Safe area/Pin label").gameObject.activeSelf, "no room label");
+        Assert.IsNull(hud.transform.Find("HUD Canvas/Safe area/Guide arrow"), "no arrow");
+        Assert.IsNull(hud.transform.Find("HUD Canvas/Safe area/Here"), "no I'm here button");
+        Assert.AreEqual(LiveDoorHud.CameraFrozenTitle, hud.transform.Find("HUD Canvas/Safe area/Title").GetComponent<UnityEngine.UI.Text>().text);
+        Assert.IsNotNull(hud.transform.Find("HUD Canvas/Safe area/Exit"), "the user can still leave");
+        Assert.AreEqual(IndoorArState.Pinned, session.State, "the guard does not touch localization or the session");
+
+        detector.Observe(.1f, Vector3.one + Vector3.right, Quaternion.identity, ++frames, true);
+        Assert.IsFalse(detector.Frozen);
+        Call(runner, "UpdateHud");
+        Assert.IsTrue(pin.gameObject.activeSelf);
+        Assert.IsNotNull(hud.transform.Find("HUD Canvas/Safe area/Guide arrow"));
+    }
+
+    [Test]
     public void BuiltSceneWiresTheSameMapSpaceAndArCamera()
     {
         var scene = EditorSceneManager.OpenScene("Assets/IndoorAr/Scenes/IndoorArSpike.unity", OpenSceneMode.Additive);

@@ -181,6 +181,50 @@ public class IndoorArDiagnosticsTests
     }
 
     [Test]
+    public void StationaryUserWithPoseNoiseIsNotFrozen()
+    {
+        var d = new FrozenCameraDetector();
+        var frames = 0;
+        for (var i = 0; i < 100; i++) // 10 s standing still: the pose still wobbles by a millimetre
+            d.Observe(.1f, new Vector3(0f, 1.5f, 0f) + Vector3.right * (i % 2 * .001f), Quaternion.identity, ++frames, true);
+        Assert.IsFalse(d.Frozen);
+        Assert.AreEqual(0, d.StillMs);
+    }
+
+    [Test]
+    public void FrozenStartsAtTwoSecondsNotBefore()
+    {
+        var d = new FrozenCameraDetector();
+        var frames = 0;
+        var observations = 0;
+        while (!d.Frozen && observations < 100)
+        {
+            d.Observe(.1f, Vector3.one, Quaternion.identity, ++frames, true);
+            observations++;
+            if (!d.Frozen) Assert.Less(d.StillMs, 2000);
+        }
+        Assert.IsTrue(d.Frozen);
+        Assert.That(d.StillMs, Is.InRange(2000, 2100));
+    }
+
+    [Test]
+    public void LostTrackingOrStoppedFramesReleaseAFrozenCameraAndItNeedsANewInterval()
+    {
+        foreach (var release in new[] { "tracking", "frames" })
+        {
+            var d = new FrozenCameraDetector();
+            var frames = 0;
+            for (var i = 0; i < 25; i++) d.Observe(.1f, Vector3.one, Quaternion.identity, ++frames, true);
+            Assert.IsTrue(d.Frozen, release);
+            for (var i = 0; i < 10; i++)
+                d.Observe(.1f, Vector3.one, Quaternion.identity, release == "frames" ? frames : ++frames, release == "frames");
+            Assert.IsFalse(d.Frozen, release);
+            for (var i = 0; i < 15; i++) d.Observe(.1f, Vector3.one, Quaternion.identity, ++frames, true);
+            Assert.IsFalse(d.Frozen, release + ": the old stillness does not carry over");
+        }
+    }
+
+    [Test]
     public void FloorTransitionIsReportedOnlyOnChange()
     {
         var t = new FloorTransitionTracker();
