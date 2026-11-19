@@ -200,7 +200,7 @@ namespace IndoorAr
     public enum LimitedEpisodeEnd { TrackingRestored, SessionEnded, SessionReplaced, Destroyed }
 
     /// <summary>
-    /// DX4. A Limited episode starts on the frame tracking drops while the session is pinned and ends when it returns.
+    /// DX4. A Limited episode starts when tracking drops while pinned and ends on recovery or a terminal boundary.
     /// It records how long it lasted and whether the runner started a re-localization during it.
     /// </summary>
     public sealed class LimitedEpisodeTracker

@@ -7,9 +7,9 @@ using UnityEngine.InputSystem.XR;
 namespace IndoorAr
 {
     /// <summary>
-    /// DX1. When an entry starts the XR loader, logs which XR input devices exist and which pose controls the camera
-    /// driver resolves to, now and again 1 s later. It separates a pose source the loader keeps from one that is
-    /// missing after re-init. Flags and counts only; it never logs a pose value.
+    /// DX1. At loader start or an already-active indoor entry, logs XR device and pose-control counts and flags,
+    /// now and again 1 s later. It separates a pose source the loader keeps from one missing after re-init.
+    /// It never logs a pose value.
     /// </summary>
     public sealed class ArXrInputProbe : MonoBehaviour
     {
