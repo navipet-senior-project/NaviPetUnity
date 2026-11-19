@@ -112,8 +112,8 @@ namespace IndoorAr
         public static string TrackingLimitedBeginLine(string notTrackingReason) =>
             $"[IndoorAr] tracking limited phase=begin notTracking={Token(notTrackingReason)}";
 
-        public static string TrackingLimitedEndLine(long durationMs, bool relocalize, string notTrackingReason) =>
-            $"[IndoorAr] tracking limited phase=end durationMs={durationMs} relocalize={Bool(relocalize)} notTracking={Token(notTrackingReason)}";
+        public static string TrackingLimitedEndLine(long durationMs, bool relocalize, string notTrackingReason, LimitedEpisodeEnd end) =>
+            $"[IndoorAr] tracking limited phase=end durationMs={durationMs} relocalize={Bool(relocalize)} notTracking={Token(notTrackingReason)} end={end}";
 
         // ---- DX5: waypoint churn and route blocked -------------------------------------------------------------
 
@@ -196,6 +196,7 @@ namespace IndoorAr
     }
 
     public enum LimitedEpisodePhase { None, Begin, End }
+    public enum LimitedEpisodeEnd { TrackingRestored, SessionEnded, SessionReplaced, Destroyed }
 
     /// <summary>
     /// DX4. A Limited episode starts on the frame tracking drops while the session is pinned and ends when it returns.
@@ -211,6 +212,7 @@ namespace IndoorAr
 
         public LimitedEpisodePhase Observe(bool tracking, bool pinned, bool relocalizationStarted, float dt)
         {
+            if (Active) Relocalized |= relocalizationStarted;
             if (tracking)
             {
                 if (!Active) return LimitedEpisodePhase.None;

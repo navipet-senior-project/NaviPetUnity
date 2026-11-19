@@ -136,7 +136,7 @@ namespace IndoorAr
             {
                 // A scene reloaded after the last exit finds the loader torn down; nothing else would start it.
                 _armingEntry = true;
-                var init = ArSessionLifecycle.InitializeOnEntry();
+                var init = ArSessionLifecycle.InitializeOnEntry(true);
                 while (init.MoveNext()) yield return init.Current;
                 _armingEntry = false;
                 ArSessionLifecycle.RestartArComponents();
@@ -162,6 +162,7 @@ namespace IndoorAr
             _started = true;
             _sessionStarted = Time.realtimeSinceStartup;
             _stateLogged = false;
+            EndLimitedEpisode(LimitedEpisodeEnd.SessionReplaced);
             ReleaseSession();
             _requestJson = json;
             _delivered = false;
@@ -725,7 +726,17 @@ namespace IndoorAr
                 Diag(IndoorArDiagnostics.TrackingLimitedBeginLine(_limitedReason));
             }
             else if (phase == LimitedEpisodePhase.End)
-                Diag(IndoorArDiagnostics.TrackingLimitedEndLine(_limited.DurationMs, _limited.Relocalized, _limitedReason));
+                LogLimitedEnd(LimitedEpisodeEnd.TrackingRestored);
+        }
+
+        void LogLimitedEnd(LimitedEpisodeEnd end) =>
+            Diag(IndoorArDiagnostics.TrackingLimitedEndLine(_limited.DurationMs, _limited.Relocalized, _limitedReason, end));
+
+        void EndLimitedEpisode(LimitedEpisodeEnd end)
+        {
+            if (!_limited.Active) return;
+            LogLimitedEnd(end);
+            _limited.Reset();
         }
 
         // DX5: waypoint index changes per second, and route-blocked transitions with the cause.
@@ -816,6 +827,7 @@ namespace IndoorAr
 
         void OnDestroy()
         {
+            EndLimitedEpisode(LimitedEpisodeEnd.Destroyed);
             if (_mlKitOcr != null) _mlKitOcr.Result -= OnSignRead;
             if (_iosOcr != null) _iosOcr.Result -= OnSignRead;
             if (_cameraFrames != null) _cameraFrames.frameReceived -= OnCameraFrame;
@@ -871,7 +883,7 @@ namespace IndoorAr
 
         IEnumerator ArmEntry(string json)
         {
-            var init = ArSessionLifecycle.InitializeOnEntry();
+            var init = ArSessionLifecycle.InitializeOnEntry(true);
             while (init.MoveNext()) yield return init.Current;
             _armingEntry = false;
             BeginSession(json);
@@ -880,6 +892,7 @@ namespace IndoorAr
         void Deliver(string resultJson)
         {
             if (_delivered) return;
+            EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
             _requestJson = null;
             DropQueuedMultiSetFallback();

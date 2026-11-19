@@ -39,7 +39,7 @@ public class IndoorArDiagnosticsTests
         lines.Add(IndoorArDiagnostics.CameraFrozenLine(true, 2100, 340));
         lines.Add(IndoorArDiagnostics.FloorChangeLine(1, 0, IndoorArDiagnostics.EyeHeightBucket(1.7f, floors)));
         lines.Add(IndoorArDiagnostics.TrackingLimitedBeginLine("Relocalizing"));
-        lines.Add(IndoorArDiagnostics.TrackingLimitedEndLine(1800, true, "Relocalizing"));
+        lines.Add(IndoorArDiagnostics.TrackingLimitedEndLine(1800, true, "Relocalizing", LimitedEpisodeEnd.TrackingRestored));
         lines.Add(IndoorArDiagnostics.WaypointChurnLine(4));
         lines.Add(IndoorArDiagnostics.RouteBlockedLine(true, IndoorRouteBlockedCause.CameraCellBlocked));
         lines.Add(IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
@@ -60,8 +60,8 @@ public class IndoorArDiagnosticsTests
             IndoorArDiagnostics.FloorChangeLine(1, 0, "1.5-2.0"));
         Assert.AreEqual("[IndoorAr] tracking limited phase=begin notTracking=Relocalizing",
             IndoorArDiagnostics.TrackingLimitedBeginLine("Relocalizing"));
-        Assert.AreEqual("[IndoorAr] tracking limited phase=end durationMs=1800 relocalize=true notTracking=Relocalizing",
-            IndoorArDiagnostics.TrackingLimitedEndLine(1800, true, "Relocalizing"));
+        Assert.AreEqual("[IndoorAr] tracking limited phase=end durationMs=1800 relocalize=true notTracking=Relocalizing end=TrackingRestored",
+            IndoorArDiagnostics.TrackingLimitedEndLine(1800, true, "Relocalizing", LimitedEpisodeEnd.TrackingRestored));
         Assert.AreEqual("[IndoorAr] route churn changesPerS=4", IndoorArDiagnostics.WaypointChurnLine(4));
         Assert.AreEqual("[IndoorAr] route blocked=true cause=NoClearLine",
             IndoorArDiagnostics.RouteBlockedLine(true, IndoorRouteBlockedCause.NoClearLine));
@@ -244,6 +244,37 @@ public class IndoorArDiagnosticsTests
 
     static object Call(object target, string name, params object[] args) => target.GetType().GetMethod(name,
         BindingFlags.Instance | BindingFlags.NonPublic).Invoke(target, args);
+
+    [TestCase("Deliver", LimitedEpisodeEnd.SessionEnded)]
+    [TestCase("BeginSession", LimitedEpisodeEnd.SessionReplaced)]
+    [TestCase("OnDestroy", LimitedEpisodeEnd.Destroyed)]
+    public void RunnerClosesLimitedEpisodeAtSessionBoundary(string boundary, LimitedEpisodeEnd end)
+    {
+        var host = new GameObject("Limited episode test");
+        var previousRequest = IndoorArBridge.EditorRequestJson;
+        var runner = host.AddComponent<IndoorArRunner>();
+        var lines = new List<string>();
+        runner.DiagnosticSink = lines.Add;
+        var tracker = Field<LimitedEpisodeTracker>(runner, "_limited");
+        tracker.Observe(false, true, false, .1f);
+        tracker.Observe(false, false, true, 1f);
+        try
+        {
+            if (boundary == "OnDestroy") Call(runner, boundary);
+            else Call(runner, boundary, (object)null);
+            var line = lines.Single();
+            StringAssert.Contains("durationMs=1000 relocalize=true", line);
+            StringAssert.Contains("end=" + end, line);
+            AssertFilterSafe(line);
+            if (host != null) Object.DestroyImmediate(host);
+            Assert.AreEqual(1, lines.Count);
+        }
+        finally
+        {
+            if (host != null) Object.DestroyImmediate(host);
+            IndoorArBridge.EditorRequestJson = previousRequest;
+        }
+    }
 
     [Test]
     public void RunnerReportsLimitedEpisodeAndRepinJumpThroughTheSink()
