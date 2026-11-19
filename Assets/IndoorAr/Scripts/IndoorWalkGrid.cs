@@ -292,11 +292,8 @@ namespace IndoorAr
             while (next < route.Length - 1
                 && new Vector2(route[next].x - camera.x, route[next].z - camera.z).magnitude <= lookAhead
                 && LineIsClear(origin, route[next + 1])) next++;
-            for (; next >= 0; next--)
+            for (; next >= ahead; next--)
             {
-                // A waypoint within one cell of the camera is where the user stands, not behind them.
-                if (next < ahead && new Vector2(route[next].x - camera.x, route[next].z - camera.z).magnitude > _floor.cell)
-                    continue;
                 if (LineIsClear(origin, route[next]))
                 {
                     waypoint = route[next];

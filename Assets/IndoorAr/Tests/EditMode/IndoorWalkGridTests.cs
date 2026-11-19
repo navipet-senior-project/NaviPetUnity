@@ -258,8 +258,12 @@ public class IndoorWalkGridTests
             Assert.IsTrue(crossesBlockedCell);
             Assert.IsFalse(grid.IsWalkable(178, 84));
         }
+        if (floor == 1)
+        {
+            Assert.IsFalse(grid.TryNextWaypoint(route, camera, 1f, out _));
+            return;
+        }
         Assert.IsTrue(grid.TryNextWaypoint(route, camera, 1f, out var target));
-        if (floor == 1) Assert.AreEqual(grid.CenterOf(x, z), target);
         for (var i = 0; i <= 1000; i++)
         {
             var point = Vector3.Lerp(camera, target, i / 1000f);
@@ -311,6 +315,7 @@ public class IndoorWalkGridTests
         var route = new[] { new Vector3(.5f, 0f, .5f), new Vector3(4.5f, 0f, .5f), new Vector3(4.5f, 0f, 4.5f) };
         // Past the corner on the way to the goal, which a blocked cell cuts off: the corner is clear but behind.
         Assert.IsFalse(grid.TryNextWaypoint(route, new Vector3(4.5f, 1.5f, 2.5f), 1f, out _));
+        Assert.IsFalse(grid.TryNextWaypoint(route, new Vector3(4.5f, 1.5f, 1.5f), 1f, out _));
         // Still on the first leg, the corner is ahead and is chosen.
         Assert.IsTrue(grid.TryNextWaypoint(route, new Vector3(2.5f, 1.5f, .5f), 1f, out var target));
         Assert.AreEqual(route[1], target);
