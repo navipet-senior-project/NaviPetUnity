@@ -5,6 +5,7 @@ using System.Text;
 using System.Reflection;
 using MultiSet;
 using UnityEngine;
+using UnityEngine.XR.ARFoundation;
 
 namespace IndoorAr
 {
@@ -66,6 +67,7 @@ namespace IndoorAr
         public event Action<float?> Localized;
         public event Action<int> NotLocalized;
         public Func<Transform, bool> CandidatePoseValidator { get; set; }
+        public Func<bool> TrackingReady { get; set; } = () => ARSession.state == ARSessionState.SessionTracking;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
         public bool FallbackAvailable => _mapSpaceIsolated && _blurCheckDisabled && !_fallbackUnavailable;
@@ -164,7 +166,7 @@ namespace IndoorAr
         {
             if (!FallbackAvailable) return;
             var attemptId = ++_attemptId;
-            if (s_requestLive || _queuedAttemptId != 0 || WaitingLocalizers.Count > 0)
+            if (s_requestLive || _queuedAttemptId != 0 || WaitingLocalizers.Count > 0 || !TrackingReady())
             {
                 QueueRequest(attemptId);
                 return;
@@ -198,6 +200,7 @@ namespace IndoorAr
         void StartRequest(int attemptId)
         {
             if (s_requestLive || !FallbackAvailable) return;
+            if (!TrackingReady()) { QueueRequest(attemptId); return; }
             manager.StopAllCoroutines();
             sdkMapSpace.SetPositionAndRotation(mapSpace.position, mapSpace.rotation);
             s_requestLive = true;
@@ -319,8 +322,10 @@ namespace IndoorAr
             if (s_requestLive) return;
             while (WaitingLocalizers.Count > 0)
             {
-                var next = WaitingLocalizers.Dequeue();
-                if (next == null || next._queuedAttemptId == 0) continue;
+                var next = WaitingLocalizers.Peek();
+                if (next == null || next._queuedAttemptId == 0) { WaitingLocalizers.Dequeue(); continue; }
+                if (!next.TrackingReady()) return;
+                WaitingLocalizers.Dequeue();
                 var attemptId = next._queuedAttemptId;
                 next.RemoveQueuedRequest();
                 if (!next.FallbackAvailable) continue;

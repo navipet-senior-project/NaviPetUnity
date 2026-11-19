@@ -26,6 +26,7 @@ public class MultiSetLocalizerTests
         _host = new GameObject("Adapter");
         _host.SetActive(false);
         _adapter = _host.AddComponent<MultiSetLocalizer>();
+        _adapter.TrackingReady = () => true;
         _adapter.Configure(sdk, _manager, _mapHost.transform);
         _proxy = _adapter.SdkMapSpace.gameObject;
         _host.SetActive(true);
@@ -275,6 +276,7 @@ public class MultiSetLocalizerTests
             otherHost = new GameObject("Next Adapter");
             otherHost.SetActive(false);
             other = otherHost.AddComponent<MultiSetLocalizer>();
+            other.TrackingReady = () => true;
             other.Configure(otherSdk, otherManager, otherMap.transform);
             otherProxy = other.SdkMapSpace.gameObject;
             otherHost.SetActive(true);
@@ -618,6 +620,7 @@ public class MultiSetLocalizerTests
         var otherHost = new GameObject("Other Adapter");
         otherHost.SetActive(false);
         var other = otherHost.AddComponent<MultiSetLocalizer>();
+        other.TrackingReady = () => true;
         other.Configure(otherSdk, otherManager, otherMap.transform);
         var otherProxy = other.SdkMapSpace.gameObject;
         otherHost.SetActive(true);
@@ -659,6 +662,7 @@ public class MultiSetLocalizerTests
         var otherHost = new GameObject("Queued Adapter");
         otherHost.SetActive(false);
         var other = otherHost.AddComponent<MultiSetLocalizer>();
+        other.TrackingReady = () => true;
         other.Configure(otherSdk, otherManager, otherMap.transform);
         var otherProxy = other.SdkMapSpace.gameObject;
         otherHost.SetActive(true);
@@ -763,6 +767,35 @@ public class MultiSetLocalizerTests
         Assert.AreEqual(2, attempts, "only genuine completion makes a fresh session eligible");
         _manager.LocalizationFailure.Invoke();
         Assert.IsFalse(_adapter.HasLiveRequest);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void QueuedAndDelayedRequestsWaitForTracking(bool delayedAuth)
+    {
+        var tracking = true;
+        _adapter.TrackingReady = () => tracking;
+        var attempts = 0;
+        _adapter.AttemptStarted += _ => attempts++;
+        LocalizeWithoutEditorFailure();
+        _adapter.AbandonPending();
+        var first = new SignFirstLocalizer(_adapter);
+        first.Localize();
+        var authenticated = (System.Action)typeof(MultiSetLocalizer).GetField("Authenticated", System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic).GetValue(_adapter);
+        if (!delayedAuth) authenticated();
+        tracking = false;
+        first.Tick(SignFirstLocalizer.HoldS);
+        if (delayedAuth) authenticated();
+        ReportFailureAndStartDeferredRequest();
+        _adapter.Tick(0f);
+        Assert.AreEqual(1, attempts);
+        Assert.IsFalse(_adapter.HasLiveRequest);
+        tracking = true;
+        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+        TickWithoutEditorFailure(0f);
+        Assert.AreEqual(2, attempts);
+        ReportSuccess();
     }
 
     void ReportSuccess(bool poseFound = true)

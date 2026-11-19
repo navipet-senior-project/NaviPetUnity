@@ -952,6 +952,7 @@ public class IndoorArRunnerTests
         var localizerObject = new GameObject("MultiSet Localizer");
         localizerObject.SetActive(false);
         var localizer = localizerObject.AddComponent<MultiSetLocalizer>();
+        localizer.TrackingReady = () => true;
         var mapRoot = new GameObject("Navigation Map Space").transform;
         mapRoot.SetPositionAndRotation(new Vector3(7f, 2f, 9f), Quaternion.Euler(0f, 20f, 0f));
         localizer.Configure(sdk, manager, mapRoot);

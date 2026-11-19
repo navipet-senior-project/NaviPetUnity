@@ -15,13 +15,14 @@ namespace IndoorAr
     {
         public const float StartupTimeoutS = 20f;
         public const float LocalizeTimeoutS = 30f;
-        // After a no-pose answer the one retry waits this long for a new view, not the whole timeout.
+        // Retry after this delay or at the existing timeout, whichever comes first.
         public const float NoPoseRetryS = 3f;
         public const float MinEyeHeightM = 1f;
         public const float MaxEyeHeightM = 2.2f;
 
         float _elapsedS;
         float _localizingS;
+        float _retryAtS = LocalizeTimeoutS;
         float _startupS;
         bool _retried;
         bool _noPose;
@@ -155,7 +156,7 @@ namespace IndoorAr
         {
             if (State != IndoorArState.Localizing) return;
             _noPose = true;
-            if (!_retried) _localizingS = Math.Max(_localizingS, LocalizeTimeoutS - NoPoseRetryS);
+            if (!_retried) _retryAtS = Math.Min(_retryAtS, _localizingS + NoPoseRetryS);
         }
 
         public void OnSignConfirmed(IndoorRoomLandmark room)
@@ -216,7 +217,7 @@ namespace IndoorAr
             }
             if (State != IndoorArState.Localizing || FallbackExpired) return;
             _localizingS += dt;
-            if (_localizingS < LocalizeTimeoutS) return;
+            if (_localizingS < (_retried ? LocalizeTimeoutS : _retryAtS)) return;
             if (_retried)
             {
                 FallbackExpired = true;
@@ -279,6 +280,7 @@ namespace IndoorAr
             _trackedFloor = 0;
             _localizingS = 0f;
             _retried = false;
+            _retryAtS = LocalizeTimeoutS;
             _noPose = false;
             LocalizeRequested?.Invoke();
         }

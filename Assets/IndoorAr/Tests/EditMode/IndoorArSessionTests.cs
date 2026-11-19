@@ -141,6 +141,24 @@ public class IndoorArSessionTests
     }
 
     [Test]
+    public void LateNoPoseUsesExistingTimeoutForTheOneRetry()
+    {
+        var session = new IndoorArSession(Vec119(), MapCode);
+        var requests = 0;
+        session.LocalizeRequested += () => requests++;
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        session.Tick(IndoorArSession.LocalizeTimeoutS - 1f);
+        session.OnNotLocalized();
+        session.Tick(0.9f);
+        Assert.AreEqual(1, requests);
+        session.Tick(0.1f);
+        Assert.AreEqual(2, requests);
+        session.Tick(IndoorArSession.NoPoseRetryS);
+        Assert.AreEqual(2, requests);
+    }
+
+    [Test]
     public void SignRecoveryOutlivesVpsBudgetWithoutRetryingFallback()
     {
         var session = new IndoorArSession(Vec119(), MapCode, allowSignRecovery: true);
