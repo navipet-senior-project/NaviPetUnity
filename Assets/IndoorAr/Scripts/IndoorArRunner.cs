@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -81,6 +82,21 @@ namespace IndoorAr
         Dictionary<int, IndoorWalkGrid> _grids;
         (int Floor, float Y)[] _floorHeights;
         List<(string Id, string Type, Vector3 PositionInMap)> _connectors;
+        // Diagnostics DX2 to DX6: fixed-label lines from counts and enums, never a position.
+        readonly FrozenCameraDetector _frozenCamera = new FrozenCameraDetector();
+        readonly FloorTransitionTracker _floorTransitions = new FloorTransitionTracker();
+        readonly LimitedEpisodeTracker _limited = new LimitedEpisodeTracker();
+        readonly WaypointChurnMeter _churn = new WaypointChurnMeter();
+        readonly RouteBlockTracker _routeBlock = new RouteBlockTracker();
+        ARCameraManager _cameraFrames;
+        int _frameCount;
+        string _limitedReason;
+        Vector3 _lastPinnedMapPosition;
+        Quaternion _lastPinnedMapRotation;
+        bool _pinnedMapSeen;
+
+        /// <summary>Receives each DX line. Unset, the line goes to the console on a device and nowhere in the editor.</summary>
+        public Action<string> DiagnosticSink { get; set; }
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -106,6 +122,8 @@ namespace IndoorAr
                     { CandidatePoseValidator = IsCandidateSignPoseAllowed };
             }
             ArCameraDiagnostics.Attach();
+            _cameraFrames = arCamera != null ? arCamera.GetComponent<ARCameraManager>() : null;
+            if (_cameraFrames != null) _cameraFrames.frameReceived += OnCameraFrame;
             _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();
             _iosOcr = GetComponent<IndoorRoomMlKitOcr>();
             if (_mlKitOcr != null) _mlKitOcr.Result += OnSignRead;
@@ -154,6 +172,12 @@ namespace IndoorAr
             _slowHoldLeft = 0f;
             _signs = new IndoorSignTracker();
             _signPoseStatus = null;
+            _frozenCamera.Reset();
+            _floorTransitions.Reset();
+            _limited.Reset();
+            _churn.Reset();
+            _routeBlock.Reset();
+            _pinnedMapSeen = false;
             _statusSessionId = System.Guid.NewGuid().ToString("N");
             _statusSeq = 0;
             _statusSent = null;
@@ -230,16 +254,25 @@ namespace IndoorAr
             if (_session.State != IndoorArState.Init) NoteArReady();
             if (_localizeWhenTracking && _session.State == IndoorArState.Localizing
                 && ARSession.state == ARSessionState.SessionTracking) RequestLocalization();
-            if (_session.State == IndoorArState.Pinned && ARSession.state != ARSessionState.SessionTracking)
+            var tracking = ARSession.state == ARSessionState.SessionTracking;
+            var pinnedBeforeLoss = _session.State == IndoorArState.Pinned;
+            if (pinnedBeforeLoss && !tracking)
             {
                 _session.OnTrackingLost();
                 _baseline?.NoteTrackingLost();
                 LogBaseline();
             }
+            NoteLimitedTracking(tracking, pinnedBeforeLoss);
+            NoteFrozenCamera(tracking);
             if (_session.State == IndoorArState.Pinned)
             {
                 _pinnedFor += Time.unscaledDeltaTime;
-                _session.OnTrackedPose(CameraInMap().y, _floorHeights);
+                var cameraY = CameraInMap().y;
+                _session.OnTrackedPose(cameraY, _floorHeights);
+                NoteFloor(cameraY);
+                _lastPinnedMapPosition = _localizer.MapSpace.position;
+                _lastPinnedMapRotation = _localizer.MapSpace.rotation;
+                _pinnedMapSeen = true;
             }
             else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
@@ -315,7 +348,9 @@ namespace IndoorAr
         {
             if (RejectMultiSetFloorConflict(CameraInMap())) return;
             var wasPinned = _session.WasPinned;
+            var wasLocalizing = _session.State == IndoorArState.Localizing;
             _session.OnLocalized(confidence);
+            if (wasPinned && wasLocalizing && _session.State == IndoorArState.Pinned) NoteRepin();
             if (!wasPinned && _session.WasPinned)
                 _baseline?.NotePoseAccepted(NowMs(), _signFirst != null && _signFirst.FromSigns);
             LogBaseline();
@@ -484,6 +519,7 @@ namespace IndoorAr
                 ? _session.CurrentFloor(cameraInMap.y, _floorHeights) : 0;
             var view = LiveDoorHud.Compose(_session, cameraInMap, CameraForwardInMap(), _pinnedFor, route,
                 _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), currentFloor);
+            NoteRoute(view, route);
             UpdatePin(view, currentFloor);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
@@ -653,6 +689,62 @@ namespace IndoorAr
                     + " · " + IndoorHud.DistanceLabel(view.DistanceM);
         }
 
+        void Diag(string line)
+        {
+            if (DiagnosticSink != null) DiagnosticSink(line);
+            else if (!Application.isEditor) Debug.Log(line);
+        }
+
+        void OnCameraFrame(ARCameraFrameEventArgs args) => _frameCount++;
+
+        // DX2: the camera transform did not change while frames kept arriving and the session tracked.
+        void NoteFrozenCamera(bool tracking)
+        {
+            if (arCamera == null) return;
+            var pose = arCamera.transform;
+            if (_frozenCamera.Observe(Time.unscaledDeltaTime, pose.position, pose.rotation, _frameCount, tracking))
+                Diag(IndoorArDiagnostics.CameraFrozenLine(_frozenCamera.Frozen, _frozenCamera.StillMs, _frameCount));
+        }
+
+        // DX3: a change of the floor the session reads while pinned, with the eye height bucket and no position.
+        void NoteFloor(float cameraY)
+        {
+            var floor = _session.CurrentFloor(cameraY, _floorHeights);
+            if (_floorTransitions.Observe(floor, out var from))
+                Diag(IndoorArDiagnostics.FloorChangeLine(from, floor, IndoorArDiagnostics.EyeHeightBucket(cameraY, _floorHeights)));
+        }
+
+        // DX4: how long tracking stayed Limited after a pin, and whether the session went back to localizing.
+        void NoteLimitedTracking(bool tracking, bool wasPinned)
+        {
+            var phase = _limited.Observe(tracking, wasPinned, _session.State == IndoorArState.Localizing, Time.unscaledDeltaTime);
+            if (phase == LimitedEpisodePhase.Begin)
+            {
+                _limitedReason = ARSession.notTrackingReason.ToString();
+                Diag(IndoorArDiagnostics.TrackingLimitedBeginLine(_limitedReason));
+            }
+            else if (phase == LimitedEpisodePhase.End)
+                Diag(IndoorArDiagnostics.TrackingLimitedEndLine(_limited.DurationMs, _limited.Relocalized, _limitedReason));
+        }
+
+        // DX5: waypoint index changes per second, and route-blocked transitions with the cause.
+        void NoteRoute(IndoorHudView view, Vector3[] route)
+        {
+            if (_routeBlock.Observe(view.RouteBlocked, view.RouteBlockedCause))
+                Diag(IndoorArDiagnostics.RouteBlockedLine(view.RouteBlocked, view.RouteBlockedCause));
+            if (_churn.Observe(route, view.RouteWaypointIndex, Time.unscaledDeltaTime, out var changesPerS))
+                Diag(IndoorArDiagnostics.WaypointChurnLine(changesPerS));
+        }
+
+        // DX6: how far MapSpace moved between the last pinned frame and the pose a re-localization just applied.
+        void NoteRepin()
+        {
+            if (!_pinnedMapSeen) return;
+            var map = _localizer.MapSpace;
+            MapShifted(_lastPinnedMapPosition, _lastPinnedMapRotation, map.position, map.rotation, out var meters, out var degrees);
+            Diag(IndoorArDiagnostics.RepinJumpLine(meters, degrees));
+        }
+
         public const float MapShiftMeters = 0.02f;
         public const float MapShiftDegrees = 0.5f;
 
@@ -725,6 +817,7 @@ namespace IndoorAr
         {
             if (_mlKitOcr != null) _mlKitOcr.Result -= OnSignRead;
             if (_iosOcr != null) _iosOcr.Result -= OnSignRead;
+            if (_cameraFrames != null) _cameraFrames.frameReceived -= OnCameraFrame;
             ReleaseSession();
         }
 

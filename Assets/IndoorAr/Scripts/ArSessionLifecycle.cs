@@ -68,6 +68,7 @@ namespace IndoorAr
             LoaderRestarted = true;
             DriveCameraFromXrInput();
             Debug.Log("[ArSession] entry loader started");
+            ArXrInputProbe.Probe();
         }
 
         /// <summary>This process started a loader after an exit tore one down. Survives scene reloads.</summary>

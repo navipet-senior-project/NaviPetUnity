@@ -268,9 +268,17 @@ namespace IndoorAr
         /// Advances nearby waypoints only with grid clearance from the actual camera position, then falls back to
         /// a reachable earlier waypoint. Returns false when no waypoint has a clear segment from the camera.
         /// </summary>
-        public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint)
+        public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint) =>
+            TryNextWaypoint(route, camera, lookAhead, out waypoint, out _);
+
+        /// <summary>The camera's cell is walkable. When it is not, no waypoint has a clear segment from the camera.</summary>
+        public bool IsWalkableAt(Vector3 world) => IsWalkable(ColumnOf(world.x), RowOf(world.z));
+
+        /// <param name="index">Index in route of the waypoint returned, or -1.</param>
+        public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint, out int index)
         {
             waypoint = default;
+            index = -1;
             if (route == null || route.Length < 2) return false;
             var next = 1;
             while (next < route.Length - 1
@@ -280,6 +288,7 @@ namespace IndoorAr
                 if (LineIsClear(camera, route[next]))
                 {
                     waypoint = route[next];
+                    index = next;
                     return true;
                 }
             return false;
