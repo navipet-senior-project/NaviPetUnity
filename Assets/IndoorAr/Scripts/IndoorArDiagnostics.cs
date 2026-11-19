@@ -18,7 +18,6 @@ namespace IndoorAr
         public const int MaxXrDevices = 8;
         const int MaxValue = 40;
 
-        /// <summary>Device names and layouts come from the XR plugin. Only that character set, at most 40 of it, gets out.</summary>
         public static string Token(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return "none";
@@ -40,19 +39,15 @@ namespace IndoorAr
 
         // ---- DX1: XR input at loader start and 1 s later -------------------------------------------------------
 
-        /// <summary>What a legacy XR InputDevice reports. Names and flags only, never a pose value.</summary>
+        /// <summary>What a legacy XR InputDevice reports without a pose value.</summary>
         public readonly struct XrDeviceInfo
         {
-            public readonly string Name;
-            public readonly string Characteristics;
             public readonly bool IsValid;
             public readonly bool CenterEyePosition, DevicePosition, CenterEyeRotation, DeviceRotation;
 
-            public XrDeviceInfo(string name, string characteristics, bool isValid, bool centerEyePosition,
+            public XrDeviceInfo(bool isValid, bool centerEyePosition,
                 bool devicePosition, bool centerEyeRotation, bool deviceRotation)
             {
-                Name = name;
-                Characteristics = characteristics;
                 IsValid = isValid;
                 CenterEyePosition = centerEyePosition;
                 DevicePosition = devicePosition;
@@ -64,12 +59,12 @@ namespace IndoorAr
         /// <param name="when">"start" or "1s".</param>
         /// <param name="positionControls">Controls the pose driver's position action resolves to, or -1 without a driver.</param>
         public static List<string> XrInputLines(string when, IReadOnlyList<XrDeviceInfo> devices,
-            IReadOnlyList<string> inputSystemLayouts, int inputSystemAdded, int inputSystemRemoved,
+            int inputSystemDevices, int inputSystemAdded, int inputSystemRemoved,
             int positionControls, int rotationControls)
         {
             var lines = new List<string>
             {
-                $"[ArDiag] xr input at={Token(when)} legacyDevices={devices.Count} inputSystemDevices={inputSystemLayouts.Count}"
+                $"[ArDiag] xr input at={(when == "1s" ? "1s" : "start")} legacyDevices={devices.Count} inputSystemDevices={inputSystemDevices}"
                 + $" inputSystemAdded={inputSystemAdded} inputSystemRemoved={inputSystemRemoved}"
                 + $" positionControls={(positionControls < 0 ? "none" : positionControls.ToString(CultureInfo.InvariantCulture))}"
                 + $" rotationControls={(rotationControls < 0 ? "none" : rotationControls.ToString(CultureInfo.InvariantCulture))}"
@@ -77,12 +72,10 @@ namespace IndoorAr
             for (var i = 0; i < devices.Count && i < MaxXrDevices; i++)
             {
                 var d = devices[i];
-                lines.Add($"[ArDiag] xr device at={Token(when)} index={i} name={Token(d.Name)} characteristics={Token(d.Characteristics)}"
+                lines.Add($"[ArDiag] xr device at={(when == "1s" ? "1s" : "start")} index={i}"
                     + $" valid={Bool(d.IsValid)} centerEyePos={Bool(d.CenterEyePosition)} devicePos={Bool(d.DevicePosition)}"
                     + $" centerEyeRot={Bool(d.CenterEyeRotation)} deviceRot={Bool(d.DeviceRotation)}");
             }
-            for (var i = 0; i < inputSystemLayouts.Count && i < MaxXrDevices; i++)
-                lines.Add($"[ArDiag] xr inputdevice at={Token(when)} index={i} layout={Token(inputSystemLayouts[i])}");
             return lines;
         }
 
@@ -159,9 +152,10 @@ namespace IndoorAr
         /// <summary>True when Frozen changed on this call.</summary>
         public bool Observe(float dt, Vector3 position, Quaternion rotation, int frames, bool tracking)
         {
+            var gap = _noFrameS + dt >= FrameGapS;
             _noFrameS = frames != _lastFrames ? 0f : _noFrameS + dt;
             _lastFrames = frames;
-            if (!_anchored || Vector3.Distance(position, _anchorPosition) > MoveEpsilonM
+            if (!tracking || gap || _noFrameS >= FrameGapS || !_anchored || Vector3.Distance(position, _anchorPosition) > MoveEpsilonM
                 || Quaternion.Angle(rotation, _anchorRotation) > TurnEpsilonDeg)
             {
                 _anchorPosition = position;

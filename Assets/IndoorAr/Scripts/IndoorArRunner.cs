@@ -200,6 +200,7 @@ namespace IndoorAr
                     Deliver(IndoorArContract.Unavailable(0, 0));
                 return;
             }
+            if (!Application.isEditor && ArSessionLifecycle.LoaderActive) ArXrInputProbe.Probe();
             _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
             _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);

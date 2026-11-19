@@ -9,7 +9,7 @@ namespace IndoorAr
     /// <summary>
     /// DX1. When an entry starts the XR loader, logs which XR input devices exist and which pose controls the camera
     /// driver resolves to, now and again 1 s later. It separates a pose source the loader keeps from one that is
-    /// missing after re-init. Names, flags and counts only; it never reads a pose value.
+    /// missing after re-init. Flags and counts only; it never logs a pose value.
     /// </summary>
     public sealed class ArXrInputProbe : MonoBehaviour
     {
@@ -47,7 +47,7 @@ namespace IndoorAr
 
         static void Log(string when)
         {
-            foreach (var line in IndoorArDiagnostics.XrInputLines(when, LegacyDevices(), InputSystemLayouts(),
+            foreach (var line in IndoorArDiagnostics.XrInputLines(when, LegacyDevices(), InputSystemDeviceCount(),
                          _added, _removed, ControlCount(driver => driver.positionInput),
                          ControlCount(driver => driver.rotationInput)))
                 Debug.Log(line);
@@ -59,7 +59,7 @@ namespace IndoorAr
             UnityEngine.XR.InputDevices.GetDevices(devices);
             var info = new List<IndoorArDiagnostics.XrDeviceInfo>();
             foreach (var d in devices)
-                info.Add(new IndoorArDiagnostics.XrDeviceInfo(d.name, d.characteristics.ToString(), d.isValid,
+                info.Add(new IndoorArDiagnostics.XrDeviceInfo(d.isValid,
                     d.TryGetFeatureValue(UnityEngine.XR.CommonUsages.centerEyePosition, out Vector3 _),
                     d.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out Vector3 _),
                     d.TryGetFeatureValue(UnityEngine.XR.CommonUsages.centerEyeRotation, out Quaternion _),
@@ -67,12 +67,12 @@ namespace IndoorAr
             return info;
         }
 
-        static List<string> InputSystemLayouts()
+        static int InputSystemDeviceCount()
         {
-            var layouts = new List<string>();
+            var count = 0;
             foreach (var device in InputSystem.devices)
-                if (device is TrackedDevice) layouts.Add(device.layout);
-            return layouts;
+                if (device is TrackedDevice) count++;
+            return count;
         }
 
         // The first pose driver in the scene; -1 when there is none.

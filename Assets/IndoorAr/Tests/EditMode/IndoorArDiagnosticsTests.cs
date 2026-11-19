@@ -33,9 +33,9 @@ public class IndoorArDiagnosticsTests
         var floors = new List<(int, float)> { (1, 0f), (2, 4f) };
         var devices = new List<IndoorArDiagnostics.XrDeviceInfo>
         {
-            new IndoorArDiagnostics.XrDeviceInfo("HandheldARInputDevice (Pose Provider)", "HeadMounted, TrackedDevice", true, true, false, true, false)
+            new IndoorArDiagnostics.XrDeviceInfo(true, true, false, true, false)
         };
-        var lines = IndoorArDiagnostics.XrInputLines("1s", devices, new[] { "HandheldARInputDevice" }, 1, 0, 3, -1);
+        var lines = IndoorArDiagnostics.XrInputLines("1s", devices, 1, 1, 0, 3, -1);
         lines.Add(IndoorArDiagnostics.CameraFrozenLine(true, 2100, 340));
         lines.Add(IndoorArDiagnostics.FloorChangeLine(1, 0, IndoorArDiagnostics.EyeHeightBucket(1.7f, floors)));
         lines.Add(IndoorArDiagnostics.TrackingLimitedBeginLine("Relocalizing"));
@@ -71,13 +71,13 @@ public class IndoorArDiagnosticsTests
     }
 
     [Test]
-    public void Dx1ListsDevicesAtBothMomentsAndSanitizesNames()
+    public void Dx1ListsDevicesWithoutFreeText()
     {
         var devices = new[]
         {
-            new IndoorArDiagnostics.XrDeviceInfo("Pose \"Provider\"; token=abc 12.5,7.1", "HeadMounted", false, false, false, false, false)
+            new IndoorArDiagnostics.XrDeviceInfo(false, false, false, false, false)
         };
-        var lines = IndoorArDiagnostics.XrInputLines("start", devices, new string[0], 0, 0, -1, -1);
+        var lines = IndoorArDiagnostics.XrInputLines("start", devices, 0, 0, 0, -1, -1);
         Assert.AreEqual(2, lines.Count);
         StringAssert.Contains("at=start legacyDevices=1 inputSystemDevices=0 inputSystemAdded=0 inputSystemRemoved=0 positionControls=none rotationControls=none", lines[0]);
         StringAssert.Contains("valid=false centerEyePos=false", lines[1]);
@@ -87,10 +87,9 @@ public class IndoorArDiagnosticsTests
     [Test]
     public void Dx1CapsDeviceLines()
     {
-        var devices = Enumerable.Range(0, 20).Select(i => new IndoorArDiagnostics.XrDeviceInfo("d" + i, "x", true, true, true, true, true)).ToList();
-        var layouts = Enumerable.Range(0, 20).Select(i => "l" + i).ToList();
-        var lines = IndoorArDiagnostics.XrInputLines("1s", devices, layouts, 0, 0, 1, 1);
-        Assert.AreEqual(1 + 2 * IndoorArDiagnostics.MaxXrDevices, lines.Count);
+        var devices = Enumerable.Range(0, 20).Select(i => new IndoorArDiagnostics.XrDeviceInfo(true, true, true, true, true)).ToList();
+        var lines = IndoorArDiagnostics.XrInputLines("1s", devices, 20, 0, 0, 1, 1);
+        Assert.AreEqual(1 + IndoorArDiagnostics.MaxXrDevices, lines.Count);
         StringAssert.Contains("legacyDevices=20", lines[0]);
     }
 
@@ -154,6 +153,20 @@ public class IndoorArDiagnosticsTests
         var frames = 0;
         for (var i = 0; i < 40; i++) d.Observe(.1f, p, Quaternion.identity, ++frames, false);
         Assert.IsFalse(d.Frozen);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void InterruptedStillnessRequiresANewInterval(bool stopFrames)
+    {
+        var detector = new FrozenCameraDetector();
+        var frames = 0;
+        for (var i = 0; i < 15; i++) detector.Observe(.1f, Vector3.zero, Quaternion.identity, ++frames, true);
+        for (var i = 0; i < 25; i++) detector.Observe(.1f, Vector3.zero, Quaternion.identity, stopFrames ? frames : ++frames, stopFrames);
+        detector.Observe(.1f, Vector3.zero, Quaternion.identity, ++frames, true);
+        Assert.IsFalse(detector.Frozen);
+        for (var i = 0; i < 21; i++) detector.Observe(.1f, Vector3.zero, Quaternion.identity, ++frames, true);
+        Assert.IsTrue(detector.Frozen);
     }
 
     [Test]
