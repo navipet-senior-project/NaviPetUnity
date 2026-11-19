@@ -39,7 +39,7 @@ namespace IndoorAr
             ApplyExit(LoaderActive, DisableArComponents, TearDownActiveLoader);
         }
 
-        public static IEnumerator InitializeOnEntry()
+        public static IEnumerator InitializeOnEntry(bool probeInput = false)
         {
             if (Application.platform != RuntimePlatform.IPhonePlayer || !ShouldInitialize(LoaderActive)) yield break;
             var manager = Manager;
@@ -65,6 +65,7 @@ namespace IndoorAr
                 yield break;
             }
             manager.StartSubsystems();
+            if (probeInput) ArXrInputProbe.Probe();
             LoaderRestarted = true;
             DriveCameraFromXrInput();
             Debug.Log("[ArSession] entry loader started");

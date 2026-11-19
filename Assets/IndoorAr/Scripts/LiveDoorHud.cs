@@ -37,11 +37,17 @@ namespace IndoorAr
             var door = request.position;
             var target = Vector3.zero;
             var wrongFloor = wrongFloorEvidence || session.FloorSign != null && session.IsWrongFloor(session.FloorSign.Floor);
+            var waypointIndex = -1;
+            var cause = IndoorRouteBlockedCause.NoRoute;
             // On the wrong floor only a route to stairs or an elevator helps; one to the door would cross floors.
             if (session.State != IndoorArState.Pinned || door == null || route == null || route.Length < 2 || request.LocalizeOnly || floorUnknown
                 || wrongFloor != (floorChange != null)) route = null;
-            else if (routeGrid == null || !routeGrid.TryNextWaypoint(route, cameraInMap, RouteLookAheadM, out target))
+            else if (routeGrid == null) route = null;
+            else if (!routeGrid.TryNextWaypoint(route, cameraInMap, RouteLookAheadM, out target, out waypointIndex))
+            {
                 route = null;
+                cause = routeGrid.IsWalkableAt(cameraInMap) ? IndoorRouteBlockedCause.NoClearLine : IndoorRouteBlockedCause.CameraCellBlocked;
+            }
             var routeBlocked = session.State == IndoorArState.Pinned && !request.LocalizeOnly && route == null;
             var authFailed = AuthFailed(session);
             var stepFreeUnavailable = StepFreeUnavailable(session);
@@ -57,6 +63,8 @@ namespace IndoorAr
                 WrongFloor = !request.LocalizeOnly && door != null && wrongFloor,
                 FollowingRoute = route != null,
                 RouteBlocked = routeBlocked,
+                RouteWaypointIndex = route == null ? -1 : waypointIndex,
+                RouteBlockedCause = routeBlocked ? cause : IndoorRouteBlockedCause.None,
                 FloorChange = route == null ? null : floorChange,
                 DistanceM = route == null ? double.NaN : IndoorWalkGrid.LengthM(route),
                 TitleOverride = stepFreeUnavailable ? "Step-free route unavailable" : authFailed ? "AR sign-in failed"

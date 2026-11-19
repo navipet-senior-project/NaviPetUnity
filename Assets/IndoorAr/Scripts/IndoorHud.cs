@@ -33,6 +33,9 @@ namespace IndoorAr
         public bool Outdoor;
         public bool FollowingRoute;
         public bool RouteBlocked;
+        // Diagnostics only: the waypoint the arrow aims at (-1 for none) and why the route is blocked.
+        public int RouteWaypointIndex = -1;
+        public IndoorRouteBlockedCause RouteBlockedCause;
         // "stairs" or "elevator": the route on a wrong floor ends there, not at the door.
         public string FloorChange;
         public bool OffRoute;
