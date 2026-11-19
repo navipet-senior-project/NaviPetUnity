@@ -66,5 +66,5 @@
     "explorer.fileNesting.patterns": {
         "*.sln": "*.csproj"
     },
-    "dotnet.defaultSolution": "01M7TSCCP0J7QNFZC7VYJQS7NF.slnx"
+    "dotnet.defaultSolution": "map testground.slnx"
 }
