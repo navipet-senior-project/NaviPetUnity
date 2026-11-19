@@ -22,6 +22,8 @@ Editor play mode does not emit this line. On a phone, filter logcat or the Xcode
 
 Indoor AR also emits `[ArDiag]` XR input counts at an explicit loader restart or active-loader entry and again one second later. `[IndoorAr]` diagnostic lines report frozen-camera changes, floor transitions and eye-height buckets, Limited tracking episodes, waypoint-index churn, route-block causes, and re-pin shift and turn. These lines use fixed labels, counts, and categories; they do not include positions, images, credentials, or recognized text. Filter for `ArDiag` and `IndoorAr` to capture them alongside the baseline.
 
+In any indoor session state, a frozen camera (frames advance and tracking holds, but the camera pose has not changed for about 2 s) hides the world pin, room label and guide arrow and asks the user to close and reopen AR. The warning clears when the pose moves, tracking is lost, or frames stop arriving. Localization and the bridge result are untouched. Not yet checked on a device.
+
 ## What a device run still has to measure
 
 These numbers are not produced by this instrumentation. Do not fill them in from the log.

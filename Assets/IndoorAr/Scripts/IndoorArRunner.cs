@@ -520,7 +520,7 @@ namespace IndoorAr
             var currentFloor = _session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived
                 ? _session.CurrentFloor(cameraInMap.y, _floorHeights) : 0;
             var view = LiveDoorHud.Compose(_session, cameraInMap, CameraForwardInMap(), _pinnedFor, route,
-                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), currentFloor);
+                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), currentFloor, _frozenCamera.Frozen);
             NoteRoute(view);
             UpdatePin(view, currentFloor);
             // Names the sign the camera reads now. It is not the camera's position.
@@ -663,7 +663,8 @@ namespace IndoorAr
             var request = _session.Request;
             var door = request.position;
             var showing = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived && !_session.ArrivedBySign)
-                && !request.LocalizeOnly && !request.stepFree && door != null && currentFloor > 0 && _walkGrid != null;
+                && !request.LocalizeOnly && !request.stepFree && door != null && currentFloor > 0 && _walkGrid != null
+                && !_frozenCamera.Frozen; // a camera that no longer follows the phone would draw the pin in the wrong place
             var connector = showing && _session.IsWrongFloor(currentFloor);
             if (connector && view.FloorChange == null) showing = false;
             WatchMapSpace(showing);
