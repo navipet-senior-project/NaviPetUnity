@@ -920,7 +920,7 @@ namespace IndoorAr
             _requestJson = null;
             StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();
-            ArSessionLifecycle.StopSessionsAndTearDown();
+            ArSessionLifecycle.StopSessionsAndTearDown(keepLoader: true);
             IndoorArBridge.Deliver(resultJson);
         }
 
