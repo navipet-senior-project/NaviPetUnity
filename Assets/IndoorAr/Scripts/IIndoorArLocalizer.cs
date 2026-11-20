@@ -18,6 +18,8 @@ namespace IndoorAr
         /// <summary>Transform at the MapSet origin; the SDK moves it on every localization.</summary>
         Transform MapSpace { get; }
         string MapCode { get; }
+        /// <summary>Short hash of the map codes behind the last pose, or "none". Never the code itself.</summary>
+        string LastMapHash => "none";
 
         void Authenticate();
         /// <summary>Starts one localization attempt against MapCode in MapSet mode.</summary>

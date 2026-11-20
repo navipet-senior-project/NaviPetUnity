@@ -108,6 +108,31 @@ namespace IndoorAr
         public static string FloorChangeLine(int from, int to, string eyeBucket) =>
             $"[IndoorAr] floor change from={FloorName(from)} to={FloorName(to)} eyeM={Token(eyeBucket)}";
 
+        // ---- DX7: localization result --------------------------------------------------------------------------
+
+        /// <summary>Eight hex digits of SHA-256 over the map codes, so two results can be tied to one map without the code.</summary>
+        public static string MapHash(string mapCodes)
+        {
+            if (string.IsNullOrEmpty(mapCodes)) return "none";
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(mapCodes));
+            return System.BitConverter.ToString(hash, 0, 4).Replace("-", "").ToLowerInvariant();
+        }
+
+        /// <param name="mapHash">MapHash output, or "sign" for a pose placed from a room sign.</param>
+        /// <param name="floor">The floor the pose height falls in; 0 for unknown, -1 for outside the supported floors.</param>
+        public static string LocalizationResultLine(string mapHash, int floor, float cameraY,
+            IReadOnlyList<(int Floor, float Y)> floors, float? confidence)
+        {
+            var floorY = float.NaN;
+            foreach (var (number, y) in floors)
+                if (floor > 0 && number == floor) { floorY = y; break; }
+            var delta = float.IsNaN(floorY) ? "unknown" : Number(cameraY - floorY, "0.00");
+            var floorName = floor < 0 ? "unsupported" : FloorName(floor);
+            return $"[IndoorAr] localization result map={Token(mapHash)} floor={floorName} deltaM={delta}"
+                + $" confidence={(confidence.HasValue ? Number(confidence.Value, "0.00") : "unknown")}";
+        }
+
         // ---- DX4: Limited tracking episodes --------------------------------------------------------------------
 
         public static string TrackingLimitedBeginLine(string notTrackingReason) =>

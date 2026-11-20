@@ -348,6 +348,9 @@ namespace IndoorAr
 
         void OnLocalizedObserved(float? confidence)
         {
+            var poseY = CameraInMap().y;
+            Diag(IndoorArDiagnostics.LocalizationResultLine(_signFirst != null && _signFirst.FromSigns ? "sign" : _localizer.LastMapHash,
+                _session.PoseFloor(poseY, _floorHeights), poseY, _floorHeights, confidence));
             if (RejectMultiSetFloorConflict(CameraInMap())) return;
             var wasPinned = _session.WasPinned;
             var wasLocalizing = _session.State == IndoorArState.Localizing;

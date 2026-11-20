@@ -70,6 +70,7 @@ namespace IndoorAr
         public Func<bool> TrackingReady { get; set; } = () => ARSession.state == ARSessionState.SessionTracking;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
+        public string LastMapHash { get; private set; } = "none";
         public bool FallbackAvailable => _mapSpaceIsolated && _blurCheckDisabled && !_fallbackUnavailable;
         public bool HasLiveRequest => _requestInFlight;
         public Transform SdkMapSpace => sdkMapSpace;
@@ -223,7 +224,7 @@ namespace IndoorAr
             else CompleteLocalizedPose(attemptId, result.confidence, result);
         }
 
-        static void LogMapCodes(LocalizationSuccessResponse result)
+        static string MapCodesOf(LocalizationSuccessResponse result)
         {
             const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
                 | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
@@ -240,7 +241,13 @@ namespace IndoorAr
                     codes.Append(code);
                 }
             else if (value != null) codes.Append(value);
-            Debug.Log($"[IndoorAr] localization mapCodes={(codes.Length == 0 ? "unknown" : codes.ToString())}");
+            return codes.ToString();
+        }
+
+        static void LogMapCodes(LocalizationSuccessResponse result)
+        {
+            var codes = MapCodesOf(result);
+            Debug.Log($"[IndoorAr] localization mapCodes={(codes.Length == 0 ? "unknown" : codes)}");
         }
 
         void OnNotLocalized()
@@ -263,6 +270,7 @@ namespace IndoorAr
                 return;
             }
             CopyAcceptedPose();
+            LastMapHash = IndoorArDiagnostics.MapHash(result == null ? null : MapCodesOf(result));
             if (result != null) LogMapCodes(result);
             RemoveQueuedRequest();
             Localized?.Invoke(confidence);

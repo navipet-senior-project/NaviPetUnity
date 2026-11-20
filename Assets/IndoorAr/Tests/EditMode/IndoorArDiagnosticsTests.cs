@@ -43,6 +43,7 @@ public class IndoorArDiagnosticsTests
         lines.Add(IndoorArDiagnostics.WaypointChurnLine(4));
         lines.Add(IndoorArDiagnostics.RouteBlockedLine(true, IndoorRouteBlockedCause.CameraCellBlocked));
         lines.Add(IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
+        lines.Add(IndoorArDiagnostics.LocalizationResultLine(IndoorArDiagnostics.MapHash("MSET_ABC"), 2, 5.7f, floors, .59f));
         return lines;
     }
 
@@ -68,6 +69,29 @@ public class IndoorArDiagnosticsTests
         Assert.AreEqual("[IndoorAr] route blocked=false cause=None",
             IndoorArDiagnostics.RouteBlockedLine(false, IndoorRouteBlockedCause.None));
         Assert.AreEqual("[IndoorAr] re-pin jump shiftM=1.23 turnDeg=-7.9", IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
+    }
+
+    [Test]
+    public void LocalizationResultLineCarriesHashFloorDeltaAndConfidence()
+    {
+        var floors = new List<(int, float)> { (1, 0f), (3, 8f) };
+        Assert.AreEqual("[IndoorAr] localization result map=abcd1234 floor=3 deltaM=1.70 confidence=0.59",
+            IndoorArDiagnostics.LocalizationResultLine("abcd1234", 3, 9.7f, floors, .59f));
+        Assert.AreEqual("[IndoorAr] localization result map=sign floor=unknown deltaM=unknown confidence=unknown",
+            IndoorArDiagnostics.LocalizationResultLine("sign", 0, 9.7f, floors, null));
+        Assert.AreEqual("[IndoorAr] localization result map=none floor=unsupported deltaM=unknown confidence=0.10",
+            IndoorArDiagnostics.LocalizationResultLine("none", -1, 30f, floors, .1f));
+    }
+
+    [Test]
+    public void MapHashIsStableShortAndNotTheCode()
+    {
+        var hash = IndoorArDiagnostics.MapHash("MSET_ABC");
+        StringAssert.IsMatch("^[0-9a-f]{8}$", hash);
+        Assert.AreEqual(hash, IndoorArDiagnostics.MapHash("MSET_ABC"));
+        Assert.AreNotEqual(hash, IndoorArDiagnostics.MapHash("MSET_ABD"));
+        Assert.AreEqual("none", IndoorArDiagnostics.MapHash(""));
+        Assert.AreEqual("none", IndoorArDiagnostics.MapHash(null));
     }
 
     [Test]
@@ -367,7 +391,9 @@ public class IndoorArDiagnosticsTests
             session.OnAuthenticated();
             Assert.AreEqual(IndoorArState.Pinned, session.State);
             Call(runner, "Update");
-            Assert.IsEmpty(lines, "a steady pin logs nothing");
+            Assert.AreEqual(1, lines.Count, "a steady pin logs only the localization result");
+            StringAssert.StartsWith("[IndoorAr] localization result map=none floor=1 deltaM=1.60 confidence=0.73", lines[0]);
+            lines.Clear();
 
             host.GetComponent<RunnerFakeLocalizer>().DeferAnswer = true;
             state.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.None });

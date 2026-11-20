@@ -42,6 +42,7 @@ namespace IndoorAr
 
         public Transform MapSpace => _inner.MapSpace;
         public string MapCode => _inner.MapCode;
+        public string LastMapHash => _inner.LastMapHash;
         public bool SignsCanPose { get; }
         public bool FallbackAvailable => !_fallbackStopped && !_innerAuthFailed && (_inner is not MultiSetLocalizer multiSet || multiSet.FallbackAvailable);
         public string FallbackStatus => _fallbackStopped ? "unavailable: session stopped fallback"
