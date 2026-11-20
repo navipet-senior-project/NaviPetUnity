@@ -870,6 +870,31 @@ public class MultiSetLocalizerTests
     }
 
     [Test]
+    public void ActiveTimeoutCancelsYoungerQueuedAttempt()
+    {
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(29f);
+        _adapter.Localize();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=false lockWaitMs=0 sdkMs=30000");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=1000 outcome=Cancelled lockBusy=true lockWaitMs=1000 sdkMs=0");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(1f);
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
+    public void QueuedAttemptReportsItsOwnTimeout()
+    {
+        LocalizeWithoutEditorFailure();
+        _adapter.AbandonPending();
+        _adapter.Localize();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=true lockWaitMs=30000 sdkMs=0");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(30f);
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
     public void UnansweredRequestLogsTimeoutThenLateWhileTheLockStaysHeld()
     {
         LocalizeWithoutEditorFailure();

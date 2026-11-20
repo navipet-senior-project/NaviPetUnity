@@ -214,7 +214,8 @@ namespace IndoorAr
             {
                 EndTrace(_activeTrace, IndoorArDiagnostics.LocalizationOutcome.Timeout);
             }
-            RemoveQueuedRequest(IndoorArDiagnostics.LocalizationOutcome.Timeout);
+            RemoveQueuedRequest(currentRequest ? IndoorArDiagnostics.LocalizationOutcome.Cancelled
+                : IndoorArDiagnostics.LocalizationOutcome.Timeout);
             Debug.Log("[IndoorAr] multiset fallback unavailable: prior request unresolved");
         }
 
