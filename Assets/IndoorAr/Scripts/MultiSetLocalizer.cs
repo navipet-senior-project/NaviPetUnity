@@ -30,6 +30,17 @@ namespace IndoorAr
         static readonly Queue<MultiSetLocalizer> WaitingLocalizers = new Queue<MultiSetLocalizer>();
         public const float RequestTimeoutS = 30f;
 
+        static Func<double> Clock = () => (double)System.Diagnostics.Stopwatch.GetTimestamp() / System.Diagnostics.Stopwatch.Frequency;
+
+        sealed class RequestTrace
+        {
+            public int Attempt;
+            public bool LockBusy;
+            public double Started, SdkStarted, QueueUpdated, LockWaitS;
+            public bool SdkStartedSet;
+            public bool Ended;
+        }
+
         sealed class SdkCompletionListener
         {
             readonly MultiSetLocalizer owner;
@@ -59,6 +70,8 @@ namespace IndoorAr
         bool _mapSpaceIsolated;
         bool _blurCheckDisabled;
         bool _ownerDestroyed;
+        RequestTrace _queuedTrace;
+        RequestTrace _activeTrace;
         SdkCompletionListener _completionListener;
 
         public event Action Authenticated;
@@ -161,6 +174,7 @@ namespace IndoorAr
             RemoveQueuedRequest();
             _fallbackUnavailable = false;
             _ignoreInFlight = _requestInFlight;
+            EndTrace(_activeTrace, IndoorArDiagnostics.LocalizationOutcome.Cancelled);
             if (!s_requestLive) manager.StopAllCoroutines();
         }
 
@@ -168,43 +182,52 @@ namespace IndoorAr
         {
             if (!FallbackAvailable) return;
             var attemptId = ++_attemptId;
+            var trace = new RequestTrace { Attempt = attemptId, Started = Clock() };
             if (s_requestLive || _queuedAttemptId != 0 || WaitingLocalizers.Count > 0 || !TrackingReady())
             {
-                QueueRequest(attemptId);
+                QueueRequest(attemptId, trace);
                 return;
             }
-            StartRequest(attemptId);
+            StartRequest(attemptId, trace);
         }
 
         public void DropQueuedFallback()
         {
             RemoveQueuedRequest();
-            if (_requestInFlight) _ignoreInFlight = true;
+            if (!_requestInFlight) return;
+            _ignoreInFlight = true;
+            EndTrace(_activeTrace, IndoorArDiagnostics.LocalizationOutcome.Cancelled);
         }
 
         public void Tick(float deltaTime)
         {
+            var dt = Mathf.Max(0f, deltaTime);
             if (!s_requestLive) StartNextQueuedRequest();
             if (!FallbackAvailable) return;
-            var dt = Mathf.Max(0f, deltaTime);
             var currentRequest = _requestInFlight && _requestGeneration == _generation;
             if (currentRequest) _requestElapsed += dt;
             else if (_queuedAttemptId != 0 && s_requestLive) _queueElapsed += dt;
             else return;
             if ((currentRequest ? _requestElapsed : _queueElapsed) < RequestTimeoutS) return;
             _fallbackUnavailable = true;
-            RemoveQueuedRequest();
+            if (currentRequest && _activeTrace != null)
+            {
+                EndTrace(_activeTrace, IndoorArDiagnostics.LocalizationOutcome.Timeout);
+            }
+            RemoveQueuedRequest(currentRequest ? IndoorArDiagnostics.LocalizationOutcome.Cancelled
+                : IndoorArDiagnostics.LocalizationOutcome.Timeout);
             Debug.Log("[IndoorAr] multiset fallback unavailable: prior request unresolved");
         }
 
         void Update() => Tick(Time.unscaledDeltaTime);
 
-        void StartRequest(int attemptId)
+        void StartRequest(int attemptId, RequestTrace trace)
         {
             if (s_requestLive || !FallbackAvailable) return;
-            if (!TrackingReady()) { QueueRequest(attemptId); return; }
+            if (!TrackingReady()) { QueueRequest(attemptId, trace); return; }
             manager.StopAllCoroutines();
             sdkMapSpace.SetPositionAndRotation(mapSpace.position, mapSpace.rotation);
+            UpdateQueueWaits();
             s_requestLive = true;
             s_requestOwner = this;
             _requestInFlight = true;
@@ -212,6 +235,9 @@ namespace IndoorAr
             _activeAttemptId = attemptId;
             _requestGeneration = _generation;
             _requestElapsed = 0f;
+            trace.SdkStarted = Clock();
+            trace.SdkStartedSet = true;
+            _activeTrace = trace;
             AttemptStarted?.Invoke(attemptId);
             manager.LocalizeFrame();
         }
@@ -221,7 +247,11 @@ namespace IndoorAr
             var success = result != null && result.poseFound;
             if (!CompleteRequest(out var attemptId))
                 return;
-            if (!success) NotLocalized?.Invoke(attemptId);
+            if (!success)
+            {
+                EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.GenericFailure);
+                NotLocalized?.Invoke(attemptId);
+            }
             else CompleteLocalizedPose(attemptId, result.confidence, result);
         }
 
@@ -248,6 +278,7 @@ namespace IndoorAr
         void OnNotLocalized()
         {
             if (!CompleteRequest(out var attemptId)) return;
+            EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.GenericFailure);
             NotLocalized?.Invoke(attemptId);
         }
         void OnLocalizedWithoutConfidence()
@@ -262,10 +293,12 @@ namespace IndoorAr
             CandidateLocalized?.Invoke(sdkMapSpace, LastMapHash, confidence);
             if (CandidatePoseValidator == null || !CandidatePoseValidator(sdkMapSpace))
             {
+                EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.Rejected);
                 NotLocalized?.Invoke(attemptId);
                 return;
             }
             CopyAcceptedPose();
+            EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.Ok);
             RemoveQueuedRequest();
             Localized?.Invoke(confidence);
         }
@@ -281,6 +314,7 @@ namespace IndoorAr
 
             var accepted = !_ignoreInFlight && FallbackAvailable && _requestGeneration == _generation;
             // shortcut: SDK writes only to its proxy; if callbacks can vanish silently, keep the process lock until restart.
+            UpdateQueueWaits();
             s_requestLive = false;
             s_requestOwner = null;
             _requestInFlight = false;
@@ -290,6 +324,8 @@ namespace IndoorAr
             if (_ownerDestroyed) RemoveLocalizationListeners();
             if (!accepted)
             {
+                var ended = _activeTrace != null && _activeTrace.Ended;
+                EndActiveTrace(ended ? IndoorArDiagnostics.LocalizationOutcome.Late : IndoorArDiagnostics.LocalizationOutcome.Ignored);
                 LogStaleResponse();
                 return false;
             }
@@ -297,19 +333,63 @@ namespace IndoorAr
             return true;
         }
 
-        void QueueRequest(int attemptId)
+        void QueueRequest(int attemptId, RequestTrace trace)
         {
+            UpdateQueueWaits();
             if (_queuedAttemptId == 0)
             {
                 _queueElapsed = 0f;
                 WaitingLocalizers.Enqueue(this);
             }
+            else if (_queuedTrace != trace) EndTrace(_queuedTrace, IndoorArDiagnostics.LocalizationOutcome.Superseded);
             _queuedAttemptId = attemptId;
+            _queuedTrace = trace;
+            trace.QueueUpdated = Clock();
+            if (s_requestLive || WaitingLocalizers.Peek() != this) trace.LockBusy = true;
         }
 
-        void RemoveQueuedRequest()
+        static void UpdateQueueWaits()
+        {
+            var now = Clock();
+            var blocked = s_requestLive;
+            foreach (var localizer in WaitingLocalizers)
+            {
+                if (localizer == null || localizer._queuedTrace == null) continue;
+                var trace = localizer._queuedTrace;
+                if (blocked)
+                {
+                    trace.LockBusy = true;
+                    trace.LockWaitS += now - trace.QueueUpdated;
+                }
+                trace.QueueUpdated = now;
+                blocked = true;
+            }
+        }
+
+        // A Late line may follow a Timeout or Cancelled one: the lock stays held until the SDK answers.
+        static void EndTrace(RequestTrace trace, IndoorArDiagnostics.LocalizationOutcome outcome)
+        {
+            if (trace == null || trace.Ended && outcome != IndoorArDiagnostics.LocalizationOutcome.Late) return;
+            trace.Ended = true;
+            var now = Clock();
+            Debug.Log(IndoorArDiagnostics.LocalizationRequestLine(trace.Attempt,
+                IndoorArDiagnostics.LocalizationRequestKind.MultiSet, (long)((now - trace.Started) * 1000), outcome,
+                trace.LockBusy, (long)(trace.LockWaitS * 1000),
+                trace.SdkStartedSet ? (long)((now - trace.SdkStarted) * 1000) : 0));
+        }
+
+        void EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome outcome)
+        {
+            EndTrace(_activeTrace, outcome);
+            _activeTrace = null;
+        }
+
+        void RemoveQueuedRequest(IndoorArDiagnostics.LocalizationOutcome outcome = IndoorArDiagnostics.LocalizationOutcome.Cancelled)
         {
             if (_queuedAttemptId == 0) return;
+            UpdateQueueWaits();
+            EndTrace(_queuedTrace, outcome);
+            _queuedTrace = null;
             _queuedAttemptId = 0;
             _queueElapsed = 0f;
             var waiting = WaitingLocalizers.ToArray();
@@ -327,11 +407,14 @@ namespace IndoorAr
                 var next = WaitingLocalizers.Peek();
                 if (next == null || next._queuedAttemptId == 0) { WaitingLocalizers.Dequeue(); continue; }
                 if (!next.TrackingReady()) return;
+                UpdateQueueWaits();
                 WaitingLocalizers.Dequeue();
                 var attemptId = next._queuedAttemptId;
+                var trace = next._queuedTrace;
+                next._queuedTrace = null;
                 next.RemoveQueuedRequest();
-                if (!next.FallbackAvailable) continue;
-                next.StartRequest(attemptId);
+                if (!next.FallbackAvailable) { EndTrace(trace, IndoorArDiagnostics.LocalizationOutcome.Cancelled); continue; }
+                next.StartRequest(attemptId, trace);
                 return;
             }
         }
@@ -384,6 +467,7 @@ namespace IndoorAr
         void OnDestroy()
         {
             RemoveQueuedRequest();
+            EndTrace(_activeTrace, IndoorArDiagnostics.LocalizationOutcome.Cancelled);
             EventManager<EventData>.StopListening("AuthCallBack", OnAuthCallback);
             if (_ownerDestroyed) return;
             // The SDK manager may be destroyed first while its request still owes a callback.

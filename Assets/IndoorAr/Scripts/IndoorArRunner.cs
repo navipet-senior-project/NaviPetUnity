@@ -116,7 +116,6 @@ namespace IndoorAr
             if (localizerBehaviour is MultiSetLocalizer multiSet)
             {
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
-                multiSet.CandidateLocalized += OnMultiSetCandidateLocalized;
             }
             if (localizationMode == IndoorLocalizationMode.SignFirst)
             {
@@ -223,6 +222,8 @@ namespace IndoorAr
             AttachHud();
             _session.LocalizeRequested += RequestLocalization;
             _session.FallbackStopped += StopMultiSetFallback;
+            if (localizerBehaviour is MultiSetLocalizer candidateLocalizer)
+                candidateLocalizer.CandidateLocalized += OnMultiSetCandidateLocalized;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += OnAttemptStarted;
@@ -855,6 +856,7 @@ namespace IndoorAr
 
         void ReleaseSession()
         {
+            if (_session != null) StopMultiSetFallback();
             Unhook();
             if (_hud != null)
             {
@@ -916,7 +918,7 @@ namespace IndoorAr
             EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
             _requestJson = null;
-            DropQueuedMultiSetFallback();
+            StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();
             ArSessionLifecycle.StopSessionsAndTearDown();
             IndoorArBridge.Deliver(resultJson);
@@ -931,6 +933,7 @@ namespace IndoorAr
         void StopMultiSetFallback()
         {
             if (_signFirst != null) _signFirst.StopFallback();
+            else if (_localizer is SignFirstLocalizer signFirst) signFirst.StopFallback();
             else DropQueuedMultiSetFallback();
         }
 

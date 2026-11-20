@@ -466,6 +466,20 @@ public class IndoorArRunnerTests
         LogAssert.NoUnexpectedReceived();
     }
 
+    [Test]
+    public void DestroyDuringSignHoldLogsCancellation()
+    {
+        var runner = Runner(IndoorLocalizationMode.SignFirst);
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
+        session.OnArSupport(true);
+        signFirst.Authenticate();
+        signFirst.Tick(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=2000 outcome=Cancelled lockBusy=na lockWaitMs=na sdkMs=na");
+        Call(runner, "OnDestroy");
+    }
+
     // X and the back key both call OnHudExit; arrival is "I'm here" then Done.
     [TestCase("cancel", "cancelled")]
     [TestCase("arrive", "arrived")]
@@ -478,6 +492,10 @@ public class IndoorArRunnerTests
         var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
         first.OnArSupport(true);
         signFirst.Authenticate(); // opens the sign hold
+        var signOutcome = exit == "cancel" ? "Cancelled" : "Timeout";
+        var signLine = new Regex($"\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome={signOutcome}");
+        // Arriving logs the expired hold first; cancellation closes the hold before the result.
+        LogAssert.Expect(LogType.Log, signLine);
         LogAssert.Expect(LogType.Log, new Regex($"\\[IndoorAr\\] result .*\"status\":\"{status}\""));
         if (exit == "cancel")
         {
@@ -1035,11 +1053,13 @@ public class IndoorArRunnerTests
             ((Action)typeof(MultiSetLocalizer).GetField("Authenticated", BindingFlags.Instance | BindingFlags.NonPublic)
                 .GetValue(localizer)).Invoke();
 
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome=Timeout"));
             LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
             TickSignFallbackWithoutEditorFailure(signFirst, localizer, manager);
             localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(2f, 0f, 3f), Quaternion.identity);
             camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=MultiSet .*outcome=Ok"));
             ReportLocalized(manager, true);
             Assert.AreEqual(1, diagnostics.FindAll(line => line.StartsWith("[IndoorAr] localization result ")).Count);
             Assert.AreEqual(IndoorArState.Pinned, session.State);
@@ -1061,6 +1081,7 @@ public class IndoorArRunnerTests
                 : candidateKind == "below" ? floor1Y - 3f
                 : candidateKind == "above" ? IndoorWalkGrid.ForFloor(gridJson, 3).FloorY + 3f
                 : floor1Y + IndoorArSession.MaxEyeHeightM + .05f;
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome=Timeout"));
             LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
             TickSignFallbackWithoutEditorFailure(signFirst, localizer, manager);
@@ -1071,6 +1092,7 @@ public class IndoorArRunnerTests
             var expectedEvidence = candidateKind == "signConflict" ? "sign=2 pose=1"
                 : candidateKind == "gap" ? "sign=none pose=unknown" : "sign=none pose=unsupported";
             LogAssert.Expect(LogType.Log, $"[IndoorAr] floor conflict {expectedEvidence}");
+            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=MultiSet .*outcome=Rejected"));
             ReportLocalized(manager, true);
 
             var results = diagnostics.FindAll(line => line.StartsWith("[IndoorAr] localization result "));
@@ -1090,6 +1112,7 @@ public class IndoorArRunnerTests
 
             if (candidateKind == "signConflict")
             {
+                LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome=Late"));
                 Assert.AreEqual(IndoorSignPoseStatus.Ok, signFirst.ObservePose(sighting));
                 Assert.AreEqual(IndoorArState.Pinned, session.State, "a validated sign can still localize after MultiSet rejection");
                 Assert.IsTrue(signFirst.FromSigns);
@@ -1110,6 +1133,7 @@ public class IndoorArRunnerTests
                 WithoutEditorSimulationFailure(localizer, manager, () => session.Tick(IndoorArSession.LocalizeTimeoutS));
                 localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(4f, 5f, 6f), Quaternion.identity);
                 camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
+                LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=MultiSet .*outcome=Ok"));
                 ReportLocalized(manager, true);
                 Assert.AreEqual(IndoorArState.Pinned, session.State, "a new accepted request commits after the rejected callback released the lock");
                 Assert.AreEqual(new Vector3(4f, 5f, 6f), mapRoot.position);

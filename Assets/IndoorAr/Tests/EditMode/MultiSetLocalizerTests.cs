@@ -14,10 +14,16 @@ public class MultiSetLocalizerTests
     GameObject _proxy;
     SingleFrameLocalizationManager _manager;
     MultiSetLocalizer _adapter;
+    double _clock;
+    System.Func<double> _originalClock;
+    static readonly System.Reflection.FieldInfo ClockField = typeof(MultiSetLocalizer).GetField("Clock", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
 
     [SetUp]
     public void SetUp()
     {
+        _clock = 0;
+        _originalClock = (System.Func<double>)ClockField.GetValue(null);
+        ClockField.SetValue(null, (System.Func<double>)(() => _clock));
         _sdkHost = new GameObject("SDK");
         _sdkHost.SetActive(false);
         var sdk = _sdkHost.AddComponent<IndoorArSdkManager>();
@@ -41,6 +47,7 @@ public class MultiSetLocalizerTests
         Object.DestroyImmediate(_mapHost);
         Object.DestroyImmediate(_proxy);
         Object.DestroyImmediate(_sdkHost);
+        ClockField.SetValue(null, _originalClock);
     }
 
     [Test]
@@ -799,6 +806,107 @@ public class MultiSetLocalizerTests
         ReportSuccess();
     }
 
+    [Test]
+    public void AcceptedRequestLogsItsOutcomeAndTiming()
+    {
+        _adapter.CandidatePoseValidator = _ => true;
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(2.5f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2500 outcome=Ok lockBusy=false lockWaitMs=0 sdkMs=2500");
+        ReportSuccess();
+    }
+
+    [Test]
+    public void FailedSdkRequestLogsGenericFailure()
+    {
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=2000");
+        _manager.LocalizationFailure.Invoke();
+    }
+
+    [Test]
+    public void DestroyedRequestMeasuresUntilItsLateCallback()
+    {
+        LocalizeWithoutEditorFailure();
+        _clock = 5;
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=5000 outcome=Cancelled lockBusy=false lockWaitMs=0 sdkMs=5000");
+        typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        _clock = 20;
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=20000 outcome=Late lockBusy=false lockWaitMs=0 sdkMs=20000");
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
+    public void QueuedPredecessorCountsAsLockWaitWithoutTicks()
+    {
+        _adapter.TrackingReady = () => false;
+        _adapter.Localize();
+        var sdkHost = new GameObject("Other SDK");
+        sdkHost.SetActive(false);
+        var sdk = sdkHost.AddComponent<IndoorArSdkManager>();
+        var manager = sdkHost.AddComponent<SingleFrameLocalizationManager>();
+        var map = new GameObject("Other map");
+        var host = new GameObject("Other adapter");
+        host.SetActive(false);
+        var other = host.AddComponent<MultiSetLocalizer>();
+        other.TrackingReady = () => true;
+        other.Configure(sdk, manager, map.transform);
+        var proxy = other.SdkMapSpace.gameObject;
+        try
+        {
+            other.Localize();
+            _clock = 8;
+            LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=8000 outcome=Cancelled lockBusy=true lockWaitMs=8000 sdkMs=0");
+            other.DropQueuedFallback();
+        }
+        finally
+        {
+            Object.DestroyImmediate(host);
+            Object.DestroyImmediate(map);
+            Object.DestroyImmediate(proxy);
+            Object.DestroyImmediate(sdkHost);
+            _adapter.DropQueuedFallback();
+        }
+    }
+
+    [Test]
+    public void ActiveTimeoutCancelsYoungerQueuedAttempt()
+    {
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(29f);
+        _adapter.Localize();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=false lockWaitMs=0 sdkMs=30000");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=1000 outcome=Cancelled lockBusy=true lockWaitMs=1000 sdkMs=0");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(1f);
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
+    public void QueuedAttemptReportsItsOwnTimeout()
+    {
+        LocalizeWithoutEditorFailure();
+        _adapter.AbandonPending();
+        _adapter.Localize();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=true lockWaitMs=30000 sdkMs=0");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(30f);
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
+    public void UnansweredRequestLogsTimeoutThenLateWhileTheLockStaysHeld()
+    {
+        LocalizeWithoutEditorFailure();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=false lockWaitMs=0 sdkMs=30000");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(MultiSetLocalizer.RequestTimeoutS);
+        TickWithoutEditorFailure(15f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=45000 outcome=Late lockBusy=false lockWaitMs=0 sdkMs=45000");
+        ReportFailureAndStartDeferredRequest();
+    }
+
     void ReportSuccess(bool poseFound = true)
     {
         ReportSuccess(_manager, poseFound);
@@ -840,6 +948,7 @@ public class MultiSetLocalizerTests
     {
         var callback = FailureCallback(localizer);
         manager.LocalizationFailure.RemoveListener(callback);
+        _clock += deltaTime;
         localizer.Tick(deltaTime);
         manager.LocalizationFailure.AddListener(callback);
     }
