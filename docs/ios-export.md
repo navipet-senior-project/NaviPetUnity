@@ -73,6 +73,8 @@ Before Unity's first scene runs, from the app that embeds `UnityFramework`:
 
 `IndoorArHost.h` is copied into the export at `Libraries/Plugins/iOS/IndoorArHost.h`. Delivering a result clears the request. For a later launch, set the new request and result handler again; if the player was unloaded and left paused, setting both reloads it (see `IndoorArHost.h`). That reload path calls Unity trampoline symbols and is not verified on a device. A missing request makes Unity return `BAD_REQUEST`. A missing handler drops the result. The same error codes as Android apply, including `ARCORE_UNSUPPORTED` when the device reports no AR support.
 
+On iOS, indoor exit disables the AR components but keeps the XR loader for reuse on re-entry. This is intended to avoid the missing XR input device observed after loader reinitialization; the change has not been verified on a device, and the earlier black-camera regression may return. The fallback is to pass `keepLoader: false` on indoor exit. Outdoor exit still tears down the loader; see [outdoor AR](../Assets/OutdoorAr/README.md#hosted-session).
+
 Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives progress while a session runs, on the main queue; it stays set across sessions, and without it status is dropped. On Android the same string goes to the host activity's `postStatus(String)` if it has one; a host without that method is detected once and skipped. Unity posts only when the state, tracking, recognized room, localized flag or fallback availability changes:
 
 ```json
