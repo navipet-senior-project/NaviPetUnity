@@ -114,7 +114,10 @@ namespace IndoorAr
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
             if (localizerBehaviour is MultiSetLocalizer multiSet)
+            {
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
+                multiSet.CandidateLocalized += OnMultiSetCandidateLocalized;
+            }
             if (localizationMode == IndoorLocalizationMode.SignFirst)
             {
                 _signCalibration ??= IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text);
@@ -348,6 +351,8 @@ namespace IndoorAr
 
         void OnLocalizedObserved(float? confidence)
         {
+            if (localizerBehaviour is not MultiSetLocalizer || (_signFirst != null && _signFirst.FromSigns))
+                LogLocalizationResult(CameraInMap().y, _signFirst != null && _signFirst.FromSigns ? "unavailable" : _localizer.LastMapHash, confidence);
             if (RejectMultiSetFloorConflict(CameraInMap())) return;
             var wasPinned = _session.WasPinned;
             var wasLocalizing = _session.State == IndoorArState.Localizing;
@@ -356,6 +361,18 @@ namespace IndoorAr
             if (!wasPinned && _session.WasPinned)
                 _baseline?.NotePoseAccepted(NowMs(), _signFirst != null && _signFirst.FromSigns);
             LogBaseline();
+        }
+
+        void OnMultiSetCandidateLocalized(Transform candidate, string mapHash, float? confidence)
+        {
+            if (_session != null && arCamera != null)
+                LogLocalizationResult(candidate.InverseTransformPoint(arCamera.transform.position).y, mapHash, confidence);
+        }
+
+        void LogLocalizationResult(float poseY, string mapHash, float? confidence)
+        {
+            Diag(IndoorArDiagnostics.LocalizationResultLine(mapHash,
+                _session.PoseFloor(poseY, _floorHeights), poseY, _floorHeights, confidence));
         }
 
         // OCR keeps reading while pinned so a confirmed reread can refresh floor evidence and recover sign alignment.
@@ -867,6 +884,8 @@ namespace IndoorAr
                 _hud.DoneRequested -= OnHudDone;
                 _hud.RetryRequested -= OnHudRetry;
             }
+            if (localizerBehaviour is MultiSetLocalizer multiSet)
+                multiSet.CandidateLocalized -= OnMultiSetCandidateLocalized;
             if (_session == null || _localizer == null) return;
             _session.LocalizeRequested -= RequestLocalization;
             _session.FallbackStopped -= StopMultiSetFallback;

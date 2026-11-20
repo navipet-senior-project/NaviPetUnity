@@ -134,7 +134,6 @@ public class MultiSetLocalizerTests
             typeof(MultiSetLocalizer).GetMethod("OnLocalizedWithoutConfidence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         else
         {
-            LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportSuccess();
         }
 
@@ -150,11 +149,14 @@ public class MultiSetLocalizerTests
     {
         var localized = 0;
         _adapter.CandidatePoseValidator = _ => true;
+        string candidateHash = null;
+        _adapter.CandidateLocalized += (_, hash, _) => candidateHash = hash;
         _adapter.Localized += _ => localized++;
         LocalizeWithoutEditorFailure();
         _adapter.SdkMapSpace.position = new Vector3(4f, 5f, 6f);
         typeof(MultiSetLocalizer).GetMethod("OnLocalizedWithoutConfidence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Assert.AreEqual(1, localized);
+        Assert.AreEqual("unavailable", candidateHash);
         Assert.AreEqual(new Vector3(4f, 5f, 6f), _mapHost.transform.position);
         Assert.IsFalse(_adapter.HasLiveRequest);
     }
@@ -168,7 +170,6 @@ public class MultiSetLocalizerTests
         _adapter.NotLocalized += _ => rejected++;
         LocalizeWithoutEditorFailure();
         _adapter.SdkMapSpace.position = new Vector3(4f, 5f, 6f);
-        LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
         ReportSuccess();
         Assert.AreEqual(0, localized);
         Assert.AreEqual(1, rejected);
@@ -322,7 +323,6 @@ public class MultiSetLocalizerTests
             TickWithoutEditorFailure(other, otherManager, 0f);
             Assert.AreEqual(1, attempts, "only genuine SDK completion lets the deferred request start");
             other.SdkMapSpace.SetPositionAndRotation(new Vector3(4f, 5f, 6f), Quaternion.Euler(0f, 30f, 0f));
-            LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportSuccess(otherManager);
             Assert.AreEqual(1, localized);
             Assert.AreEqual(new Vector3(4f, 5f, 6f), other.MapSpace.position);

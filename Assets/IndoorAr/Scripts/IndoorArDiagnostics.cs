@@ -9,8 +9,8 @@ namespace IndoorAr
     public enum IndoorRouteBlockedCause { None, NoRoute, CameraCellBlocked, NoClearLine }
 
     /// <summary>
-    /// Fixed-label diagnostic lines for the on-site AR runs (DX1 to DX6). Each builder takes counts, enums and
-    /// already-bucketed values, so no line can carry a position, an image, a key, a token or recognized text.
+    /// Fixed-label diagnostic lines for the on-site AR runs (DX1 to DX7). Builders use counts, categories,
+    /// measurements and hashed map identity without including a position, image, key, token or recognized text.
     /// Every value matches [A-Za-z0-9._-]{1,40} and every key is a plain word, so the capture filter keeps it.
     /// </summary>
     public static class IndoorArDiagnostics
@@ -107,6 +107,31 @@ namespace IndoorAr
 
         public static string FloorChangeLine(int from, int to, string eyeBucket) =>
             $"[IndoorAr] floor change from={FloorName(from)} to={FloorName(to)} eyeM={Token(eyeBucket)}";
+
+        // ---- DX7: localization result --------------------------------------------------------------------------
+
+        /// <summary>Eight hex digits of SHA-256 over the map codes, so two results can be tied to one map without the code.</summary>
+        public static string MapHash(string mapCodes)
+        {
+            if (string.IsNullOrEmpty(mapCodes)) return "unavailable";
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(mapCodes));
+            return System.BitConverter.ToString(hash, 0, 4).Replace("-", "").ToLowerInvariant();
+        }
+
+        /// <param name="mapHash">MapHash output; sign poses and legacy SDK callbacks have no map identity and use "unavailable".</param>
+        /// <param name="floor">The floor the pose height falls in; 0 for unknown, -1 for outside the supported floors.</param>
+        public static string LocalizationResultLine(string mapHash, int floor, float cameraY,
+            IReadOnlyList<(int Floor, float Y)> floors, float? confidence)
+        {
+            var floorY = float.NaN;
+            foreach (var (number, y) in floors)
+                if (floor > 0 && number == floor) { floorY = y; break; }
+            var delta = float.IsNaN(floorY) ? "unknown" : Number(cameraY - floorY, "0.00");
+            var floorName = floor < 0 ? "unsupported" : FloorName(floor);
+            return $"[IndoorAr] localization result map={Token(mapHash)} floor={floorName} deltaM={delta}"
+                + $" confidence={(confidence.HasValue ? Number(confidence.Value, "0.00") : "unknown")}";
+        }
 
         // ---- DX4: Limited tracking episodes --------------------------------------------------------------------
 
