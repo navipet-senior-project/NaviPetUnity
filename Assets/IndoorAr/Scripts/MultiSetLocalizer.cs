@@ -30,12 +30,14 @@ namespace IndoorAr
         static readonly Queue<MultiSetLocalizer> WaitingLocalizers = new Queue<MultiSetLocalizer>();
         public const float RequestTimeoutS = 30f;
 
-        // Timing of one Localize() call for its diagnostics line. Counted in Tick, so tests drive it without a clock.
+        static Func<double> Clock = () => (double)System.Diagnostics.Stopwatch.GetTimestamp() / System.Diagnostics.Stopwatch.Frequency;
+
         sealed class RequestTrace
         {
             public int Attempt;
             public bool LockBusy;
-            public float ElapsedS, LockWaitS, SdkS;
+            public double Started, SdkStarted, QueueUpdated, LockWaitS;
+            public bool SdkStartedSet;
             public bool Ended;
         }
 
@@ -180,7 +182,7 @@ namespace IndoorAr
         {
             if (!FallbackAvailable) return;
             var attemptId = ++_attemptId;
-            var trace = new RequestTrace { Attempt = attemptId, LockBusy = s_requestLive || WaitingLocalizers.Count > 0 };
+            var trace = new RequestTrace { Attempt = attemptId, Started = Clock() };
             if (s_requestLive || _queuedAttemptId != 0 || WaitingLocalizers.Count > 0 || !TrackingReady())
             {
                 QueueRequest(attemptId, trace);
@@ -200,7 +202,6 @@ namespace IndoorAr
         public void Tick(float deltaTime)
         {
             var dt = Mathf.Max(0f, deltaTime);
-            AdvanceTraces(dt);
             if (!s_requestLive) StartNextQueuedRequest();
             if (!FallbackAvailable) return;
             var currentRequest = _requestInFlight && _requestGeneration == _generation;
@@ -225,6 +226,7 @@ namespace IndoorAr
             if (!TrackingReady()) { QueueRequest(attemptId, trace); return; }
             manager.StopAllCoroutines();
             sdkMapSpace.SetPositionAndRotation(mapSpace.position, mapSpace.rotation);
+            UpdateQueueWaits();
             s_requestLive = true;
             s_requestOwner = this;
             _requestInFlight = true;
@@ -232,6 +234,8 @@ namespace IndoorAr
             _activeAttemptId = attemptId;
             _requestGeneration = _generation;
             _requestElapsed = 0f;
+            trace.SdkStarted = Clock();
+            trace.SdkStartedSet = true;
             _activeTrace = trace;
             AttemptStarted?.Invoke(attemptId);
             manager.LocalizeFrame();
@@ -244,7 +248,7 @@ namespace IndoorAr
                 return;
             if (!success)
             {
-                EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.Failed);
+                EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.GenericFailure);
                 NotLocalized?.Invoke(attemptId);
             }
             else CompleteLocalizedPose(attemptId, result.confidence, result);
@@ -273,7 +277,7 @@ namespace IndoorAr
         void OnNotLocalized()
         {
             if (!CompleteRequest(out var attemptId)) return;
-            EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.Failed);
+            EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.GenericFailure);
             NotLocalized?.Invoke(attemptId);
         }
         void OnLocalizedWithoutConfidence()
@@ -309,6 +313,7 @@ namespace IndoorAr
 
             var accepted = !_ignoreInFlight && FallbackAvailable && _requestGeneration == _generation;
             // shortcut: SDK writes only to its proxy; if callbacks can vanish silently, keep the process lock until restart.
+            UpdateQueueWaits();
             s_requestLive = false;
             s_requestOwner = null;
             _requestInFlight = false;
@@ -329,6 +334,7 @@ namespace IndoorAr
 
         void QueueRequest(int attemptId, RequestTrace trace)
         {
+            UpdateQueueWaits();
             if (_queuedAttemptId == 0)
             {
                 _queueElapsed = 0f;
@@ -337,22 +343,26 @@ namespace IndoorAr
             else if (_queuedTrace != trace) EndTrace(_queuedTrace, IndoorArDiagnostics.LocalizationOutcome.Superseded);
             _queuedAttemptId = attemptId;
             _queuedTrace = trace;
+            trace.QueueUpdated = Clock();
+            if (s_requestLive || WaitingLocalizers.Peek() != this) trace.LockBusy = true;
         }
 
-        void AdvanceTraces(float dt)
+        static void UpdateQueueWaits()
         {
-            if (_queuedTrace != null)
+            var now = Clock();
+            var blocked = s_requestLive;
+            foreach (var localizer in WaitingLocalizers)
             {
-                _queuedTrace.ElapsedS += dt;
-                if (s_requestLive)
+                if (localizer == null || localizer._queuedTrace == null) continue;
+                var trace = localizer._queuedTrace;
+                if (blocked)
                 {
-                    _queuedTrace.LockBusy = true;
-                    _queuedTrace.LockWaitS += dt;
+                    trace.LockBusy = true;
+                    trace.LockWaitS += now - trace.QueueUpdated;
                 }
+                trace.QueueUpdated = now;
+                blocked = true;
             }
-            if (_activeTrace == null) return;
-            _activeTrace.ElapsedS += dt;
-            _activeTrace.SdkS += dt;
         }
 
         // A Late line may follow a Timeout or Cancelled one: the lock stays held until the SDK answers.
@@ -360,9 +370,11 @@ namespace IndoorAr
         {
             if (trace == null || trace.Ended && outcome != IndoorArDiagnostics.LocalizationOutcome.Late) return;
             trace.Ended = true;
+            var now = Clock();
             Debug.Log(IndoorArDiagnostics.LocalizationRequestLine(trace.Attempt,
-                IndoorArDiagnostics.LocalizationRequestKind.MultiSet, (long)(trace.ElapsedS * 1000f), outcome,
-                trace.LockBusy, (long)(trace.LockWaitS * 1000f), (long)(trace.SdkS * 1000f)));
+                IndoorArDiagnostics.LocalizationRequestKind.MultiSet, (long)((now - trace.Started) * 1000), outcome,
+                trace.LockBusy, (long)(trace.LockWaitS * 1000),
+                trace.SdkStartedSet ? (long)((now - trace.SdkStarted) * 1000) : 0));
         }
 
         void EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome outcome)
@@ -374,6 +386,7 @@ namespace IndoorAr
         void RemoveQueuedRequest(IndoorArDiagnostics.LocalizationOutcome outcome = IndoorArDiagnostics.LocalizationOutcome.Cancelled)
         {
             if (_queuedAttemptId == 0) return;
+            UpdateQueueWaits();
             EndTrace(_queuedTrace, outcome);
             _queuedTrace = null;
             _queuedAttemptId = 0;
@@ -393,6 +406,7 @@ namespace IndoorAr
                 var next = WaitingLocalizers.Peek();
                 if (next == null || next._queuedAttemptId == 0) { WaitingLocalizers.Dequeue(); continue; }
                 if (!next.TrackingReady()) return;
+                UpdateQueueWaits();
                 WaitingLocalizers.Dequeue();
                 var attemptId = next._queuedAttemptId;
                 var trace = next._queuedTrace;

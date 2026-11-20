@@ -147,9 +147,9 @@ namespace IndoorAr
         public enum LocalizationRequestKind { Sign, MultiSet }
 
         /// <summary>How one request ended. Timeout, Late and Ignored say the SDK or the lock, not the network, was slow.</summary>
-        public enum LocalizationOutcome { Ok, Failed, Rejected, Timeout, Cancelled, Superseded, Late, Ignored }
+        public enum LocalizationOutcome { Ok, GenericFailure, Rejected, Timeout, Cancelled, Superseded, Late, Ignored }
 
-        /// <param name="lockBusy">Another request held or awaited the process-wide lock when this one was made; null for signs.</param>
+        /// <param name="lockBusy">Another request held the process-wide lock or preceded this request in its queue; null for signs.</param>
         /// <param name="lockWaitMs">Time queued behind the lock; null for signs.</param>
         /// <param name="sdkMs">Time the SDK call was in flight; null for signs.</param>
         public static string LocalizationRequestLine(int attempt, LocalizationRequestKind kind, long elapsedMs,
