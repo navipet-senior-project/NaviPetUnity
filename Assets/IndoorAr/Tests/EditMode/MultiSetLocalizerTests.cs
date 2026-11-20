@@ -21,6 +21,7 @@ public class MultiSetLocalizerTests
     [SetUp]
     public void SetUp()
     {
+        _clock = 0;
         _originalClock = (System.Func<double>)ClockField.GetValue(null);
         ClockField.SetValue(null, (System.Func<double>)(() => _clock));
         _sdkHost = new GameObject("SDK");

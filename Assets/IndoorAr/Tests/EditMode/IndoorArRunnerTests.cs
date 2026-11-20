@@ -477,7 +477,7 @@ public class IndoorArRunnerTests
         signFirst.Authenticate();
         signFirst.Tick(2f);
         LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=2000 outcome=Cancelled lockBusy=na lockWaitMs=na sdkMs=na");
-        UnityEngine.Object.DestroyImmediate(runner);
+        Call(runner, "OnDestroy");
     }
 
     // X and the back key both call OnHudExit; arrival is "I'm here" then Done.
