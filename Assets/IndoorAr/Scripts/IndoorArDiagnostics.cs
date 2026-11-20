@@ -146,7 +146,7 @@ namespace IndoorAr
         /// <summary>Kind of one localization request. Signs are the OCR hold; MultiSet is the VPS request that owns the process lock.</summary>
         public enum LocalizationRequestKind { Sign, MultiSet }
 
-        /// <summary>How one request ended. Timeout, Late and Ignored say the SDK or the lock, not the network, was slow.</summary>
+        /// <summary>How one request ended. Timing alone does not identify the cause of a delay.</summary>
         public enum LocalizationOutcome { Ok, GenericFailure, Rejected, Timeout, Cancelled, Superseded, Late, Ignored }
 
         /// <param name="lockBusy">Another request held the process-wide lock or preceded this request in its queue; null for signs.</param>
