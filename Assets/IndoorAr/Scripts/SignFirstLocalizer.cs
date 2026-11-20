@@ -18,6 +18,9 @@ namespace IndoorAr
         bool _innerAuthFailed;
         bool _fallbackStopped;
         float _holdLeft;
+        int _signAttempt;
+        float _signElapsedS;
+        bool _signTimedOut;
 
         /// <param name="readsSigns">Room-sign OCR is on. It needs no VPS sign-in, so neither does the session.</param>
         public SignFirstLocalizer(IIndoorArLocalizer inner, IndoorSignCalibration calibration = null,
@@ -75,10 +78,14 @@ namespace IndoorAr
             }
             _open = true;
             _holdLeft = HoldS;
+            _signAttempt++;
+            _signElapsedS = 0f;
+            _signTimedOut = false;
         }
 
         public void Reset()
         {
+            if (_open && !_signTimedOut) LogSign(IndoorArDiagnostics.LocalizationOutcome.Cancelled);
             _open = _innerPosed = _innerWanted = false;
             _fallbackStopped = false;
             FromSigns = false;
@@ -100,9 +107,14 @@ namespace IndoorAr
 
         public void Tick(float dt)
         {
-            if (!_open || _holdLeft <= 0f) return;
+            if (!_open) return;
+            _signElapsedS += dt;
+            if (_holdLeft <= 0f) return;
             _holdLeft -= dt;
-            if (_holdLeft <= 0f) AskInner();
+            if (_holdLeft > 0f) return;
+            _signTimedOut = true;
+            LogSign(IndoorArDiagnostics.LocalizationOutcome.Timeout);
+            AskInner();
         }
 
         public IndoorSignPoseStatus ObservePose(IndoorSignObservation observation)
@@ -119,9 +131,14 @@ namespace IndoorAr
             FromSigns = true;
             if (!_open) return pose.Status;
             _open = false;
+            LogSign(IndoorArDiagnostics.LocalizationOutcome.Ok);
             Localized?.Invoke(null);
             return pose.Status;
         }
+
+        void LogSign(IndoorArDiagnostics.LocalizationOutcome outcome) =>
+            Debug.Log(IndoorArDiagnostics.LocalizationRequestLine(_signAttempt, IndoorArDiagnostics.LocalizationRequestKind.Sign,
+                (long)(_signElapsedS * 1000f), outcome, null, null, null));
 
         void AskInner()
         {

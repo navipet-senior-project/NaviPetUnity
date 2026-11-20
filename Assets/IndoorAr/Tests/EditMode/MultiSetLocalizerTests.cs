@@ -799,6 +799,27 @@ public class MultiSetLocalizerTests
         ReportSuccess();
     }
 
+    [Test]
+    public void AcceptedRequestLogsItsOutcomeAndTiming()
+    {
+        _adapter.CandidatePoseValidator = _ => true;
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(2.5f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2500 outcome=Ok lockBusy=false lockWaitMs=0 sdkMs=2500");
+        ReportSuccess();
+    }
+
+    [Test]
+    public void UnansweredRequestLogsTimeoutThenLateWhileTheLockStaysHeld()
+    {
+        LocalizeWithoutEditorFailure();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=false lockWaitMs=0 sdkMs=30000");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(MultiSetLocalizer.RequestTimeoutS);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=30000 outcome=Late lockBusy=false lockWaitMs=0 sdkMs=30000");
+        ReportFailureAndStartDeferredRequest();
+    }
+
     void ReportSuccess(bool poseFound = true)
     {
         ReportSuccess(_manager, poseFound);

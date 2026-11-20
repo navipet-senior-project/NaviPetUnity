@@ -31,6 +31,24 @@ public class SignFirstLocalizerTests
     }
 
     [Test]
+    public void ExpiredSignHoldLogsTimeoutBeforeAskingMultiSet()
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            var first = new SignFirstLocalizer(inner);
+            first.Authenticate();
+            first.Localize();
+            first.Tick(SignFirstLocalizer.HoldS - 1f);
+            UnityEngine.TestTools.LogAssert.Expect(LogType.Log,
+                "[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=15000 outcome=Timeout lockBusy=na lockWaitMs=na sdkMs=na");
+            first.Tick(1f);
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
+    [Test]
     public void ValidatedPoseIsCheckedBeforePlacementAndMultiSetRemainsFallback()
     {
         var host = new GameObject("fake");

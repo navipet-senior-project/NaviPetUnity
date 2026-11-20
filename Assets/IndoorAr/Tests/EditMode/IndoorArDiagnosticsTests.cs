@@ -44,6 +44,10 @@ public class IndoorArDiagnosticsTests
         lines.Add(IndoorArDiagnostics.RouteBlockedLine(true, IndoorRouteBlockedCause.CameraCellBlocked));
         lines.Add(IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
         lines.Add(IndoorArDiagnostics.LocalizationResultLine(IndoorArDiagnostics.MapHash("MSET_ABC"), 2, 5.7f, floors, .59f));
+        lines.Add(IndoorArDiagnostics.LocalizationRequestLine(2, IndoorArDiagnostics.LocalizationRequestKind.MultiSet, 2500,
+            IndoorArDiagnostics.LocalizationOutcome.Ok, true, 40000, 2400));
+        lines.Add(IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.Sign, 15000,
+            IndoorArDiagnostics.LocalizationOutcome.Timeout, null, null, null));
         return lines;
     }
 
@@ -68,6 +72,12 @@ public class IndoorArDiagnosticsTests
             IndoorArDiagnostics.RouteBlockedLine(true, IndoorRouteBlockedCause.NoClearLine));
         Assert.AreEqual("[IndoorAr] route blocked=false cause=None",
             IndoorArDiagnostics.RouteBlockedLine(false, IndoorRouteBlockedCause.None));
+        Assert.AreEqual("[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=42500 outcome=Ok lockBusy=true lockWaitMs=40000 sdkMs=2400",
+            IndoorArDiagnostics.LocalizationRequestLine(2, IndoorArDiagnostics.LocalizationRequestKind.MultiSet, 42500,
+                IndoorArDiagnostics.LocalizationOutcome.Ok, true, 40000, 2400));
+        Assert.AreEqual("[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=15000 outcome=Timeout lockBusy=na lockWaitMs=na sdkMs=na",
+            IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.Sign, 15000,
+                IndoorArDiagnostics.LocalizationOutcome.Timeout, null, null, null));
         Assert.AreEqual("[IndoorAr] re-pin jump shiftM=1.23 turnDeg=-7.9", IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
     }
 
