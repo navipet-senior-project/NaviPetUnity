@@ -9,8 +9,8 @@ namespace IndoorAr
     public enum IndoorRouteBlockedCause { None, NoRoute, CameraCellBlocked, NoClearLine }
 
     /// <summary>
-    /// Fixed-label diagnostic lines for the on-site AR runs (DX1 to DX6). Each builder takes counts, enums and
-    /// already-bucketed values, so no line can carry a position, an image, a key, a token or recognized text.
+    /// Fixed-label diagnostic lines for the on-site AR runs (DX1 to DX7). Builders use counts, categories,
+    /// measurements and hashed map identity without including a position, image, key, token or recognized text.
     /// Every value matches [A-Za-z0-9._-]{1,40} and every key is a plain word, so the capture filter keeps it.
     /// </summary>
     public static class IndoorArDiagnostics
