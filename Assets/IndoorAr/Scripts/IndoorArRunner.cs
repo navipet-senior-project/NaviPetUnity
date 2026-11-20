@@ -116,7 +116,6 @@ namespace IndoorAr
             if (localizerBehaviour is MultiSetLocalizer multiSet)
             {
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
-                multiSet.CandidateLocalized += OnMultiSetCandidateLocalized;
             }
             if (localizationMode == IndoorLocalizationMode.SignFirst)
             {
@@ -223,6 +222,8 @@ namespace IndoorAr
             AttachHud();
             _session.LocalizeRequested += RequestLocalization;
             _session.FallbackStopped += StopMultiSetFallback;
+            if (localizerBehaviour is MultiSetLocalizer candidateLocalizer)
+                candidateLocalizer.CandidateLocalized += OnMultiSetCandidateLocalized;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += OnAttemptStarted;
