@@ -67,6 +67,7 @@ namespace IndoorAr
         public event Action<float?> Localized;
         public event Action<int> NotLocalized;
         public Func<Transform, bool> CandidatePoseValidator { get; set; }
+        public event Action<Transform, string, float?> CandidateLocalized;
         public Func<bool> TrackingReady { get; set; } = () => ARSession.state == ARSessionState.SessionTracking;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
@@ -244,12 +245,6 @@ namespace IndoorAr
             return codes.ToString();
         }
 
-        static void LogMapCodes(LocalizationSuccessResponse result)
-        {
-            var codes = MapCodesOf(result);
-            Debug.Log($"[IndoorAr] localization mapCodes={(codes.Length == 0 ? "unknown" : codes)}");
-        }
-
         void OnNotLocalized()
         {
             if (!CompleteRequest(out var attemptId)) return;
@@ -263,15 +258,14 @@ namespace IndoorAr
 
         void CompleteLocalizedPose(int attemptId, float? confidence, LocalizationSuccessResponse result)
         {
+            LastMapHash = IndoorArDiagnostics.MapHash(result == null ? null : MapCodesOf(result));
+            CandidateLocalized?.Invoke(sdkMapSpace, LastMapHash, confidence);
             if (CandidatePoseValidator == null || !CandidatePoseValidator(sdkMapSpace))
             {
-                if (result != null) LogMapCodes(result);
                 NotLocalized?.Invoke(attemptId);
                 return;
             }
             CopyAcceptedPose();
-            LastMapHash = IndoorArDiagnostics.MapHash(result == null ? null : MapCodesOf(result));
-            if (result != null) LogMapCodes(result);
             RemoveQueuedRequest();
             Localized?.Invoke(confidence);
         }

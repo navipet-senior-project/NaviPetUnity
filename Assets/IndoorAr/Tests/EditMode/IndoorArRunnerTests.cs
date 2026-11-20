@@ -1007,6 +1007,8 @@ public class IndoorArRunnerTests
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camera);
         runner.SetLocalizationMode(IndoorLocalizationMode.SignFirst);
+        var diagnostics = new System.Collections.Generic.List<string>();
+        runner.DiagnosticSink = diagnostics.Add;
         var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
         var floor1Y = IndoorWalkGrid.ForFloor(gridJson, 1).FloorY;
         var floor2Y = IndoorWalkGrid.ForFloor(gridJson, 2).FloorY;
@@ -1038,8 +1040,8 @@ public class IndoorArRunnerTests
             TickSignFallbackWithoutEditorFailure(signFirst, localizer, manager);
             localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(2f, 0f, 3f), Quaternion.identity);
             camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
-            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportLocalized(manager, true);
+            Assert.AreEqual(1, diagnostics.FindAll(line => line.StartsWith("[IndoorAr] localization result ")).Count);
             Assert.AreEqual(IndoorArState.Pinned, session.State);
             Call(runner, "UpdateHud");
 
@@ -1069,9 +1071,12 @@ public class IndoorArRunnerTests
             var expectedEvidence = candidateKind == "signConflict" ? "sign=2 pose=1"
                 : candidateKind == "gap" ? "sign=none pose=unknown" : "sign=none pose=unsupported";
             LogAssert.Expect(LogType.Log, $"[IndoorAr] floor conflict {expectedEvidence}");
-            LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportLocalized(manager, true);
 
+            var results = diagnostics.FindAll(line => line.StartsWith("[IndoorAr] localization result "));
+            Assert.AreEqual(2, results.Count);
+            StringAssert.Contains(candidateKind == "signConflict" ? "floor=1" : candidateKind == "gap" ? "floor=unknown" : "floor=unsupported", results[1]);
+            StringAssert.Contains("deltaM=", results[1]);
             Assert.AreEqual(IndoorArState.Localizing, session.State);
             Assert.IsTrue(session.WasPinned, "the earlier accepted pose remains recorded while this candidate is rejected");
             Assert.IsFalse(signFirst.FromSigns);
@@ -1104,7 +1109,6 @@ public class IndoorArRunnerTests
                 WithoutEditorSimulationFailure(localizer, manager, () => session.Tick(IndoorArSession.LocalizeTimeoutS));
                 localizer.SdkMapSpace.SetPositionAndRotation(new Vector3(4f, 5f, 6f), Quaternion.identity);
                 camera.transform.position = localizer.SdkMapSpace.TransformPoint(0f, floor1Y + 1.5f, 0f);
-                LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization mapCodes=.*"));
                 ReportLocalized(manager, true);
                 Assert.AreEqual(IndoorArState.Pinned, session.State, "a new accepted request commits after the rejected callback released the lock");
                 Assert.AreEqual(new Vector3(4f, 5f, 6f), mapRoot.position);
