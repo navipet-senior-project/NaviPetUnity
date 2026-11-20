@@ -466,6 +466,20 @@ public class IndoorArRunnerTests
         LogAssert.NoUnexpectedReceived();
     }
 
+    [Test]
+    public void DestroyDuringSignHoldLogsCancellation()
+    {
+        var runner = Runner(IndoorLocalizationMode.SignFirst);
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        var signFirst = Field<SignFirstLocalizer>(runner, "_signFirst");
+        session.OnArSupport(true);
+        signFirst.Authenticate();
+        signFirst.Tick(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=2000 outcome=Cancelled lockBusy=na lockWaitMs=na sdkMs=na");
+        UnityEngine.Object.DestroyImmediate(runner);
+    }
+
     // X and the back key both call OnHudExit; arrival is "I'm here" then Done.
     [TestCase("cancel", "cancelled")]
     [TestCase("arrive", "arrived")]
@@ -480,10 +494,9 @@ public class IndoorArRunnerTests
         signFirst.Authenticate(); // opens the sign hold
         var signOutcome = exit == "cancel" ? "Cancelled" : "Timeout";
         var signLine = new Regex($"\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome={signOutcome}");
-        // Arriving logs the expired hold first; cancelling logs the result first, then the reset's cancelled hold.
-        if (exit == "arrive") LogAssert.Expect(LogType.Log, signLine);
+        // Arriving logs the expired hold first; cancellation closes the hold before the result.
+        LogAssert.Expect(LogType.Log, signLine);
         LogAssert.Expect(LogType.Log, new Regex($"\\[IndoorAr\\] result .*\"status\":\"{status}\""));
-        if (exit == "cancel") LogAssert.Expect(LogType.Log, signLine);
         if (exit == "cancel")
         {
             signFirst.Tick(SignFirstLocalizer.HoldS - 1f); // leave mid-hold: 1 s of it must not carry over

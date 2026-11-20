@@ -49,6 +49,44 @@ public class SignFirstLocalizerTests
     }
 
     [Test]
+    public void StoppingDuringSignHoldLogsCancellationOnce()
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var first = new SignFirstLocalizer(host.AddComponent<RunnerFakeLocalizer>());
+            first.Localize();
+            first.Tick(2f);
+            UnityEngine.TestTools.LogAssert.Expect(LogType.Log,
+                "[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=2000 outcome=Cancelled lockBusy=na lockWaitMs=na sdkMs=na");
+            first.StopFallback();
+            first.Reset();
+            UnityEngine.TestTools.LogAssert.NoUnexpectedReceived();
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
+    [Test]
+    public void SignPoseAfterHoldLogsLateOutcome()
+    {
+        var host = new GameObject("fake");
+        try
+        {
+            var inner = host.AddComponent<RunnerFakeLocalizer>();
+            inner.DeferAnswer = true;
+            var first = new SignFirstLocalizer(inner, IndoorSignPoseTests.ValidatedHere(out var sighting, out _));
+            first.Authenticate();
+            first.Localize();
+            first.Tick(SignFirstLocalizer.HoldS);
+            first.Tick(2f);
+            UnityEngine.TestTools.LogAssert.Expect(LogType.Log,
+                "[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=17000 outcome=Late lockBusy=na lockWaitMs=na sdkMs=na");
+            Assert.AreEqual(IndoorSignPoseStatus.Ok, first.ObservePose(sighting));
+        }
+        finally { Object.DestroyImmediate(host); }
+    }
+
+    [Test]
     public void ValidatedPoseIsCheckedBeforePlacementAndMultiSetRemainsFallback()
     {
         var host = new GameObject("fake");

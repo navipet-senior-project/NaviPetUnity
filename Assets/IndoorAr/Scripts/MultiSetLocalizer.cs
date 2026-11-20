@@ -344,9 +344,13 @@ namespace IndoorAr
             if (_queuedTrace != null)
             {
                 _queuedTrace.ElapsedS += dt;
-                if (s_requestLive) _queuedTrace.LockWaitS += dt;
+                if (s_requestLive)
+                {
+                    _queuedTrace.LockBusy = true;
+                    _queuedTrace.LockWaitS += dt;
+                }
             }
-            if (_activeTrace == null || _activeTrace.Ended) return;
+            if (_activeTrace == null) return;
             _activeTrace.ElapsedS += dt;
             _activeTrace.SdkS += dt;
         }
@@ -448,6 +452,7 @@ namespace IndoorAr
         void OnDestroy()
         {
             RemoveQueuedRequest();
+            EndTrace(_activeTrace, IndoorArDiagnostics.LocalizationOutcome.Cancelled);
             EventManager<EventData>.StopListening("AuthCallBack", OnAuthCallback);
             if (_ownerDestroyed) return;
             // The SDK manager may be destroyed first while its request still owes a callback.

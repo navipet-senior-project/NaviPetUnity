@@ -21,6 +21,7 @@ namespace IndoorAr
         int _signAttempt;
         float _signElapsedS;
         bool _signTimedOut;
+        bool _signTraceClosed;
 
         /// <param name="readsSigns">Room-sign OCR is on. It needs no VPS sign-in, so neither does the session.</param>
         public SignFirstLocalizer(IIndoorArLocalizer inner, IndoorSignCalibration calibration = null,
@@ -81,11 +82,12 @@ namespace IndoorAr
             _signAttempt++;
             _signElapsedS = 0f;
             _signTimedOut = false;
+            _signTraceClosed = false;
         }
 
         public void Reset()
         {
-            if (_open && !_signTimedOut) LogSign(IndoorArDiagnostics.LocalizationOutcome.Cancelled);
+            CancelSignTrace();
             _open = _innerPosed = _innerWanted = false;
             _fallbackStopped = false;
             FromSigns = false;
@@ -102,6 +104,7 @@ namespace IndoorAr
         public void StopFallback()
         {
             _fallbackStopped = true;
+            CancelSignTrace();
             DropQueuedFallback();
         }
 
@@ -131,9 +134,16 @@ namespace IndoorAr
             FromSigns = true;
             if (!_open) return pose.Status;
             _open = false;
-            LogSign(IndoorArDiagnostics.LocalizationOutcome.Ok);
+            if (!_signTraceClosed)
+                LogSign(_signTimedOut ? IndoorArDiagnostics.LocalizationOutcome.Late : IndoorArDiagnostics.LocalizationOutcome.Ok);
             Localized?.Invoke(null);
             return pose.Status;
+        }
+
+        void CancelSignTrace()
+        {
+            if (_open && !_signTimedOut && !_signTraceClosed) LogSign(IndoorArDiagnostics.LocalizationOutcome.Cancelled);
+            _signTraceClosed = true;
         }
 
         void LogSign(IndoorArDiagnostics.LocalizationOutcome outcome) =>
@@ -167,6 +177,7 @@ namespace IndoorAr
 
         void OnInnerLocalized(float? confidence)
         {
+            CancelSignTrace();
             _innerPosed = true;
             FromSigns = false;
             _open = false;

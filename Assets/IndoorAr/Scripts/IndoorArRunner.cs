@@ -855,6 +855,7 @@ namespace IndoorAr
 
         void ReleaseSession()
         {
+            if (_session != null) StopMultiSetFallback();
             Unhook();
             if (_hud != null)
             {
@@ -916,7 +917,7 @@ namespace IndoorAr
             EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
             _requestJson = null;
-            DropQueuedMultiSetFallback();
+            StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();
             ArSessionLifecycle.StopSessionsAndTearDown();
             IndoorArBridge.Deliver(resultJson);
@@ -931,6 +932,7 @@ namespace IndoorAr
         void StopMultiSetFallback()
         {
             if (_signFirst != null) _signFirst.StopFallback();
+            else if (_localizer is SignFirstLocalizer signFirst) signFirst.StopFallback();
             else DropQueuedMultiSetFallback();
         }
 
