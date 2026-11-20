@@ -71,7 +71,7 @@ namespace IndoorAr
         public Func<bool> TrackingReady { get; set; } = () => ARSession.state == ARSessionState.SessionTracking;
         public Transform MapSpace => mapSpace;
         public string MapCode => mapCode;
-        public string LastMapHash { get; private set; } = "none";
+        public string LastMapHash { get; private set; } = "unavailable";
         public bool FallbackAvailable => _mapSpaceIsolated && _blurCheckDisabled && !_fallbackUnavailable;
         public bool HasLiveRequest => _requestInFlight;
         public Transform SdkMapSpace => sdkMapSpace;

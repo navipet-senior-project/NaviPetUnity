@@ -1093,6 +1093,7 @@ public class IndoorArRunnerTests
                 Assert.AreEqual(IndoorSignPoseStatus.Ok, signFirst.ObservePose(sighting));
                 Assert.AreEqual(IndoorArState.Pinned, session.State, "a validated sign can still localize after MultiSet rejection");
                 Assert.IsTrue(signFirst.FromSigns);
+                StringAssert.Contains("map=unavailable", diagnostics.FindLast(line => line.StartsWith("[IndoorAr] localization result ")));
                 Assert.AreNotEqual(beforeRootPosition, mapRoot.position);
                 var signAlignedPosition = mapRoot.position;
                 var signAlignedRotation = mapRoot.rotation;

@@ -77,10 +77,10 @@ public class IndoorArDiagnosticsTests
         var floors = new List<(int, float)> { (1, 0f), (3, 8f) };
         Assert.AreEqual("[IndoorAr] localization result map=abcd1234 floor=3 deltaM=1.70 confidence=0.59",
             IndoorArDiagnostics.LocalizationResultLine("abcd1234", 3, 9.7f, floors, .59f));
-        Assert.AreEqual("[IndoorAr] localization result map=sign floor=unknown deltaM=unknown confidence=unknown",
-            IndoorArDiagnostics.LocalizationResultLine("sign", 0, 9.7f, floors, null));
-        Assert.AreEqual("[IndoorAr] localization result map=none floor=unsupported deltaM=unknown confidence=0.10",
-            IndoorArDiagnostics.LocalizationResultLine("none", -1, 30f, floors, .1f));
+        Assert.AreEqual("[IndoorAr] localization result map=unavailable floor=unknown deltaM=unknown confidence=unknown",
+            IndoorArDiagnostics.LocalizationResultLine("unavailable", 0, 9.7f, floors, null));
+        Assert.AreEqual("[IndoorAr] localization result map=unavailable floor=unsupported deltaM=unknown confidence=0.10",
+            IndoorArDiagnostics.LocalizationResultLine("unavailable", -1, 30f, floors, .1f));
     }
 
     [Test]
@@ -90,8 +90,8 @@ public class IndoorArDiagnosticsTests
         StringAssert.IsMatch("^[0-9a-f]{8}$", hash);
         Assert.AreEqual(hash, IndoorArDiagnostics.MapHash("MSET_ABC"));
         Assert.AreNotEqual(hash, IndoorArDiagnostics.MapHash("MSET_ABD"));
-        Assert.AreEqual("none", IndoorArDiagnostics.MapHash(""));
-        Assert.AreEqual("none", IndoorArDiagnostics.MapHash(null));
+        Assert.AreEqual("unavailable", IndoorArDiagnostics.MapHash(""));
+        Assert.AreEqual("unavailable", IndoorArDiagnostics.MapHash(null));
     }
 
     [Test]
@@ -392,7 +392,7 @@ public class IndoorArDiagnosticsTests
             Assert.AreEqual(IndoorArState.Pinned, session.State);
             Call(runner, "Update");
             Assert.AreEqual(1, lines.Count, "a steady pin logs only the localization result");
-            StringAssert.StartsWith("[IndoorAr] localization result map=none floor=1 deltaM=1.60 confidence=0.73", lines[0]);
+            StringAssert.StartsWith("[IndoorAr] localization result map=unavailable floor=1 deltaM=1.60 confidence=0.73", lines[0]);
             lines.Clear();
 
             host.GetComponent<RunnerFakeLocalizer>().DeferAnswer = true;

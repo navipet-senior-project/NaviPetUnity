@@ -352,7 +352,7 @@ namespace IndoorAr
         void OnLocalizedObserved(float? confidence)
         {
             if (localizerBehaviour is not MultiSetLocalizer || (_signFirst != null && _signFirst.FromSigns))
-                LogLocalizationResult(CameraInMap().y, _signFirst != null && _signFirst.FromSigns ? "sign" : _localizer.LastMapHash, confidence);
+                LogLocalizationResult(CameraInMap().y, _signFirst != null && _signFirst.FromSigns ? "unavailable" : _localizer.LastMapHash, confidence);
             if (RejectMultiSetFloorConflict(CameraInMap())) return;
             var wasPinned = _session.WasPinned;
             var wasLocalizing = _session.State == IndoorArState.Localizing;

@@ -113,13 +113,13 @@ namespace IndoorAr
         /// <summary>Eight hex digits of SHA-256 over the map codes, so two results can be tied to one map without the code.</summary>
         public static string MapHash(string mapCodes)
         {
-            if (string.IsNullOrEmpty(mapCodes)) return "none";
+            if (string.IsNullOrEmpty(mapCodes)) return "unavailable";
             using var sha = System.Security.Cryptography.SHA256.Create();
             var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(mapCodes));
             return System.BitConverter.ToString(hash, 0, 4).Replace("-", "").ToLowerInvariant();
         }
 
-        /// <param name="mapHash">MapHash output, or "sign" for a pose placed from a room sign.</param>
+        /// <param name="mapHash">MapHash output; sign poses and legacy SDK callbacks have no map identity and use "unavailable".</param>
         /// <param name="floor">The floor the pose height falls in; 0 for unknown, -1 for outside the supported floors.</param>
         public static string LocalizationResultLine(string mapHash, int floor, float cameraY,
             IReadOnlyList<(int Floor, float Y)> floors, float? confidence)

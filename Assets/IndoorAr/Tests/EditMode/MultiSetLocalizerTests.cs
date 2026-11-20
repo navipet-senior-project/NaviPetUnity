@@ -149,11 +149,14 @@ public class MultiSetLocalizerTests
     {
         var localized = 0;
         _adapter.CandidatePoseValidator = _ => true;
+        string candidateHash = null;
+        _adapter.CandidateLocalized += (_, hash, _) => candidateHash = hash;
         _adapter.Localized += _ => localized++;
         LocalizeWithoutEditorFailure();
         _adapter.SdkMapSpace.position = new Vector3(4f, 5f, 6f);
         typeof(MultiSetLocalizer).GetMethod("OnLocalizedWithoutConfidence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Assert.AreEqual(1, localized);
+        Assert.AreEqual("unavailable", candidateHash);
         Assert.AreEqual(new Vector3(4f, 5f, 6f), _mapHost.transform.position);
         Assert.IsFalse(_adapter.HasLiveRequest);
     }
