@@ -1112,7 +1112,7 @@ public class IndoorArRunnerTests
 
             if (candidateKind == "signConflict")
             {
-                LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome=Ok"));
+                LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome=Late"));
                 Assert.AreEqual(IndoorSignPoseStatus.Ok, signFirst.ObservePose(sighting));
                 Assert.AreEqual(IndoorArState.Pinned, session.State, "a validated sign can still localize after MultiSet rejection");
                 Assert.IsTrue(signFirst.FromSigns);
