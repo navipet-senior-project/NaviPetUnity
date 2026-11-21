@@ -336,6 +336,40 @@ namespace IndoorAr.Tests
                 "The docked pin core must be inside the camera viewport.");
         }
 
+        [TestCase(5f, 0f, "World", "3-6", "InView")]
+        [TestCase(30f, 0f, "Clipped", "20-up", "InView")]
+        [TestCase(1f, 4f, "Docked", "3-6", "OffScreen")]
+        [TestCase(-5f, 0f, "Docked", "3-6", "Behind")]
+        public void AnIndoorPinLogsItsModeOnceWithoutCoordinates(float depth, float lateral, string mode, string bucket, string viewClass)
+        {
+            var cameraObject = new GameObject("Camera", typeof(Camera));
+            var root = new GameObject("HUD");
+            var worldPin = new GameObject("World pin");
+            try
+            {
+                var camera = cameraObject.GetComponent<Camera>();
+                camera.nearClipPlane = .1f;
+                camera.farClipPlane = 20f;
+                worldPin.transform.position = new Vector3(lateral, 0f, depth);
+                var hud = root.AddComponent<IndoorHud>();
+                hud.Initialize(camera);
+                Canvas.ForceUpdateCanvases();
+                var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1, worldPin.transform.position);
+                view.WorldPin = worldPin.transform;
+                var lines = new System.Collections.Generic.List<string>();
+                hud.DiagnosticSink = lines.Add;
+                hud.Show(view);
+                hud.Show(view);
+                CollectionAssert.AreEqual(new[] { $"[IndoorAr] pin mode={mode} distM={bucket} view={viewClass}" }, lines);
+            }
+            finally
+            {
+                Object.DestroyImmediate(worldPin);
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(cameraObject);
+            }
+        }
+
         [TestCase(.05f)]
         [TestCase(30f)]
         public void AnIndoorPinOutsideTheDepthRangeHasAProjectedScreenMarker(float depth)

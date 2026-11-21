@@ -8,6 +8,12 @@ namespace IndoorAr
     /// <summary>Why the route arrow is hidden while the session is pinned. A fixed enum, never a cell or a position.</summary>
     public enum IndoorRouteBlockedCause { None, NoRoute, CameraCellBlocked, NoClearLine }
 
+    /// <summary>How the door pin is drawn: the 3D world pin, a screen pin docked to the viewport edge, or a projected screen pin outside the depth range.</summary>
+    public enum IndoorPinMode { World, Docked, Clipped }
+
+    /// <summary>Where the door projects relative to the camera viewport.</summary>
+    public enum IndoorPinViewClass { InView, OffScreen, Behind }
+
     /// <summary>
     /// Fixed-label diagnostic lines for the on-site AR runs (DX1 to DX7). Builders use counts, categories,
     /// measurements and hashed map identity without including a position, image, key, token or recognized text.
@@ -165,6 +171,22 @@ namespace IndoorAr
 
         public static string RouteBlockedLine(bool blocked, IndoorRouteBlockedCause cause) =>
             $"[IndoorAr] route blocked={Bool(blocked)} cause={cause}";
+
+        // ---- Pin mode transitions (#85) ------------------------------------------------------------------------
+
+        /// <summary>Straight-line camera-to-pin distance as a coarse bucket, never the distance itself.</summary>
+        public static string PinDistanceBucket(float meters)
+        {
+            if (float.IsNaN(meters)) return "unknown";
+            if (meters < 1f) return "0-1";
+            if (meters < 3f) return "1-3";
+            if (meters < 6f) return "3-6";
+            if (meters < 10f) return "6-10";
+            return meters < 20f ? "10-20" : "20-up";
+        }
+
+        public static string PinModeLine(IndoorPinMode mode, float distanceM, IndoorPinViewClass view) =>
+            $"[IndoorAr] pin mode={mode} distM={PinDistanceBucket(distanceM)} view={view}";
 
         // ---- DX6: re-pin jump ----------------------------------------------------------------------------------
 
