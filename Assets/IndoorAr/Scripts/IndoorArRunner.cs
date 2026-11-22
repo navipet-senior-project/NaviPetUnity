@@ -307,6 +307,7 @@ namespace IndoorAr
             hudObject.transform.SetParent(_localizer.MapSpace, false);
             _hud = hudObject.AddComponent<IndoorHud>();
             _hud.Initialize(arCamera);
+            _hud.DiagnosticSink = Diag;
             _hud.ExitRequested += OnHudExit;
             _hud.HereRequested += OnHudHere;
             _hud.DoneRequested += OnHudDone;

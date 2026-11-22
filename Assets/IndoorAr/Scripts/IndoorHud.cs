@@ -96,6 +96,8 @@ namespace IndoorAr
         RectTransform _screenPin;
         Text _pinText;
         IndoorHudView _view;
+        IndoorPinMode? _pinMode;
+        public Action<string> DiagnosticSink { get; set; }
         public event Action ExitRequested;
         public event Action HereRequested;
         public event Action RetryRequested;
@@ -339,6 +341,7 @@ namespace IndoorAr
             _pinLabel.gameObject.SetActive(hasAnchor);
             if (!hasAnchor)
             {
+                _pinMode = null;
                 _screenPin.gameObject.SetActive(false);
                 if (view.WorldPin != null) view.WorldPin.gameObject.SetActive(false);
                 return;
@@ -363,6 +366,17 @@ namespace IndoorAr
                 var dock = screen.z <= 0f || !viewport.Contains(screen);
                 var clippedDepth = screen.z < _camera.nearClipPlane || screen.z > _camera.farClipPlane;
                 showScreenPin |= dock || clippedDepth;
+                if (!view.Outdoor)
+                {
+                    var mode = dock ? IndoorPinMode.Docked : clippedDepth ? IndoorPinMode.Clipped : IndoorPinMode.World;
+                    if (_pinMode != mode)
+                    {
+                        _pinMode = mode;
+                        var viewClass = screen.z <= 0f ? IndoorPinViewClass.Behind
+                            : dock ? IndoorPinViewClass.OffScreen : IndoorPinViewClass.InView;
+                        DiagnosticSink?.Invoke(IndoorArDiagnostics.PinModeLine(mode, Vector3.Distance(anchor, _camera.transform.position), viewClass));
+                    }
+                }
                 if (view.WorldPin != null)
                 {
                     view.WorldPin.gameObject.SetActive(!showScreenPin);

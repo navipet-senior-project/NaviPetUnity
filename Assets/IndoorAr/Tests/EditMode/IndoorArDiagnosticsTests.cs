@@ -43,6 +43,7 @@ public class IndoorArDiagnosticsTests
         lines.Add(IndoorArDiagnostics.WaypointChurnLine(4));
         lines.Add(IndoorArDiagnostics.RouteBlockedLine(true, IndoorRouteBlockedCause.CameraCellBlocked));
         lines.Add(IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
+        lines.Add(IndoorArDiagnostics.PinModeLine(IndoorPinMode.Clipped, 25f, IndoorPinViewClass.InView));
         lines.Add(IndoorArDiagnostics.LocalizationResultLine(IndoorArDiagnostics.MapHash("MSET_ABC"), 2, 5.7f, floors, .59f));
         lines.Add(IndoorArDiagnostics.LocalizationRequestLine(2, IndoorArDiagnostics.LocalizationRequestKind.MultiSet, 2500,
             IndoorArDiagnostics.LocalizationOutcome.Ok, true, 40000, 2400));
@@ -79,6 +80,11 @@ public class IndoorArDiagnosticsTests
             IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.Sign, 15000,
                 IndoorArDiagnostics.LocalizationOutcome.Timeout, null, null, null));
         Assert.AreEqual("[IndoorAr] re-pin jump shiftM=1.23 turnDeg=-7.9", IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
+        Assert.AreEqual("[IndoorAr] pin mode=Docked distM=3-6 view=Behind",
+            IndoorArDiagnostics.PinModeLine(IndoorPinMode.Docked, 4.27f, IndoorPinViewClass.Behind));
+        Assert.AreEqual("0-1", IndoorArDiagnostics.PinDistanceBucket(.99f));
+        Assert.AreEqual("10-20", IndoorArDiagnostics.PinDistanceBucket(19.99f));
+        Assert.AreEqual("20-up", IndoorArDiagnostics.PinDistanceBucket(20f));
     }
 
     [Test]
@@ -401,6 +407,7 @@ public class IndoorArDiagnosticsTests
             session.OnAuthenticated();
             Assert.AreEqual(IndoorArState.Pinned, session.State);
             Call(runner, "Update");
+            Assert.AreEqual(1, lines.RemoveAll(l => l.StartsWith("[IndoorAr] pin mode=")), "the first pin placement logs its mode once");
             Assert.AreEqual(1, lines.Count, "a steady pin logs only the localization result");
             StringAssert.StartsWith("[IndoorAr] localization result map=unavailable floor=1 deltaM=1.60 confidence=0.73", lines[0]);
             lines.Clear();
