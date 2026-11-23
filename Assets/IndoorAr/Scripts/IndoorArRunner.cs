@@ -110,6 +110,17 @@ namespace IndoorAr
         /// <summary>Replaces the bundled sign calibration. Call before Start.</summary>
         public void SetSignCalibration(IndoorSignCalibration calibration) => _signCalibration = calibration;
 
+        // Pressure comes from the player's own sensor (see IndoorArPressure), so no host or bridge change is needed.
+        // The value is never logged.
+        void FeedPressure(float hpa)
+        {
+            if (_session == null || _delivered) return;
+            var hadSign = _session.FloorSign != null;
+            _session.OnPressure(hpa);
+            if (hadSign && _session.FloorSign == null)
+                Debug.Log("[IndoorAr] floor sign superseded by pressure change");
+        }
+
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
@@ -205,6 +216,7 @@ namespace IndoorAr
             }
             if (!Application.isEditor && ArSessionLifecycle.LoaderActive) ArXrInputProbe.Probe();
             _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
+            IndoorArPressure.Start();
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
             _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);
             _floorHeights = _grids.Select(entry => (entry.Key, entry.Value.FloorY)).ToArray();
@@ -256,6 +268,7 @@ namespace IndoorAr
             }
             UpdateSignOcr();
             if (_session == null || _delivered) return;
+            if (IndoorArPressure.TryRead(out var hpa)) FeedPressure(hpa);
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
             if (_localizeWhenTracking && _session.State == IndoorArState.Localizing
@@ -857,6 +870,7 @@ namespace IndoorAr
 
         void ReleaseSession()
         {
+            IndoorArPressure.Stop();
             if (_session != null) StopMultiSetFallback();
             Unhook();
             if (_hud != null)

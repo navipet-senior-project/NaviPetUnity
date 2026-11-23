@@ -59,6 +59,8 @@ namespace IndoorAr
         /// accepted pose reached another supported floor, until a sign is confirmed again.
         /// </summary>
         public IndoorRoomLandmark FloorSign => _signSuperseded ? null : SignRoom;
+        /// <summary>Relative pressure since the last sign. Only ever releases a stale sign, never names a floor.</summary>
+        public IndoorFloorBarometer Barometer { get; } = new IndoorFloorBarometer();
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 
@@ -149,6 +151,19 @@ namespace IndoorAr
             _trackedFloor = floor;
         }
 
+        /// <summary>
+        /// One pressure reading from the host (hPa, any consistent offset). Settled pressure that moved since the sign
+        /// was anchored supersedes the sign's floor like a tracked walk to another floor does. No sensor, a gap,
+        /// unsettled pressure or an old anchor change nothing, so the existing floor policy stays in force.
+        /// </summary>
+        public void OnPressure(float hpa)
+        {
+            if (State == IndoorArState.Done) return;
+            Barometer.Sample(hpa, _elapsedS);
+            if (SignRoom != null && !_signSuperseded
+                && Barometer.Status(_elapsedS) == IndoorBarometerStatus.Moved) _signSuperseded = true;
+        }
+
         public void OnStepFreeUnverified() =>
             Finish(IndoorArContract.Unavailable(Queries, ElapsedMs, IndoorArContract.StepFreeUnverified));
 
@@ -164,6 +179,7 @@ namespace IndoorAr
             if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;
             SignRoom = room;
             _signSuperseded = false;
+            Barometer.Anchor(_elapsedS);
             if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
                 || Request.LocalizeOnly
                 || !int.TryParse(Request.floor, out var floor) || room.Floor != floor

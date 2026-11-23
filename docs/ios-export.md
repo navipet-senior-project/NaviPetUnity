@@ -86,6 +86,10 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 
 `sessionId` is new for each request and `seq` counts up within it. `roomRecognized` and `roomFloor` appear once a room sign is confirmed; that is an identity, not a position. The final result also gains optional `signRoom` with the last confirmed room ID; older hosts can ignore it. `pose` (camera in the MapSet frame, `source` `sign` or `multiset`) appears only when `localized` is true, and is the pose at the moment of that change, not a stream. Do not log status JSON: it can carry the camera pose. The Flutter side does not decode it yet; adding the handler there and `postStatus` to `UnityHostActivity` is a local Flutter follow-up.
 
+## Floor-change pressure
+
+Unity reads the phone barometer itself (`IndoorArPressure.mm`, Core Motion altimeter, linked as `CoreMotion`; nothing crosses the host bridge). The host app must keep `NSMotionUsageDescription` in its Info.plist. If Motion & Fitness access is refused or the phone has no barometer there are no readings and the floor policy is unchanged. Readings only release a stale floor sign after settled pressure moves 0.30 hPa or more since the sign was read; they never name a floor and never reject a pose. The thresholds come from one iPhone in one building ([constants](../Assets/IndoorAr/Scripts/IndoorFloorBarometer.cs)). Not verified: the exported `UnityFramework` linking CoreMotion, the permission prompt text, and readings on a device.
+
 ## Not verified here
 
 The final indoor OCR change still requires a native player build and device validation. Prior framework linking does not verify the final change. EditMode tests cover the shared contract, the editor bridge stand-in, and the saved iOS player and XR settings.
