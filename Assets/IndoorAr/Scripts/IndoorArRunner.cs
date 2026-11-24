@@ -561,10 +561,11 @@ namespace IndoorAr
             var route = Route(cameraInMap);
             var currentFloor = _session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived
                 ? _session.CurrentFloor(cameraInMap.y, _floorHeights) : 0;
+            var grid = Grid(_routeFloor);
             var view = LiveDoorHud.Compose(_session, cameraInMap, CameraForwardInMap(), _pinnedFor, route,
-                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), currentFloor, _frozenCamera.Frozen);
+                _floorChange, _floorUnknown, _routeWrongFloor, grid, currentFloor, _frozenCamera.Frozen);
             NoteRoute(view);
-            UpdatePath(view, route, cameraInMap);
+            UpdatePath(view, route, grid);
             UpdatePin(view, currentFloor);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
@@ -702,7 +703,7 @@ namespace IndoorAr
         }
 
         // The floor path follows the same clear route the arrow would aim along; with none, nothing is drawn.
-        void UpdatePath(IndoorHudView view, Vector3[] route, Vector3 cameraInMap)
+        void UpdatePath(IndoorHudView view, Vector3[] route, IndoorWalkGrid grid)
         {
             if (!view.FollowingRoute || view.RouteBlocked || view.State != IndoorHudState.Straight)
             {
@@ -710,7 +711,7 @@ namespace IndoorAr
                 return;
             }
             _path ??= new IndoorRoutePath(_localizer.MapSpace);
-            view.PathShown = _path.Show(route, cameraInMap, Time.unscaledTime);
+            view.PathShown = _path.Show(view.RouteStart, route[view.RouteWaypointIndex], arCamera, grid);
         }
 
         void UpdatePin(IndoorHudView view, int currentFloor)

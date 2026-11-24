@@ -52,7 +52,8 @@ namespace IndoorAr.Editor
             IndoorHud hud = null;
             IndoorRoutePath path = null;
             // Floor top is y = -.02: the corridor box. The route walks down the hallway to the pin.
-            var route = new[] { new Vector3(0f, -.02f, -.5f), new Vector3(0f, -.02f, 3.5f), new Vector3(1.3f, -.02f, 4.5f) };
+            var start = new Vector3(0f, -.02f, -.5f);
+            var end = new Vector3(pin.position.x, start.y, pin.position.z);
             EditorApplication.CallbackFunction update = null;
             update = () =>
             {
@@ -74,8 +75,8 @@ namespace IndoorAr.Editor
                         {
                             path = new IndoorRoutePath(null);
                             view.FollowingRoute = true;
-                            view.DistanceM = IndoorWalkGrid.LengthM(route);
-                            view.PathShown = path.Show(route, camera.transform.position, 0f);
+                            view.DistanceM = Vector3.Distance(start, end);
+                            view.PathShown = path.Show(start, end, camera);
                         }
                         hud.Show(view);
                     }

@@ -1,11 +1,10 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace IndoorAr
 {
     /// <summary>
-    /// A purple ribbon laid on the floor along the hallway route, from the camera's place on the route to its end.
+    /// A purple ribbon laid on the floor along a clear hallway segment.
     /// The route is already in the MapSpace frame, so the ribbon is parented to MapSpace and follows its alignment.
     /// It draws only the route it is given: no route, no ribbon.
     /// </summary>
@@ -14,15 +13,22 @@ namespace IndoorAr
         public const float WidthM = .7f;
         public const float LiftM = .02f;
         public const float TileM = 1f;
-        public const float FadeInM = 1.5f;
-        public const float FlowMetersPerSecond = .8f;
-        const float MinSegmentM = .001f;
+        const float MinWidthM = .04f;
 
         readonly GameObject _object;
         readonly Mesh _mesh;
         readonly Material _material;
         readonly Texture2D _texture;
-        readonly MeshRenderer _renderer;
+        readonly Vector3[] _corners =
+        {
+            new Vector3(-.5f, 0f, 0f), new Vector3(-.5f, 0f, 1f),
+            new Vector3(.5f, 0f, 1f), new Vector3(.5f, 0f, 0f)
+        };
+        readonly Vector2[] _uv = { new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, 0f) };
+        readonly Plane[] _frustum = new Plane[6];
+        readonly Vector3[] _clipA = new Vector3[10];
+        readonly Vector3[] _clipB = new Vector3[10];
+        int _tiles = 1;
 
         public GameObject Root => _object;
 
@@ -31,7 +37,10 @@ namespace IndoorAr
             _object = new GameObject("Route path");
             _object.transform.SetParent(mapSpace, false);
             _mesh = new Mesh { name = "Route path" };
-            _mesh.MarkDynamic();
+            _mesh.vertices = _corners;
+            _mesh.uv = _uv;
+            _mesh.colors = new[] { Color.white, Color.white, Color.white, Color.white };
+            _mesh.triangles = new[] { 0, 1, 3, 3, 1, 2 };
             var shader = Shader.Find("Sprites/Default"); // always included, unlit, alpha blended, ignores lighting
             if (shader != null)
             {
@@ -39,19 +48,81 @@ namespace IndoorAr
                 _material = new Material(shader) { mainTexture = _texture, name = "Route path" };
             }
             _object.AddComponent<MeshFilter>().sharedMesh = _mesh;
-            _renderer = _object.AddComponent<MeshRenderer>();
-            _renderer.sharedMaterial = _material;
-            _renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            _renderer.receiveShadows = false;
+            var renderer = _object.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = _material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
             _object.SetActive(false);
         }
 
-        /// <summary>Draws the route from <paramref name="from"/> onward. False, and nothing drawn, when there is no usable route.</summary>
-        public bool Show(Vector3[] route, Vector3 from, float timeS)
+        public bool Show(Vector3 start, Vector3 end, Camera camera, IndoorWalkGrid grid = null)
         {
-            var shown = _material != null && TryBuild(route, from, timeS, _mesh);
-            _object.SetActive(shown);
-            return shown;
+            var shown = Place(start, end, camera, grid);
+            if (_object.activeSelf != shown) _object.SetActive(shown);
+            return shown && _object.activeInHierarchy;
+        }
+
+        bool Place(Vector3 start, Vector3 end, Camera camera, IndoorWalkGrid grid)
+        {
+            if (_material == null || camera == null || !Finite(start) || !Finite(end)
+                || (camera.cullingMask & (1 << _object.layer)) == 0) return false;
+
+            start.y = end.y;
+            var direction = end - start;
+            var length = direction.magnitude;
+            if (length < .001f || !Finite(length)) return false;
+            var width = WidthM;
+            while (grid != null && !grid.IsRibbonClear(start, end, width))
+            {
+                width *= .5f;
+                if (width < MinWidthM) return false;
+            }
+
+            var transform = _object.transform;
+            transform.SetLocalPositionAndRotation(start + Vector3.up * LiftM, Quaternion.LookRotation(direction));
+            transform.localScale = new Vector3(width, 1f, length);
+            if (!InView(camera)) return false;
+
+            var tiles = Mathf.Max(1, Mathf.RoundToInt(length / TileM));
+            if (tiles != _tiles)
+            {
+                _uv[0].y = _uv[3].y = 1f - tiles;
+                _mesh.uv = _uv;
+                _tiles = tiles;
+            }
+            return true;
+        }
+
+        bool InView(Camera camera)
+        {
+            GeometryUtility.CalculateFrustumPlanes(camera, _frustum);
+            var input = _clipA;
+            var output = _clipB;
+            var count = _corners.Length;
+            for (var i = 0; i < count; i++) input[i] = _object.transform.TransformPoint(_corners[i]);
+            foreach (var plane in _frustum)
+            {
+                var clipped = 0;
+                var previous = input[count - 1];
+                var previousDistance = plane.GetDistanceToPoint(previous);
+                for (var i = 0; i < count; i++)
+                {
+                    var current = input[i];
+                    var distance = plane.GetDistanceToPoint(current);
+                    if ((distance < 0f && previousDistance > 0f) || (distance > 0f && previousDistance < 0f))
+                        output[clipped++] = Vector3.LerpUnclamped(previous, current, previousDistance / (previousDistance - distance));
+                    if (distance >= 0f) output[clipped++] = current;
+                    previous = current;
+                    previousDistance = distance;
+                }
+                count = clipped;
+                if (count < 3) return false;
+                (input, output) = (output, input);
+            }
+            var area = Vector3.zero;
+            for (var i = 1; i + 1 < count; i++)
+                area += Vector3.Cross(input[i] - input[0], input[i + 1] - input[0]);
+            return area.sqrMagnitude > 0f;
         }
 
         public void Hide() => _object.SetActive(false);
@@ -70,112 +141,6 @@ namespace IndoorAr
             if (Application.isPlaying) UnityEngine.Object.Destroy(obj);
             else UnityEngine.Object.DestroyImmediate(obj);
         }
-
-        /// <summary>
-        /// Fills <paramref name="mesh"/> with a flat ribbon from the point of the route nearest <paramref name="from"/> (on the floor plane)
-        /// to the route's end. False, with the mesh cleared, for a null, short, non-finite or zero-length route, or when
-        /// <paramref name="from"/> is already at the end. Chevrons are fixed to the route, and flow toward its end with time.
-        /// </summary>
-        public static bool TryBuild(Vector3[] route, Vector3 from, float timeS, Mesh mesh)
-        {
-            mesh.Clear();
-            if (route == null || !Finite(from) || !Finite(timeS)) return false;
-            var points = new List<Vector3>(route.Length);
-            var along = new List<float>(route.Length);
-            foreach (var point in route)
-            {
-                if (!Finite(point)) return false;
-                if (points.Count > 0)
-                {
-                    var step = Flat(point - points[points.Count - 1]);
-                    if (step < MinSegmentM) continue;
-                    along.Add(along[along.Count - 1] + step);
-                }
-                else along.Add(0f);
-                points.Add(point);
-            }
-            if (points.Count < 2) return false;
-
-            // The nearest point on the route, so the ribbon starts where the user is and shrinks as they walk it.
-            var nearestSegment = 0;
-            var nearestT = 0f;
-            var nearest = float.MaxValue;
-            for (var i = 0; i + 1 < points.Count; i++)
-            {
-                var a = points[i];
-                var edge = points[i + 1] - a;
-                edge.y = 0f;
-                var offset = from - a;
-                offset.y = 0f;
-                var t = Mathf.Clamp01(Vector3.Dot(offset, edge) / edge.sqrMagnitude);
-                var distance = (offset - edge * t).sqrMagnitude;
-                if (distance >= nearest) continue;
-                nearest = distance;
-                nearestSegment = i;
-                nearestT = t;
-            }
-            var start = Vector3.Lerp(points[nearestSegment], points[nearestSegment + 1], nearestT);
-            var startAlong = Mathf.Lerp(along[nearestSegment], along[nearestSegment + 1], nearestT);
-            var path = new List<Vector3> { start };
-            var pathAlong = new List<float> { startAlong };
-            for (var i = nearestSegment + 1; i < points.Count; i++)
-            {
-                if (Flat(points[i] - path[path.Count - 1]) < MinSegmentM) continue;
-                path.Add(points[i]);
-                pathAlong.Add(along[i]);
-            }
-            if (path.Count < 2) return false;
-
-            var vertices = new List<Vector3>(path.Count * 2);
-            var uvs = new List<Vector2>(path.Count * 2);
-            var colors = new List<Color>(path.Count * 2);
-            var triangles = new List<int>((path.Count - 1) * 6);
-            for (var i = 0; i < path.Count; i++)
-            {
-                var side = SideAt(path, i, out var widen);
-                var lifted = path[i] + Vector3.up * LiftM;
-                var half = side * (WidthM * .5f * widen);
-                vertices.Add(lifted - half);
-                vertices.Add(lifted + half);
-                var v = (pathAlong[i] - timeS * FlowMetersPerSecond) / TileM;
-                uvs.Add(new Vector2(0f, v));
-                uvs.Add(new Vector2(1f, v));
-                var fade = Mathf.Clamp01((pathAlong[i] - startAlong) / FadeInM);
-                colors.Add(new Color(1f, 1f, 1f, fade));
-                colors.Add(new Color(1f, 1f, 1f, fade));
-                if (i == 0) continue;
-                var k = (i - 1) * 2;
-                triangles.AddRange(new[] { k, k + 2, k + 1, k + 1, k + 2, k + 3 });
-            }
-            mesh.SetVertices(vertices);
-            mesh.SetUVs(0, uvs);
-            mesh.SetColors(colors);
-            mesh.SetTriangles(triangles, 0);
-            mesh.RecalculateBounds();
-            return true;
-        }
-
-        // Unit vector across the path at a point, with the miter factor that keeps the edges parallel through a turn.
-        static Vector3 SideAt(List<Vector3> path, int i, out float widen)
-        {
-            var before = i > 0 ? Normal(path[i] - path[i - 1]) : Vector3.zero;
-            var after = i + 1 < path.Count ? Normal(path[i + 1] - path[i]) : Vector3.zero;
-            var side = before + after;
-            if (side.sqrMagnitude < 1e-6f) side = before == Vector3.zero ? after : before;
-            side.Normalize();
-            var reference = before == Vector3.zero ? after : before;
-            widen = 1f / Mathf.Max(Vector3.Dot(side, reference), .5f);
-            return side;
-        }
-
-        static Vector3 Normal(Vector3 direction)
-        {
-            direction.y = 0f;
-            direction.Normalize();
-            return new Vector3(-direction.z, 0f, direction.x);
-        }
-
-        static float Flat(Vector3 offset) => new Vector2(offset.x, offset.z).magnitude;
 
         static bool Finite(Vector3 v) => Finite(v.x) && Finite(v.y) && Finite(v.z);
 

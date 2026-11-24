@@ -256,6 +256,33 @@ namespace IndoorAr
             return true;
         }
 
+        internal bool IsRibbonClear(Vector3 start, Vector3 end, float width)
+        {
+            var a = new Vector2(start.x, start.z);
+            var b = new Vector2(end.x, end.z);
+            var axis = (b - a).normalized;
+            var side = new Vector2(-axis.y, axis.x);
+            var halfWidth = width * .5f;
+            var reach = new Vector2(Mathf.Abs(side.x), Mathf.Abs(side.y)) * halfWidth;
+            var min = Vector2.Min(a, b) - reach;
+            var max = Vector2.Max(a, b) + reach;
+            var mid = (a + b) * .5f;
+            var halfLength = Vector2.Distance(a, b) * .5f;
+            var cellHalf = _floor.cell * .5f;
+            var alongReach = halfLength + cellHalf * (Mathf.Abs(axis.x) + Mathf.Abs(axis.y));
+            var acrossReach = halfWidth + cellHalf * (Mathf.Abs(side.x) + Mathf.Abs(side.y));
+            for (var z = RowOf(min.y); z <= RowOf(max.y); z++)
+                for (var x = ColumnOf(min.x); x <= ColumnOf(max.x); x++)
+                {
+                    if (IsWalkable(x, z)) continue;
+                    var cell = CenterOf(x, z);
+                    var delta = new Vector2(cell.x, cell.z) - mid;
+                    if (Mathf.Abs(Vector2.Dot(delta, axis)) < alongReach
+                        && Mathf.Abs(Vector2.Dot(delta, side)) < acrossReach) return false;
+                }
+            return true;
+        }
+
         public static float LengthM(Vector3[] route)
         {
             var meters = 0f;
@@ -277,16 +304,16 @@ namespace IndoorAr
 
         /// <param name="index">Index in route of the waypoint returned, or -1.</param>
         public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint, out int index)
+            => TryNextWaypoint(route, camera, lookAhead, out waypoint, out index, out _);
+
+        internal bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint,
+            out int index, out Vector3 origin)
         {
             waypoint = default;
             index = -1;
+            origin = camera;
             if (route == null || route.Length < 2) return false;
-            var origin = camera;
-            if (!IsWalkable(ColumnOf(camera.x), RowOf(camera.z)))
-            {
-                if (!TrySnap(camera, out var cx, out var cz)) return false;
-                origin = CenterOf(cx, cz);
-            }
+            if (!IsWalkableAt(camera) && !TryApproach(camera, out origin)) return false;
             var ahead = FirstAhead(route, camera);
             var next = ahead;
             while (next < route.Length && !LineIsClear(origin, route[next])) next++;

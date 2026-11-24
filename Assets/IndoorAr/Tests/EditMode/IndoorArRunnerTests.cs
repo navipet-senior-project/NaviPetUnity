@@ -53,7 +53,7 @@ public class IndoorArRunnerTests
 
     static object Call(object target, string name, params object[] args) => target.GetType().GetMethod(name,
         BindingFlags.Instance | BindingFlags.NonPublic).Invoke(target, args);
-    // While a clear route is followed the floor path replaces the screen arrow.
+    // Only a visible floor path replaces the screen arrow.
     static void AssertPath(IndoorArRunner runner, bool shown)
     {
         var path = Field<IndoorRoutePath>(runner, "_path");
@@ -61,7 +61,7 @@ public class IndoorArRunnerTests
         if (shown) Assert.IsNull(Field<IndoorHud>(runner, "_hud").transform.Find("HUD Canvas/Safe area/Guide arrow"), "no arrow beside the path");
     }
 
-    // A route too short to draw (the user stands on the target) falls back to the screen arrow.
+    // A route without a visible ribbon falls back to the screen arrow.
     static void AssertGuiding(IndoorArRunner runner)
     {
         var path = Field<IndoorRoutePath>(runner, "_path");
@@ -502,7 +502,7 @@ public class IndoorArRunnerTests
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         var camObject = new GameObject("AR Camera", typeof(Camera));
         camObject.transform.SetParent(_host.transform, false);
-        camObject.transform.localPosition = new Vector3(-5.625f, -0.4f, 23.625f); // has a hallway route, so an arrow
+        camObject.transform.localPosition = new Vector3(-5.625f, -0.4f, 23.625f);
         camObject.transform.LookAt(new Vector3(-5.7651f, -1.8186f, 22.6689f)); // facing the door keeps the pin in view
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, camObject.GetComponent<Camera>());
@@ -518,7 +518,7 @@ public class IndoorArRunnerTests
         var hud = _host.GetComponentInChildren<IndoorHud>();
         var pin = Field<Transform>(runner, "_pin");
         Assert.IsTrue(pin.gameObject.activeSelf);
-        AssertPath(runner, true);
+        AssertGuiding(runner);
         Assert.IsTrue(hud.transform.Find("HUD Canvas/Safe area/Pin label").gameObject.activeSelf);
 
         var detector = Field<FrozenCameraDetector>(runner, "_frozenCamera");
@@ -539,7 +539,7 @@ public class IndoorArRunnerTests
         Assert.IsFalse(detector.Frozen);
         Call(runner, "UpdateHud");
         Assert.IsTrue(pin.gameObject.activeSelf);
-        AssertPath(runner, true);
+        AssertGuiding(runner);
     }
 
     [Test]
@@ -614,6 +614,8 @@ public class IndoorArRunnerTests
             var route = Field<Vector3[]>(runner, "_route");
             Assert.IsTrue(Field<IndoorWalkGrid>(runner, "_walkGrid").TryNextWaypoint(route,
                 camObject.transform.position, LiveDoorHud.RouteLookAheadM, out var target));
+            camObject.transform.LookAt(target);
+            Call(runner, "Update");
             AssertPath(runner, true);
             Assert.AreEqual(0, hud.GetComponentsInChildren<MeshRenderer>(true).Length);
             var path = Field<IndoorRoutePath>(runner, "_path");
@@ -621,14 +623,18 @@ public class IndoorArRunnerTests
             var mesh = path.Root.GetComponent<MeshFilter>().sharedMesh;
             Assert.GreaterOrEqual(mesh.vertexCount, 4);
             var floorY = Field<IndoorWalkGrid>(runner, "_walkGrid").FloorY;
-            Assert.IsTrue(mesh.vertices.All(v => Mathf.Approximately(v.y, floorY + IndoorRoutePath.LiftM)), "flat on the floor");
+            var vertices = mesh.vertices.Select(path.Root.transform.TransformPoint).ToArray();
+            Assert.IsTrue(vertices.All(v => Mathf.Approximately(v.y, floorY + IndoorRoutePath.LiftM)), "flat on the floor");
+            Assert.Less(Vector3.Distance((vertices[1] + vertices[2]) * .5f, target + Vector3.up * IndoorRoutePath.LiftM), 1e-4f,
+                "the ribbon stops at the waypoint checked for clearance");
             // Camera height is in the supported eye-height band above Floor 1.
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Any(t => t.text.Contains("Hallway route to VEC 119")));
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>(true).Any(t => t.text.Contains("VEC 119")));
 
             camObject.transform.localRotation = Quaternion.LookRotation(Vector3.right);
             Call(runner, "Update");
-            AssertPath(runner, true);
+            AssertPath(runner, false);
+            AssertGuiding(runner);
             Assert.IsTrue(hud.GetComponentsInChildren<UnityEngine.UI.Text>().Any(t => t.text.Contains("Look this way")));
         }
         finally { arState.Invoke(null, new object[] { previous }); }
@@ -1029,7 +1035,7 @@ public class IndoorArRunnerTests
             Assert.AreSame(hud, _host.GetComponentInChildren<IndoorHud>());
             Assert.AreSame(camObject.GetComponent<Camera>(), Field<Camera>(runner, "arCamera"));
             Assert.AreEqual(restarted, ArSessionLifecycle.LoaderRestarted, "the AR camera was not restarted");
-            AssertPath(runner, true);
+            AssertGuiding(runner);
             CollectionAssert.Contains(Labels(runner), "You're on Floor 1");
         }
         finally { arState.Invoke(null, new object[] { previous }); }
@@ -1109,7 +1115,7 @@ public class IndoorArRunnerTests
             Assert.AreSame(hud, Field<IndoorHud>(runner, "_hud"));
             Assert.AreSame(camera, Field<Camera>(runner, "arCamera"));
             Assert.AreEqual(restarted, ArSessionLifecycle.LoaderRestarted);
-            AssertPath(runner, true);
+            AssertGuiding(runner);
             StringAssert.Contains("\"source\":\"sign\"", IndoorArBridge.LastStatusJson);
 
             session.OnTrackingLost();
@@ -1466,6 +1472,13 @@ public class IndoorArRunnerTests
         Assert.IsNull(Field<RectTransform>(hud, "_arrow"));
         CollectionAssert.Contains(Labels(runner), "Route unavailable");
         Assert.AreEqual(IndoorArState.Pinned, session.State);
+
+        camera.transform.localPosition = new Vector3(11.375f, position.y, 21.625f);
+        camera.transform.rotation = Quaternion.LookRotation(new Vector3(.5f, 0f, -.25f));
+        Call(runner, "UpdateHud");
+        AssertPath(runner, false);
+        AssertGuiding(runner);
+        CollectionAssert.Contains(Labels(runner), "Follow the arrow");
     }
 
     [Test]

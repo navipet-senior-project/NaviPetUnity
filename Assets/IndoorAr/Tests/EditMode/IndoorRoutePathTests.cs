@@ -6,168 +6,122 @@ namespace IndoorAr.Tests
 {
     public class IndoorRoutePathTests
     {
-        const float FloorY = -1.2f;
-        static readonly Vector3[] LShape =
-        {
-            new Vector3(0f, FloorY, 0f), new Vector3(0f, FloorY, 4f), new Vector3(3f, FloorY, 4f)
-        };
+        GameObject _map;
+        Camera _camera;
+        IndoorRoutePath _path;
 
-        static Mesh Build(Vector3[] route, Vector3 from, float time, out bool ok)
+        [SetUp]
+        public void SetUp()
         {
-            var mesh = new Mesh();
-            ok = IndoorRoutePath.TryBuild(route, from, time, mesh);
-            return mesh;
+            _map = new GameObject("MapSpace");
+            _camera = new GameObject("Camera").AddComponent<Camera>();
+            _camera.fieldOfView = 60f;
+            _camera.aspect = 9f / 16f;
+            _path = new IndoorRoutePath(_map.transform);
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            _path.Dispose();
+            Object.DestroyImmediate(_camera.gameObject);
+            Object.DestroyImmediate(_map);
+        }
+
+        Mesh Mesh => _path.Root.GetComponent<MeshFilter>().sharedMesh;
+
+        void AimAt(Vector3 start, Vector3 end)
+        {
+            _camera.transform.position = _map.transform.TransformPoint(start + Vector3.up * 1.5f);
+            _camera.transform.LookAt(_map.transform.TransformPoint((start + end) * .5f));
         }
 
         [Test]
-        public void RibbonLiesFlatOnTheFloorAndIsAsWideAsConfigured()
+        public void RibbonStaysOnTheFloorAndFollowsMapSpace()
         {
-            var mesh = Build(new[] { new Vector3(0f, FloorY, 0f), new Vector3(0f, FloorY, 5f) }, new Vector3(0f, 1.6f, 0f), 0f, out var ok);
-            Assert.IsTrue(ok);
-            Assert.AreEqual(4, mesh.vertexCount);
-            Assert.IsTrue(mesh.vertices.All(v => Mathf.Approximately(v.y, FloorY + IndoorRoutePath.LiftM)));
-            Assert.AreEqual(IndoorRoutePath.WidthM, mesh.vertices.Max(v => v.x) - mesh.vertices.Min(v => v.x), 1e-4f);
-            Assert.AreEqual(5f, mesh.vertices.Max(v => v.z), 1e-4f);
-            Assert.AreEqual(6, mesh.triangles.Length);
+            _map.transform.SetPositionAndRotation(new Vector3(5f, 0f, 2f), Quaternion.Euler(0f, 90f, 0f));
+            var start = new Vector3(0f, 1.6f, 0f);
+            var end = new Vector3(0f, 0f, 5f);
+            AimAt(Vector3.zero, end);
+            Assert.IsFalse(_path.Root.activeSelf);
+            Assert.IsTrue(_path.Show(start, end, _camera));
+            Assert.AreSame(_map.transform, _path.Root.transform.parent);
+            var transform = _path.Root.transform;
+            var vertices = Mesh.vertices.Select(vertex => _map.transform.InverseTransformPoint(transform.TransformPoint(vertex))).ToArray();
+            Assert.IsTrue(vertices.All(v => Mathf.Approximately(v.y, IndoorRoutePath.LiftM)));
+            Assert.AreEqual(IndoorRoutePath.WidthM, vertices.Max(v => v.x) - vertices.Min(v => v.x), 1e-4f);
+            Assert.AreEqual(0f, vertices.Min(v => v.z), 1e-4f);
+            Assert.AreEqual(5f, vertices.Max(v => v.z), 1e-4f);
+            Assert.AreEqual(6, Mesh.triangles.Length);
+            _path.Hide();
+            Assert.IsFalse(_path.Root.activeSelf);
         }
 
         [Test]
-        public void RibbonStartsWhereTheCameraIsOnTheRouteAndShrinksAsTheUserWalks()
+        public void ShortRibbonNeedsCameraViewAndKeepsAFullChevron()
         {
-            var atStart = Build(LShape, new Vector3(0f, 1.6f, 0f), 0f, out _);
-            var walked = Build(LShape, new Vector3(.2f, 1.6f, 3f), 0f, out var ok);
-            Assert.IsTrue(ok);
-            Assert.AreEqual(0f, atStart.vertices.Min(v => v.z), 1e-4f);
-            Assert.AreEqual(3f, walked.vertices.Min(v => v.z), 1e-4f, "the part behind the user is gone");
-            Assert.AreEqual(3f, walked.vertices.Max(v => v.x), IndoorRoutePath.WidthM, "it still runs to the end");
+            var start = Vector3.zero;
+            var end = Vector3.forward * .25f;
+            _camera.transform.position = Vector3.up * 1.5f;
+            Assert.IsFalse(_path.Show(start, end, _camera));
+            Assert.IsFalse(_path.Root.activeSelf);
+            AimAt(start, end);
+            Assert.IsTrue(_path.Show(start, end, _camera));
+            var uv = Mesh.uv;
+            Assert.AreEqual(1f, uv.Max(v => v.y) - uv.Min(v => v.y));
+            CollectionAssert.AreEqual(new[] { Color.white, Color.white, Color.white, Color.white }, Mesh.colors);
+            Assert.IsTrue(_path.Show(start, end, _camera));
+            CollectionAssert.AreEqual(uv, Mesh.uv);
+            _camera.transform.rotation = Quaternion.LookRotation(Vector3.back);
+            Assert.IsFalse(_path.Show(start, end, _camera));
+            Assert.IsFalse(_path.Root.activeSelf);
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void DiagonalRibbonAvoidsTheShippedBlockedCellInEitherDirection(bool reverse)
+        {
+            var grid = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid").text, 1);
+            var start = new Vector3(11.375f, grid.FloorY, 21.625f);
+            var end = new Vector3(11.875f, grid.FloorY, 21.375f);
+            if (reverse) (start, end) = (end, start);
+            AimAt(start, end);
+            Assert.IsFalse(grid.IsWalkable(178, 84));
+            Assert.IsTrue(_path.Show(start, end, _camera, grid));
+            Assert.Less(_path.Root.transform.localScale.x, IndoorRoutePath.WidthM);
+            Assert.AreEqual(Vector3.Distance(start, end), _path.Root.transform.localScale.z, 1e-4f);
+            var transform = _path.Root.transform;
+            for (var x = 0; x <= 20; x++)
+                for (var z = 0; z <= 20; z++)
+                    Assert.IsTrue(grid.IsWalkableAt(transform.TransformPoint(new Vector3(x / 20f - .5f, 0f, z / 20f))));
         }
 
         [Test]
-        public void RibbonStaysOnTheRouteThroughATurn()
+        public void ZeroLengthAndNonFiniteSegmentsHideTheRibbon()
         {
-            var mesh = Build(LShape, new Vector3(0f, 1.6f, 0f), 0f, out var ok);
-            Assert.IsTrue(ok);
-            Assert.AreEqual(6, mesh.vertexCount);
-            var half = IndoorRoutePath.WidthM / 2f;
-            // The corner pair sits on the diagonal through the corner, never farther than the miter limit.
-            var corner = mesh.vertices.Skip(2).Take(2).ToArray();
-            Assert.AreEqual(0f, (corner[0] + corner[1]).x / 2f, 1e-4f);
-            Assert.AreEqual(4f, (corner[0] + corner[1]).z / 2f, 1e-4f);
-            Assert.LessOrEqual(Vector3.Distance(corner[0], corner[1]) / 2f, half * 2f + 1e-4f);
-        }
-
-        [Test]
-        public void ChevronsAreFixedToTheRouteAndFlowTowardItsEnd()
-        {
-            var route = new[] { new Vector3(0f, FloorY, 0f), new Vector3(0f, FloorY, 5f) };
-            var before = Build(route, new Vector3(0f, 1.6f, 0f), 0f, out _);
-            var closer = Build(route, new Vector3(0f, 1.6f, 2f), 0f, out _);
-            var later = Build(route, new Vector3(0f, 1.6f, 0f), 1f, out _);
-            var uv = new System.Collections.Generic.List<Vector2>();
-            before.GetUVs(0, uv);
-            var farEnd = uv.Max(u => u.y);
-            closer.GetUVs(0, uv);
-            Assert.AreEqual(farEnd, uv.Max(u => u.y), 1e-4f, "walking does not move the chevrons");
-            later.GetUVs(0, uv);
-            Assert.AreEqual(farEnd - IndoorRoutePath.FlowMetersPerSecond / IndoorRoutePath.TileM, uv.Max(u => u.y), 1e-4f,
-                "texture slides back, so chevrons move forward");
-        }
-
-        [Test]
-        public void RibbonFadesInFromTheCamera()
-        {
-            var mesh = Build(new[] { new Vector3(0f, FloorY, 0f), new Vector3(0f, FloorY, 5f) }, new Vector3(0f, 1.6f, 0f), 0f, out _);
-            var colors = mesh.colors;
-            Assert.AreEqual(0f, colors[0].a, 1e-4f);
-            Assert.AreEqual(1f, colors[colors.Length - 1].a, 1e-4f);
-        }
-
-        [Test]
-        public void NoUsableRouteDrawsNothingAndClearsAnOldRibbon()
-        {
-            var mesh = new Mesh();
-            Assert.IsTrue(IndoorRoutePath.TryBuild(LShape, Vector3.zero, 0f, mesh));
-            Assert.Greater(mesh.vertexCount, 0);
-            var bad = new Vector3[][]
-            {
-                null,
-                new Vector3[0],
-                new[] { Vector3.zero },
-                new[] { Vector3.zero, Vector3.zero },
-                new[] { Vector3.zero, new Vector3(float.NaN, 0f, 1f) },
-                new[] { Vector3.zero, new Vector3(0f, float.PositiveInfinity, 1f) },
-                new[] { Vector3.zero, new Vector3(0f, 5f, 0f) }, // straight up: no floor length
-            };
-            foreach (var route in bad)
-            {
-                Assert.IsTrue(IndoorRoutePath.TryBuild(LShape, Vector3.zero, 0f, mesh));
-                Assert.IsFalse(IndoorRoutePath.TryBuild(route, Vector3.zero, 0f, mesh), route == null ? "null" : string.Join(",", route));
-                Assert.AreEqual(0, mesh.vertexCount);
-            }
-            Assert.IsFalse(IndoorRoutePath.TryBuild(LShape, new Vector3(float.NaN, 0f, 0f), 0f, mesh));
-            Assert.IsFalse(IndoorRoutePath.TryBuild(LShape, Vector3.zero, float.NaN, mesh));
-            Object.DestroyImmediate(mesh);
-        }
-
-        [Test]
-        public void RepeatedPointsDoNotBreakTheRibbon()
-        {
-            var route = new[] { Vector3.zero, Vector3.zero, new Vector3(0f, 0f, 3f), new Vector3(0f, 0f, 3f), new Vector3(2f, 0f, 3f) };
-            var mesh = Build(route, Vector3.zero, 0f, out var ok);
-            Assert.IsTrue(ok);
-            Assert.AreEqual(6, mesh.vertexCount);
-            Assert.IsTrue(mesh.vertices.All(v => !float.IsNaN(v.x) && !float.IsNaN(v.z)));
-        }
-
-        [Test]
-        public void CameraAtTheEndOfTheRouteHidesTheRibbon()
-        {
-            var mesh = Build(LShape, new Vector3(3f, 1.6f, 4f), 0f, out var ok);
-            Assert.IsFalse(ok);
-            Assert.AreEqual(0, mesh.vertexCount);
-        }
-
-        [Test]
-        public void PathFollowsMapSpaceAndShowsOnlyForAUsableRoute()
-        {
-            var map = new GameObject("MapSpace");
-            map.transform.position = new Vector3(5f, 0f, 2f);
-            map.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
-            var path = new IndoorRoutePath(map.transform);
-            try
-            {
-                Assert.AreSame(map.transform, path.Root.transform.parent);
-                Assert.AreEqual(Vector3.zero, path.Root.transform.localPosition);
-                Assert.IsFalse(path.Root.activeSelf, "nothing before a route");
-                Assert.IsTrue(path.Show(LShape, Vector3.zero, 0f));
-                Assert.IsTrue(path.Root.activeSelf);
-                Assert.IsNotNull(path.Root.GetComponent<MeshRenderer>().sharedMaterial);
-                Assert.IsFalse(path.Show(null, Vector3.zero, 0f));
-                Assert.IsFalse(path.Root.activeSelf, "an absent route is not invented");
-                Assert.IsTrue(path.Show(LShape, Vector3.zero, 0f));
-                path.Hide();
-                Assert.IsFalse(path.Root.activeSelf);
-            }
-            finally { path.Dispose(); Object.DestroyImmediate(map); }
+            var end = Vector3.forward * 5f;
+            AimAt(Vector3.zero, end);
+            Assert.IsTrue(_path.Show(Vector3.zero, end, _camera));
+            Assert.IsFalse(_path.Show(end, end, _camera));
+            Assert.IsFalse(_path.Root.activeSelf);
+            Assert.IsFalse(_path.Show(Vector3.zero, new Vector3(0f, 5f, 0f), _camera));
+            Assert.IsFalse(_path.Show(new Vector3(float.NaN, 0f, 0f), end, _camera));
+            Assert.IsFalse(_path.Show(Vector3.zero, new Vector3(0f, float.PositiveInfinity, 1f), _camera));
         }
 
         [Test]
         public void DisposeReleasesTheObjectMeshMaterialAndTexture()
         {
-            var map = new GameObject("MapSpace");
-            var path = new IndoorRoutePath(map.transform);
-            path.Show(LShape, Vector3.zero, 0f);
-            var renderer = path.Root.GetComponent<MeshRenderer>();
+            var path = new IndoorRoutePath(_map.transform);
             var mesh = path.Root.GetComponent<MeshFilter>().sharedMesh;
-            var material = renderer.sharedMaterial;
+            var material = path.Root.GetComponent<MeshRenderer>().sharedMaterial;
             var texture = material.mainTexture;
             path.Dispose();
             Assert.IsTrue(path.Root == null);
             Assert.IsTrue(mesh == null);
             Assert.IsTrue(material == null);
             Assert.IsTrue(texture == null);
-            Assert.AreEqual(0, map.transform.childCount);
-            Object.DestroyImmediate(map);
+            Assert.AreEqual(1, _map.transform.childCount);
         }
 
         [Test]

@@ -33,9 +33,10 @@ namespace IndoorAr
         public bool Outdoor;
         public bool FollowingRoute;
         public bool RouteBlocked;
-        // The floor path is drawn along the route, so the screen arrow stays hidden.
+        // A floor path visible in the camera replaces the screen arrow.
         public bool PathShown;
-        // Diagnostics only: the waypoint the arrow aims at (-1 for none) and why the route is blocked.
+        internal Vector3 RouteStart;
+        // The waypoint the arrow aims at (-1 for none) and why the route is blocked.
         public int RouteWaypointIndex = -1;
         public IndoorRouteBlockedCause RouteBlockedCause;
         // "stairs" or "elevator": the route on a wrong floor ends there, not at the door.
@@ -292,7 +293,7 @@ namespace IndoorAr
         static string RouteTitle(IndoorHudView view)
         {
             if (view.OffRoute) return "You're off the route";
-            if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return "Follow the route";
+            if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return view.PathShown || view.Outdoor ? "Follow the route" : "Follow the arrow";
             float yaw = Mathf.DeltaAngle(0f, view.ArrowYaw);
             if (Mathf.Abs(yaw) > 135f) return "Turn around";
             return yaw > 0f ? "Turn right" : "Turn left";
