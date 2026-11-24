@@ -33,8 +33,6 @@ namespace IndoorAr
         public bool Outdoor;
         public bool FollowingRoute;
         public bool RouteBlocked;
-        // A floor path visible in the camera replaces the screen arrow.
-        public bool PathShown;
         internal Vector3 RouteStart;
         // The waypoint the arrow aims at (-1 for none) and why the route is blocked.
         public int RouteWaypointIndex = -1;
@@ -99,6 +97,8 @@ namespace IndoorAr
         RectTransform _screenPin;
         Text _pinText;
         IndoorHudView _view;
+        IndoorRoutePath _path;
+        bool _pathShown;
         IndoorPinMode? _pinMode;
         public Action<string> DiagnosticSink { get; set; }
         public event Action ExitRequested;
@@ -129,28 +129,38 @@ namespace IndoorAr
             FitSafeArea();
         }
 
-        public void Show(IndoorHudView view)
+        public void Show(IndoorHudView view, IndoorRoutePath path = null)
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             FitSafeArea();
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.CurrentFloor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked + "|" + view.PathShown;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.CurrentFloor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
             if (_chrome != chrome)
             {
                 Build(view);
                 _chrome = chrome;
             }
-            Refresh(view);
             _view = view;
+            _path = path;
+            _pathShown = _path?.RefreshVisibility(_camera) == true;
+            Refresh(view);
             if (!Application.isPlaying || !view.LabelAnchor.HasValue) PlacePin(view);
         }
 
-        void OnEnable() => RenderPipelineManager.beginCameraRendering += ProjectPin;
+        void OnEnable() => RenderPipelineManager.beginCameraRendering += RefreshForRender;
 
-        void OnDisable() => RenderPipelineManager.beginCameraRendering -= ProjectPin;
+        void OnDisable() => RenderPipelineManager.beginCameraRendering -= RefreshForRender;
 
-        void ProjectPin(ScriptableRenderContext context, Camera camera)
+        void RefreshForRender(ScriptableRenderContext context, Camera camera)
         {
-            if (camera == _camera && _view?.LabelAnchor != null) PlacePin(_view);
+            if (camera != _camera || _view == null) return;
+            var pathShown = _path?.RefreshVisibility(camera) == true;
+            if (pathShown != _pathShown)
+            {
+                _pathShown = pathShown;
+                Refresh(_view);
+                Canvas.ForceUpdateCanvases();
+            }
+            if (_view.LabelAnchor.HasValue) PlacePin(_view);
         }
 
         // Keeps the room pill, close button and guidance clear of the notch and home indicator.
@@ -224,11 +234,8 @@ namespace IndoorAr
             {
                 if (!view.RouteBlocked)
                 {
-                    if (!view.PathShown)
-                    {
-                        _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
-                        _arrow.GetComponent<Image>().type = Image.Type.Simple;
-                    }
+                    _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
+                    _arrow.GetComponent<Image>().type = Image.Type.Simple;
                     _lookLeft = Pill("Look left", "‹  Look this way", 34, new Vector2(0f, .5f), new Vector2(24f, 190f), 84f);
                     _lookRight = Pill("Look right", "Look this way  ›", 34, new Vector2(1f, .5f), new Vector2(-24f, 190f), 84f);
                 }
@@ -270,7 +277,7 @@ namespace IndoorAr
             return feet < 1000 ? Mathf.RoundToInt((float)feet) + " ft" : (meters / 1609.344).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " mi";
         }
 
-        static string TitleText(IndoorHudView view)
+        string TitleText(IndoorHudView view)
         {
             if (!string.IsNullOrEmpty(view.TitleOverride)) return view.TitleOverride;
             switch (view.State)
@@ -290,10 +297,10 @@ namespace IndoorAr
         }
 
         // The arrow points along the route, so say what to do instead of where the destination is.
-        static string RouteTitle(IndoorHudView view)
+        string RouteTitle(IndoorHudView view)
         {
             if (view.OffRoute) return "You're off the route";
-            if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return view.PathShown || view.Outdoor ? "Follow the route" : "Follow the arrow";
+            if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return _pathShown || view.Outdoor ? "Follow the route" : "Follow the arrow";
             float yaw = Mathf.DeltaAngle(0f, view.ArrowYaw);
             if (Mathf.Abs(yaw) > 135f) return "Turn around";
             return yaw > 0f ? "Turn right" : "Turn left";
@@ -330,7 +337,11 @@ namespace IndoorAr
                 _title.text = TitleText(view);
                 _detail.text = DetailText(view);
             }
-            if (_arrow != null) _arrow.localEulerAngles = new Vector3(0f, 0f, GuidanceCue.ArrowScreenRotation(view.ArrowYaw));
+            if (_arrow != null)
+            {
+                _arrow.gameObject.SetActive(!_pathShown);
+                _arrow.localEulerAngles = new Vector3(0f, 0f, GuidanceCue.ArrowScreenRotation(view.ArrowYaw));
+            }
             if (_lookLeft != null)
             {
                 bool facing = GuidanceCue.FacingWaypoint(view.ArrowYaw);

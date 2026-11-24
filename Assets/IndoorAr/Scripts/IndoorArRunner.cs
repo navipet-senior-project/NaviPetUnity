@@ -589,7 +589,7 @@ namespace IndoorAr
                 _baseline?.NoteArrowShown(NowMs());
                 LogBaseline();
             }
-            _hud.Show(view);
+            _hud.Show(view, _path);
         }
 
         /// <summary>
@@ -711,7 +711,7 @@ namespace IndoorAr
                 return;
             }
             _path ??= new IndoorRoutePath(_localizer.MapSpace);
-            view.PathShown = _path.Show(view.RouteStart, route[view.RouteWaypointIndex], arCamera, grid);
+            _path.Place(view.RouteStart, route[view.RouteWaypointIndex], grid);
         }
 
         void UpdatePin(IndoorHudView view, int currentFloor)

@@ -57,16 +57,22 @@ public class IndoorArRunnerTests
     static void AssertPath(IndoorArRunner runner, bool shown)
     {
         var path = Field<IndoorRoutePath>(runner, "_path");
-        Assert.AreEqual(shown, path != null && path.Root.activeSelf, "floor path");
-        if (shown) Assert.IsNull(Field<IndoorHud>(runner, "_hud").transform.Find("HUD Canvas/Safe area/Guide arrow"), "no arrow beside the path");
+        Assert.AreEqual(shown, path != null && path.Root.activeInHierarchy && path.Root.GetComponent<MeshRenderer>().enabled, "floor path");
+        if (shown) Assert.IsFalse(ArrowVisible(runner), "no arrow beside the path");
     }
 
     // A route without a visible ribbon falls back to the screen arrow.
     static void AssertGuiding(IndoorArRunner runner)
     {
         var path = Field<IndoorRoutePath>(runner, "_path");
-        var arrow = Field<IndoorHud>(runner, "_hud").transform.Find("HUD Canvas/Safe area/Guide arrow") != null;
-        Assert.AreNotEqual(path != null && path.Root.activeSelf, arrow, "exactly one of floor path or arrow");
+        Assert.AreNotEqual(path != null && path.Root.activeInHierarchy && path.Root.GetComponent<MeshRenderer>().enabled,
+            ArrowVisible(runner), "exactly one of floor path or arrow");
+    }
+
+    static bool ArrowVisible(IndoorArRunner runner)
+    {
+        var arrow = Field<IndoorHud>(runner, "_hud").transform.Find("HUD Canvas/Safe area/Guide arrow");
+        return arrow != null && arrow.gameObject.activeInHierarchy;
     }
 
     static T Field<T>(object target, string name) => (T)target.GetType().GetField(name,

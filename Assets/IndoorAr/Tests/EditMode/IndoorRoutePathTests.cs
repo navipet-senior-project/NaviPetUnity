@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
@@ -9,6 +10,7 @@ namespace IndoorAr.Tests
         GameObject _map;
         Camera _camera;
         IndoorRoutePath _path;
+        RenderTexture _target;
 
         [SetUp]
         public void SetUp()
@@ -16,6 +18,8 @@ namespace IndoorAr.Tests
             _map = new GameObject("MapSpace");
             _camera = new GameObject("Camera").AddComponent<Camera>();
             _camera.fieldOfView = 60f;
+            _target = new RenderTexture(720, 1280, 24);
+            _camera.targetTexture = _target;
             _camera.aspect = 9f / 16f;
             _path = new IndoorRoutePath(_map.transform);
         }
@@ -25,6 +29,7 @@ namespace IndoorAr.Tests
         {
             _path.Dispose();
             Object.DestroyImmediate(_camera.gameObject);
+            Object.DestroyImmediate(_target);
             Object.DestroyImmediate(_map);
         }
 
@@ -42,9 +47,9 @@ namespace IndoorAr.Tests
             _map.transform.SetPositionAndRotation(new Vector3(5f, 0f, 2f), Quaternion.Euler(0f, 90f, 0f));
             var start = new Vector3(0f, 1.6f, 0f);
             var end = new Vector3(0f, 0f, 5f);
-            AimAt(Vector3.zero, end);
             Assert.IsFalse(_path.Root.activeSelf);
-            Assert.IsTrue(_path.Show(start, end, _camera));
+            _path.Place(start, end);
+            Assert.IsTrue(_path.Root.activeSelf);
             Assert.AreSame(_map.transform, _path.Root.transform.parent);
             var transform = _path.Root.transform;
             var vertices = Mesh.vertices.Select(vertex => _map.transform.InverseTransformPoint(transform.TransformPoint(vertex))).ToArray();
@@ -58,23 +63,15 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void ShortRibbonNeedsCameraViewAndKeepsAFullChevron()
+        public void ShortRibbonKeepsAFullChevron()
         {
-            var start = Vector3.zero;
             var end = Vector3.forward * .25f;
-            _camera.transform.position = Vector3.up * 1.5f;
-            Assert.IsFalse(_path.Show(start, end, _camera));
-            Assert.IsFalse(_path.Root.activeSelf);
-            AimAt(start, end);
-            Assert.IsTrue(_path.Show(start, end, _camera));
+            _path.Place(Vector3.zero, end);
             var uv = Mesh.uv;
             Assert.AreEqual(1f, uv.Max(v => v.y) - uv.Min(v => v.y));
             CollectionAssert.AreEqual(new[] { Color.white, Color.white, Color.white, Color.white }, Mesh.colors);
-            Assert.IsTrue(_path.Show(start, end, _camera));
+            _path.Place(Vector3.zero, end);
             CollectionAssert.AreEqual(uv, Mesh.uv);
-            _camera.transform.rotation = Quaternion.LookRotation(Vector3.back);
-            Assert.IsFalse(_path.Show(start, end, _camera));
-            Assert.IsFalse(_path.Root.activeSelf);
         }
 
         [TestCase(false)]
@@ -85,9 +82,9 @@ namespace IndoorAr.Tests
             var start = new Vector3(11.375f, grid.FloorY, 21.625f);
             var end = new Vector3(11.875f, grid.FloorY, 21.375f);
             if (reverse) (start, end) = (end, start);
-            AimAt(start, end);
             Assert.IsFalse(grid.IsWalkable(178, 84));
-            Assert.IsTrue(_path.Show(start, end, _camera, grid));
+            _path.Place(start, end, grid);
+            Assert.IsTrue(_path.Root.activeSelf);
             Assert.Less(_path.Root.transform.localScale.x, IndoorRoutePath.WidthM);
             Assert.AreEqual(Vector3.Distance(start, end), _path.Root.transform.localScale.z, 1e-4f);
             var transform = _path.Root.transform;
@@ -100,13 +97,20 @@ namespace IndoorAr.Tests
         public void ZeroLengthAndNonFiniteSegmentsHideTheRibbon()
         {
             var end = Vector3.forward * 5f;
-            AimAt(Vector3.zero, end);
-            Assert.IsTrue(_path.Show(Vector3.zero, end, _camera));
-            Assert.IsFalse(_path.Show(end, end, _camera));
-            Assert.IsFalse(_path.Root.activeSelf);
-            Assert.IsFalse(_path.Show(Vector3.zero, new Vector3(0f, 5f, 0f), _camera));
-            Assert.IsFalse(_path.Show(new Vector3(float.NaN, 0f, 0f), end, _camera));
-            Assert.IsFalse(_path.Show(Vector3.zero, new Vector3(0f, float.PositiveInfinity, 1f), _camera));
+            var invalidSegments = new[]
+            {
+                (end, end),
+                (Vector3.zero, Vector3.up * 5f),
+                (new Vector3(float.NaN, 0f, 0f), end),
+                (Vector3.zero, new Vector3(0f, float.PositiveInfinity, 1f))
+            };
+            foreach (var (start, finish) in invalidSegments)
+            {
+                _path.Place(Vector3.zero, end);
+                Assert.IsTrue(_path.Root.activeSelf);
+                _path.Place(start, finish);
+                Assert.IsFalse(_path.Root.activeSelf);
+            }
         }
 
         [Test]
@@ -125,30 +129,84 @@ namespace IndoorAr.Tests
         }
 
         [Test]
-        public void HudHidesTheScreenArrowWhileThePathIsShownButKeepsTheGuidanceText()
+        public void RenderPoseSwitchesBetweenRibbonAndArrowWithoutReplacingControls()
         {
-            var cameraObject = new GameObject("Camera", typeof(Camera));
             var root = new GameObject("HUD");
             try
             {
+                var end = Vector3.forward * .25f;
+                AimAt(Vector3.zero, end);
+                _path.Place(Vector3.zero, end);
+                var renderer = _path.Root.GetComponent<MeshRenderer>();
                 var hud = root.AddComponent<IndoorHud>();
-                hud.Initialize(cameraObject.GetComponent<Camera>());
-                var view = MockIndoorRoute.Snapshot(IndoorHudPreview.OffScreenDirection, 1);
-                view.PathShown = false;
-                hud.Show(view);
-                var arrowTexts = root.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray();
-                CollectionAssert.Contains(root.GetComponentsInChildren<Transform>(true).Select(t => t.name).ToArray(), "Guide arrow");
+                hud.Initialize(_camera);
+                var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1);
+                view.FollowingRoute = true;
+                hud.Show(view, _path);
+                var area = root.transform.Find("HUD Canvas/Safe area");
+                var arrow = area.Find("Guide arrow");
+                var title = area.Find("Title").GetComponent<UnityEngine.UI.Text>();
+                var exit = area.Find("Exit");
+                var here = area.Find("Here");
+                Assert.IsTrue(renderer.enabled);
+                Assert.IsFalse(arrow.gameObject.activeSelf);
+                Assert.AreEqual("Follow the route", title.text);
 
-                view.PathShown = true;
-                hud.Show(view);
-                var names = root.GetComponentsInChildren<Transform>(true).Select(t => t.name).ToArray();
-                CollectionAssert.DoesNotContain(names, "Guide arrow");
-                CollectionAssert.AreEqual(arrowTexts, root.GetComponentsInChildren<UnityEngine.UI.Text>().Select(t => t.text).ToArray(),
-                    "only the arrow is replaced; title, detail and the look-this-way cue stay");
-                CollectionAssert.Contains(arrowTexts, "I'm here");
-                Assert.IsTrue(arrowTexts.Any(t => t.Contains("Look this way")));
+                _camera.transform.rotation = Quaternion.identity;
+                RenderPose(hud);
+                Assert.IsFalse(renderer.enabled);
+                Assert.IsTrue(arrow.gameObject.activeSelf);
+                Assert.AreEqual("Follow the arrow", title.text);
+                Assert.AreSame(exit, area.Find("Exit"));
+                Assert.AreSame(here, area.Find("Here"));
+
+                hud.Show(view, _path);
+                Assert.AreSame(arrow, area.Find("Guide arrow"));
+                Assert.AreSame(exit, area.Find("Exit"));
+                Assert.AreSame(here, area.Find("Here"));
+
+                AimAt(Vector3.zero, end);
+                RenderPose(hud);
+                Assert.IsTrue(renderer.enabled);
+                Assert.IsFalse(arrow.gameObject.activeSelf);
+                Assert.AreEqual("Follow the route", title.text);
             }
-            finally { Object.DestroyImmediate(root); Object.DestroyImmediate(cameraObject); }
+            finally { Object.DestroyImmediate(root); }
         }
+
+        [Test]
+        public void SubpixelRibbonAtTheViewportEdgeKeepsTheArrow()
+        {
+            var root = new GameObject("HUD");
+            try
+            {
+                var end = Vector3.forward * .25f;
+                _camera.orthographic = true;
+                _camera.orthographicSize = .5f;
+                _camera.transform.SetPositionAndRotation(new Vector3(0f, 1.5f, -1f), Quaternion.Euler(45f, 0f, 0f));
+                var tip = end + Vector3.up * IndoorRoutePath.LiftM;
+                var offset = _camera.WorldToViewportPoint(tip).y - .25f / _target.height;
+                _camera.transform.position += _camera.transform.up * offset;
+                Assert.That(_camera.WorldToViewportPoint(tip).y * _target.height, Is.EqualTo(.25f).Within(.01f));
+
+                _path.Place(Vector3.zero, end);
+                var hud = root.AddComponent<IndoorHud>();
+                hud.Initialize(_camera);
+                var view = MockIndoorRoute.Snapshot(IndoorHudPreview.DirectionToRoom, 1);
+                view.FollowingRoute = true;
+                hud.Show(view, _path);
+                var arrow = root.transform.Find("HUD Canvas/Safe area/Guide arrow").gameObject;
+                Assert.IsTrue(arrow.activeSelf);
+
+                _camera.transform.position -= _camera.transform.up * .05f;
+                RenderPose(hud);
+                Assert.IsFalse(arrow.activeSelf, "several visible pixels restore the ribbon");
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        void RenderPose(IndoorHud hud) =>
+            typeof(IndoorHud).GetMethod("RefreshForRender", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(hud, new object[] { default(UnityEngine.Rendering.ScriptableRenderContext), _camera });
     }
 }

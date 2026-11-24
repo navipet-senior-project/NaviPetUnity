@@ -424,7 +424,7 @@ namespace IndoorAr.Tests
                 var projectedMarker = (RectTransform)area.Find(outdoor ? "Building pin" : "Pin label");
                 var before = projectedMarker.anchoredPosition.x;
                 camera.transform.position = Vector3.right;
-                typeof(IndoorHud).GetMethod("ProjectPin", BindingFlags.Instance | BindingFlags.NonPublic)
+                typeof(IndoorHud).GetMethod("RefreshForRender", BindingFlags.Instance | BindingFlags.NonPublic)
                     .Invoke(hud, new object[] { default(UnityEngine.Rendering.ScriptableRenderContext), camera });
                 RectTransformUtility.ScreenPointToLocalPointInRectangle(area,
                     camera.WorldToScreenPoint(view.LabelAnchor.Value), null, out var at);

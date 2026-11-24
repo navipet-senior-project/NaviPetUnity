@@ -14,9 +14,11 @@ namespace IndoorAr
         public const float LiftM = .02f;
         public const float TileM = 1f;
         const float MinWidthM = .04f;
+        const float MinCoveragePixels = 4f;
 
         readonly GameObject _object;
         readonly Mesh _mesh;
+        readonly MeshRenderer _renderer;
         readonly Material _material;
         readonly Texture2D _texture;
         readonly Vector3[] _corners =
@@ -48,24 +50,23 @@ namespace IndoorAr
                 _material = new Material(shader) { mainTexture = _texture, name = "Route path" };
             }
             _object.AddComponent<MeshFilter>().sharedMesh = _mesh;
-            var renderer = _object.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = _material;
-            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            renderer.receiveShadows = false;
+            _renderer = _object.AddComponent<MeshRenderer>();
+            _renderer.sharedMaterial = _material;
+            _renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _renderer.receiveShadows = false;
+            _renderer.enabled = false;
             _object.SetActive(false);
         }
 
-        public bool Show(Vector3 start, Vector3 end, Camera camera, IndoorWalkGrid grid = null)
+        public void Place(Vector3 start, Vector3 end, IndoorWalkGrid grid = null)
         {
-            var shown = Place(start, end, camera, grid);
-            if (_object.activeSelf != shown) _object.SetActive(shown);
-            return shown && _object.activeInHierarchy;
+            var placed = TryPlace(start, end, grid);
+            if (_object.activeSelf != placed) _object.SetActive(placed);
         }
 
-        bool Place(Vector3 start, Vector3 end, Camera camera, IndoorWalkGrid grid)
+        bool TryPlace(Vector3 start, Vector3 end, IndoorWalkGrid grid)
         {
-            if (_material == null || camera == null || !Finite(start) || !Finite(end)
-                || (camera.cullingMask & (1 << _object.layer)) == 0) return false;
+            if (_material == null || !Finite(start) || !Finite(end)) return false;
 
             start.y = end.y;
             var direction = end - start;
@@ -81,7 +82,6 @@ namespace IndoorAr
             var transform = _object.transform;
             transform.SetLocalPositionAndRotation(start + Vector3.up * LiftM, Quaternion.LookRotation(direction));
             transform.localScale = new Vector3(width, 1f, length);
-            if (!InView(camera)) return false;
 
             var tiles = Mathf.Max(1, Mathf.RoundToInt(length / TileM));
             if (tiles != _tiles)
@@ -91,6 +91,14 @@ namespace IndoorAr
                 _tiles = tiles;
             }
             return true;
+        }
+
+        internal bool RefreshVisibility(Camera camera)
+        {
+            if (_object == null || !_object.activeInHierarchy) return false;
+            var visible = camera != null && (camera.cullingMask & (1 << _object.layer)) != 0 && InView(camera);
+            if (_renderer.enabled != visible) _renderer.enabled = visible;
+            return visible;
         }
 
         bool InView(Camera camera)
@@ -119,10 +127,20 @@ namespace IndoorAr
                 if (count < 3) return false;
                 (input, output) = (output, input);
             }
-            var area = Vector3.zero;
-            for (var i = 1; i + 1 < count; i++)
-                area += Vector3.Cross(input[i] - input[0], input[i + 1] - input[0]);
-            return area.sqrMagnitude > 0f;
+            var pixelSize = new Vector2(camera.scaledPixelWidth, camera.scaledPixelHeight);
+            var first = (Vector2)camera.WorldToViewportPoint(input[0]);
+            var previousPixel = Vector2.zero;
+            var twiceArea = 0f;
+            var longestEdge = 0f;
+            for (var i = 1; i < count; i++)
+            {
+                var pixel = Vector2.Scale((Vector2)camera.WorldToViewportPoint(input[i]) - first, pixelSize);
+                twiceArea += previousPixel.x * pixel.y - previousPixel.y * pixel.x;
+                longestEdge = Mathf.Max(longestEdge, (pixel - previousPixel).magnitude);
+                previousPixel = pixel;
+            }
+            longestEdge = Mathf.Max(longestEdge, previousPixel.magnitude);
+            return longestEdge >= MinCoveragePixels && Mathf.Abs(twiceArea) >= 2f * MinCoveragePixels * longestEdge;
         }
 
         public void Hide() => _object.SetActive(false);

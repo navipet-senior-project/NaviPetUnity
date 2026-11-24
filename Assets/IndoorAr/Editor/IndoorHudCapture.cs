@@ -76,9 +76,9 @@ namespace IndoorAr.Editor
                             path = new IndoorRoutePath(null);
                             view.FollowingRoute = true;
                             view.DistanceM = Vector3.Distance(start, end);
-                            view.PathShown = path.Show(start, end, camera);
+                            path.Place(start, end);
                         }
-                        hud.Show(view);
+                        hud.Show(view, path);
                     }
                     Canvas.ForceUpdateCanvases();
                     camera.Render();
