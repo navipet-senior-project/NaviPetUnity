@@ -1000,6 +1000,39 @@ public class IndoorArRunnerTests
         LogAssert.NoUnexpectedReceived();
     }
 
+    [Test]
+    public void SecondMultiSetCandidateOnAnotherFloorPinsWithoutAnotherRetry()
+    {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+            ",\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":0," +
+            "\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":0}}";
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        var camera = new GameObject("AR Camera", typeof(Camera)).GetComponent<Camera>();
+        camera.transform.SetParent(_host.transform, false);
+        var grid = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+        camera.transform.localPosition = Vector3.up * (IndoorWalkGrid.ForFloor(grid, 2).FloorY + 1.5f);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camera);
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        localizer.Authenticate();
+
+        LogAssert.Expect(LogType.Log, "[IndoorAr] floor conflict sign=none pose=2");
+        Assert.IsFalse((bool)Call(runner, "IsCandidateMultiSetPoseAllowed", localizer.MapSpace));
+        Assert.IsFalse(session.WasPinned);
+        Assert.AreEqual(1, session.TrustedStartFloor);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(2, localizer.AttemptCount);
+
+        Assert.IsTrue((bool)Call(runner, "IsCandidateMultiSetPoseAllowed", localizer.MapSpace));
+        localizer.CompleteLocalized(.73f);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        Assert.AreEqual(0, session.TrustedStartFloor);
+        Assert.AreEqual(2, session.Queries);
+    }
+
     [TestCase("signConflict")]
     [TestCase("below")]
     [TestCase("above")]

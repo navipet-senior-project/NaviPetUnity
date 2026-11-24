@@ -88,7 +88,9 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 
 ## Floor-change pressure
 
-Unity reads the phone barometer itself (`IndoorArPressure.mm`, Core Motion altimeter, linked as `CoreMotion`; nothing crosses the host bridge). The host app must keep `NSMotionUsageDescription` in its Info.plist. If Motion & Fitness access is refused or the phone has no barometer there are no readings and the floor policy is unchanged. Readings only release a stale floor sign after settled pressure moves 0.30 hPa or more since the sign was read; they never name a floor and never reject a pose. The thresholds come from one iPhone in one building ([constants](../Assets/IndoorAr/Scripts/IndoorFloorBarometer.cs)). Not verified: the exported `UnityFramework` linking CoreMotion, the permission prompt text, and readings on a device.
+Unity reads the phone barometer through the Core Motion altimeter in `IndoorArPressure.mm`. Raw pressure stays in Unity. The host app must keep `NSMotionUsageDescription` in its Info.plist. If Motion & Fitness access is refused or the phone lacks a barometer, the remaining floor evidence rules still apply. A settled change of at least 0.30 hPa can release a stale floor sign or the trusted start-floor veto. Pressure never identifies a floor or directly rejects a pose.
+
+Unity uses its first settled window after launch for the trusted start-floor baseline. A move before that window settles can be missed. A sign confirmed before pressure settles must be confirmed again during a settled window before pressure can release it. The thresholds come from one iPhone in one building. Exported `UnityFramework` linking, permission behavior, and device readings remain unverified. See the [floor evidence contract](floor-evidence-contract.md) and [calibrated constants](../Assets/IndoorAr/Scripts/IndoorFloorBarometer.cs).
 
 ## Not verified here
 

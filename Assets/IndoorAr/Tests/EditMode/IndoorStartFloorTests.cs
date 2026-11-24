@@ -9,6 +9,9 @@ public class IndoorStartFloorTests
     static readonly (int Floor, float Y)[] Floors = { (1, -2f), (2, 2.2f) };
     const float Floor1CameraY = 0f, Floor2CameraY = 4f;
     static readonly IndoorRoomLandmark Sign215 = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
+    const string HostRequest = "{\"schemaVersion\":2,\"room\":\"215\",\"doorKey\":\"VEC215\",\"floor\":\"2\"," +
+        "\"position\":{\"x\":1,\"y\":2,\"z\":3},\"headingDeg\":0,\"mapCode\":\"MSET_X\",\"frame\":\"multiset-mapset\"," +
+        "\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":42,\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":1.5}}";
 
     static IndoorArRequest Request(string startFloor = "1", float ageS = 30f, bool settled = true, bool moved = false,
         float sampleAgeS = 1f, bool summary = true, int version = 1) => new IndoorArRequest
@@ -61,6 +64,10 @@ public class IndoorStartFloorTests
     [TestCase("1", 1300f, true, false, 1f, true, TestName = "confirmation too old")]
     [TestCase("1", -5f, true, false, 1f, true, TestName = "negative age")]
     [TestCase("1", 30f, true, false, 60f, true, TestName = "stale pressure sample")]
+    [TestCase("1", float.NaN, true, false, 1f, true)]
+    [TestCase("1", 30f, true, false, float.NaN, true)]
+    [TestCase("1", float.PositiveInfinity, true, false, 1f, true)]
+    [TestCase("1", 30f, true, false, float.NegativeInfinity, true)]
     public void AnUnvouchedStartFloorIsIgnored(string floor, float ageS, bool settled, bool moved, float sampleAgeS, bool summary)
     {
         var s = Localizing(Request(floor, ageS, settled, moved, sampleAgeS, summary));
@@ -142,14 +149,26 @@ public class IndoorStartFloorTests
     [Test]
     public void StartFloorFieldsParseFromTheHostRequestAndLegacyHostsStillParse()
     {
-        const string host = "{\"schemaVersion\":2,\"room\":\"215\",\"doorKey\":\"VEC215\",\"floor\":\"2\"," +
-            "\"position\":{\"x\":1,\"y\":2,\"z\":3},\"headingDeg\":0,\"mapCode\":\"MSET_X\",\"frame\":\"multiset-mapset\"," +
-            "\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":42,\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":1.5}}";
-        Assert.IsTrue(IndoorArContract.TryParseRequest(host, out var request));
+        Assert.IsTrue(IndoorArContract.TryParseRequest(HostRequest, out var request));
         Assert.AreEqual(1, Localizing(request).TrustedStartFloor);
-        Assert.IsTrue(IndoorArContract.TryParseRequest(host.Replace(",\"floorEvidenceVersion\":1,\"startFloor\":\"1\"", ",\"x\":0"), out var noFloor));
-        Assert.AreEqual(0, Localizing(noFloor).TrustedStartFloor);
         Assert.IsTrue(IndoorArContract.TryParseRequest(IndoorArBridge.EditorRequestJson, out var legacy));
         Assert.AreEqual(0, Localizing(legacy).TrustedStartFloor, "an old host sends nothing and nothing changes");
+    }
+
+    [TestCase(",\"floorEvidenceVersion\":1", "")]
+    [TestCase(",\"startFloor\":\"1\"", "")]
+    [TestCase(",\"startFloorAgeS\":42", "")]
+    [TestCase(",\"moved\":false", "")]
+    [TestCase(",\"sampleAgeS\":1.5", "")]
+    [TestCase("\"settled\":true,", "")]
+    [TestCase("\"settled\":true,\"moved\":false,\"sampleAgeS\":1.5", "\"settled\":true")]
+    [TestCase("\"startFloorAgeS\":42", "\"startFloorAgeS\":\"NaN\"")]
+    [TestCase("\"sampleAgeS\":1.5", "\"sampleAgeS\":\"Infinity\"")]
+    public void IncompleteOrInvalidHostEvidenceDoesNotVetoAPose(string field, string replacement)
+    {
+        Assert.IsTrue(IndoorArContract.TryParseRequest(HostRequest.Replace(field, replacement), out var request));
+        var session = Localizing(request);
+        Assert.AreEqual(0, session.TrustedStartFloor);
+        Assert.IsFalse(session.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
 }

@@ -38,7 +38,7 @@ namespace IndoorAr
         bool _startAnchored;
         int _lastConflictQueries = -1;
         int _startConflicts;
-        public const int MaxStartConflicts = 2;
+        const int MaxStartConflicts = 2;
 
         public IndoorArSession(IndoorArRequest request, string buildMapCode, bool allowSignRecovery = false)
         {
@@ -68,10 +68,10 @@ namespace IndoorAr
         /// </summary>
         public IndoorRoomLandmark FloorSign => _signSuperseded ? null : SignRoom;
         /// <summary>Relative pressure since the last sign. Only ever releases a stale sign, never names a floor.</summary>
-        public IndoorFloorBarometer Barometer { get; } = new IndoorFloorBarometer();
+        IndoorFloorBarometer Barometer { get; } = new IndoorFloorBarometer();
 
         /// <summary>Confirmed starting floor the host vouched for with settled, unchanged pressure; 0 when absent or distrusted.</summary>
-        public int StartFloor { get; }
+        int StartFloor { get; }
         /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
         public int TrustedStartFloor => _startSuperseded || FloorSign != null ? 0 : StartFloor;
 
@@ -80,9 +80,9 @@ namespace IndoorAr
             var summary = request?.pressureSinceStart;
             if (request == null || request.floorEvidenceVersion != IndoorArContract.FloorEvidenceVersion
                 || !int.TryParse(request.startFloor, out var floor) || floor <= 0
-                || request.startFloorAgeS < 0f || request.startFloorAgeS > IndoorFloorBarometer.MaxAnchorAgeS
+                || request.startFloorAgeS is not (>= 0f and <= IndoorFloorBarometer.MaxAnchorAgeS)
                 || summary == null || !summary.settled || summary.moved
-                || summary.sampleAgeS < 0f || summary.sampleAgeS > IndoorFloorBarometer.MaxSampleGapS) return 0;
+                || summary.sampleAgeS is not (>= 0f and <= IndoorFloorBarometer.MaxSampleGapS)) return 0;
             return floor;
         }
 

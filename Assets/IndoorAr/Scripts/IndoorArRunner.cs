@@ -110,17 +110,6 @@ namespace IndoorAr
         /// <summary>Replaces the bundled sign calibration. Call before Start.</summary>
         public void SetSignCalibration(IndoorSignCalibration calibration) => _signCalibration = calibration;
 
-        // Pressure comes from the player's own sensor (see IndoorArPressure), so no host or bridge change is needed.
-        // The value is never logged.
-        void FeedPressure(float hpa)
-        {
-            if (_session == null || _delivered) return;
-            var hadSign = _session.FloorSign != null;
-            _session.OnPressure(hpa);
-            if (hadSign && _session.FloorSign == null)
-                Debug.Log("[IndoorAr] floor sign superseded by pressure change");
-        }
-
         IEnumerator Start()
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
@@ -216,8 +205,8 @@ namespace IndoorAr
             }
             if (!Application.isEditor && ArSessionLifecycle.LoaderActive) ArXrInputProbe.Probe();
             _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
-            IndoorArPressure.Start();
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
+            IndoorArPressure.Start();
             _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);
             _floorHeights = _grids.Select(entry => (entry.Key, entry.Value.FloorY)).ToArray();
             _walkGrid = int.TryParse(request.floor, out var floor) ? Grid(floor) : null;
@@ -268,7 +257,7 @@ namespace IndoorAr
             }
             UpdateSignOcr();
             if (_session == null || _delivered) return;
-            if (IndoorArPressure.TryRead(out var hpa)) FeedPressure(hpa);
+            if (IndoorArPressure.TryRead(out var hpa)) _session.OnPressure(hpa);
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
             if (_localizeWhenTracking && _session.State == IndoorArState.Localizing
@@ -440,13 +429,13 @@ namespace IndoorAr
             if (!fromMultiSet) return false;
             if (!_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights)) return false;
             var poseFloor = _session.PoseFloor(cameraInMap.y, _floorHeights);
-            var pose = poseFloor == -1 ? "unsupported" : poseFloor == 0 ? "unknown" : poseFloor.ToString();
-            Debug.Log($"[IndoorAr] floor conflict sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose={pose}");
             if (poseFloor > 0 && _session.TrustedStartFloor > 0)
             {
-                Debug.Log($"[IndoorAr] floor conflict with start floor={_session.TrustedStartFloor} pose={pose}");
                 _session.NoteStartFloorConflict();
+                if (!_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights)) return false;
             }
+            var pose = poseFloor == -1 ? "unsupported" : poseFloor == 0 ? "unknown" : poseFloor.ToString();
+            Debug.Log($"[IndoorAr] floor conflict sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose={pose}");
             if (_session.State == IndoorArState.Localizing) _session.OnNotLocalized();
             return true;
         }
@@ -937,6 +926,7 @@ namespace IndoorAr
             if (_delivered) return;
             EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
+            IndoorArPressure.Stop();
             _requestJson = null;
             StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();

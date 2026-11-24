@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace IndoorAr
@@ -164,9 +166,34 @@ namespace IndoorAr
             {
                 return false;
             }
+            if (parsed.floorEvidenceVersion == FloorEvidenceVersion && !HasCompleteFloorEvidence(json))
+                parsed.pressureSinceStart = null;
             request = parsed;
             return true;
         }
+
+        static bool HasCompleteFloorEvidence(string json)
+        {
+            try
+            {
+                var fields = JObject.Parse(json);
+                var version = fields["floorEvidenceVersion"];
+                return version?.Type == JTokenType.Integer && (double)version == FloorEvidenceVersion
+                    && fields["startFloor"]?.Type == JTokenType.String
+                    && IsFiniteAge(fields["startFloorAgeS"])
+                    && fields["pressureSinceStart"] is JObject pressure
+                    && pressure["settled"]?.Type == JTokenType.Boolean
+                    && pressure["moved"]?.Type == JTokenType.Boolean
+                    && IsFiniteAge(pressure["sampleAgeS"]);
+            }
+            catch (JsonReaderException)
+            {
+                return false;
+            }
+        }
+
+        static bool IsFiniteAge(JToken age) =>
+            age?.Type is JTokenType.Integer or JTokenType.Float && Math.Abs((double)age) <= float.MaxValue;
 
         public const int MaxRouteWaypoints = 1000;
 

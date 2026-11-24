@@ -19,7 +19,9 @@ namespace IndoorAr
         [DllImport("__Internal")] static extern int IndoorArReadPressure(out float hpa);
         static int s_seq;
 #elif UNITY_ANDROID && !UNITY_EDITOR
-        static float s_lastReadS = float.NegativeInfinity;
+        static PressureSensor s_sensor;
+        static double s_lastEventTime;
+        static float s_lastReadS;
 #endif
 
         public static void Start()
@@ -28,8 +30,11 @@ namespace IndoorAr
             s_seq = 0;
             IndoorArPressureStart();
 #elif UNITY_ANDROID && !UNITY_EDITOR
-            var sensor = PressureSensor.current;
-            if (sensor != null && !sensor.enabled) InputSystem.EnableDevice(sensor);
+            s_sensor = PressureSensor.current;
+            if (s_sensor == null) return;
+            s_lastEventTime = s_sensor.lastUpdateTime;
+            s_lastReadS = float.NegativeInfinity;
+            if (!s_sensor.enabled) InputSystem.EnableDevice(s_sensor);
 #endif
         }
 
@@ -38,8 +43,8 @@ namespace IndoorAr
 #if UNITY_IOS && !UNITY_EDITOR
             IndoorArPressureStop();
 #elif UNITY_ANDROID && !UNITY_EDITOR
-            var sensor = PressureSensor.current;
-            if (sensor != null && sensor.enabled) InputSystem.DisableDevice(sensor);
+            if (s_sensor != null && s_sensor.added && s_sensor.enabled) InputSystem.DisableDevice(s_sensor);
+            s_sensor = null;
 #endif
         }
 
@@ -53,10 +58,12 @@ namespace IndoorAr
             s_seq = seq;
             return true;
 #elif UNITY_ANDROID && !UNITY_EDITOR
-            var sensor = PressureSensor.current;
-            if (sensor == null || !sensor.enabled || Time.unscaledTime - s_lastReadS < 1f) return false;
+            if (s_sensor == null || !s_sensor.added || !s_sensor.enabled || Time.unscaledTime - s_lastReadS < 1f) return false;
+            var eventTime = s_sensor.lastUpdateTime;
+            if (eventTime <= s_lastEventTime) return false;
+            s_lastEventTime = eventTime;
             s_lastReadS = Time.unscaledTime;
-            hpa = sensor.atmosphericPressure.ReadValue();
+            hpa = s_sensor.atmosphericPressure.ReadValue();
             return hpa > 0f;
 #else
             return false;
