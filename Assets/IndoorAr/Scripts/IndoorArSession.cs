@@ -93,6 +93,12 @@ namespace IndoorAr
         /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
         public int TrustedStartFloor => _startSuperseded ? 0 : StartFloor;
 
+        /// <summary>
+        /// Floor to narrow the first MultiSet request to: the confirmed sign's, else the trusted start floor, else 0.
+        /// Never the destination. Every later request is unhinted, so a wrong or failed hint costs one retry.
+        /// </summary>
+        public int HintFloor => Queries == 0 ? Math.Max(FloorSign?.Floor ?? TrustedStartFloor, 0) : 0;
+
         long ElapsedMs => (long)(_elapsedS * 1000f);
 
         public void OnArSupport(bool supported)

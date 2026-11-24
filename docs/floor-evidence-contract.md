@@ -2,7 +2,7 @@
 
 Unity implements the floor policy. The Flutter confirmation prompt, pressure capture, and request fields are a separate in-progress dispatch.
 Scope limits, stated up front:
-- This is a floor VETO and RELEASE signal only. It does not name a floor from pressure and it does not send any MultiSet hint. **No MultiSet hints are implemented** (`hintFloorHeight`, `hintMapCodes`, `hintPosition` are unused); they are blocked on a server-keyframe height check and portal map codes.
+- This is a floor VETO and RELEASE signal only. Pressure never names a floor. Unity may narrow only the FIRST MultiSet request with `hintFloorHeight`, a Y band around the trusted floor (a confirmed sign's floor, else the host's unmoved start floor; never the destination `floor`). Every later request is unhinted, so a failed or wrong hint costs one retry (about `NoPoseRetryS`). The band is the walk-grid floor Y minus 0.3 m to plus 3.3 m and is unverified on device: whether the server filters on camera or floor height is not proven, and the band is sized to hold either. `hintMapCodes` is supported but off: the per-map codes are private and nothing in the repo supplies them. `hintPosition` and `hintRadius` are unused.
 - No OCR is involved or changed.
 - Calibrated on one iPhone 14 Plus in one building over one afternoon (stairs and elevator, seated and standing). Not validated on other devices, buildings, days or Android.
 - Unity-only is not a complete feature: the cold-start benefit needs the Flutter work below.

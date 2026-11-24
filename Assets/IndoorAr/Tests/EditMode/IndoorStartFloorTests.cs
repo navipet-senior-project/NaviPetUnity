@@ -173,4 +173,59 @@ public class IndoorStartFloorTests
         Assert.AreEqual(0, session.TrustedStartFloor);
         Assert.IsFalse(session.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
+
+    [Test]
+    public void OnlyTheFirstAttemptIsHintedWithTheTrustedStartFloor()
+    {
+        var s = Localizing(Request());
+        Assert.AreEqual(1, s.HintFloor);
+        s.OnAttemptStarted();
+        Assert.AreEqual(0, s.HintFloor, "every later request is unhinted");
+    }
+
+    [Test]
+    public void AFailedHintedAttemptIsRetriedUnhintedWithoutWaitingForTheTimeout()
+    {
+        var s = Localizing(Request());
+        var retried = 0;
+        s.LocalizeRequested += () => retried++;
+        Assert.AreEqual(1, s.HintFloor);
+        s.OnAttemptStarted();
+        s.OnNotLocalized();
+        s.Tick(IndoorArSession.NoPoseRetryS);
+        Assert.AreEqual(1, retried);
+        Assert.AreEqual(0, s.HintFloor);
+    }
+
+    [Test]
+    public void TheDestinationFloorNeverBecomesAHint()
+    {
+        Assert.AreEqual(0, Localizing(Request(startFloor: null)).HintFloor, "destination is floor 2");
+    }
+
+    [TestCase(true, true, 30f, TestName = "no hint: pressure moved")]
+    [TestCase(false, false, 30f, TestName = "no hint: pressure not settled")]
+    [TestCase(true, false, 1300f, TestName = "no hint: confirmation too old")]
+    public void UnvouchedStartEvidenceGivesNoHint(bool settled, bool moved, float ageS)
+    {
+        Assert.AreEqual(0, Localizing(Request(settled: settled, moved: moved, ageS: ageS)).HintFloor);
+    }
+
+    [Test]
+    public void PressureMovedBeforeTheFirstAttemptDropsTheHint()
+    {
+        var s = Localizing(Request());
+        Feed(s, 0f, 30f);
+        _pressureTime += 25f;
+        Feed(s, -Step, 40f);
+        Assert.AreEqual(0, s.HintFloor);
+    }
+
+    [Test]
+    public void AConfirmedSignFloorWinsOverTheStartFloor()
+    {
+        var s = Localizing(Request());
+        s.OnSignConfirmed(new IndoorRoomLandmark("VEC315", "VEC", "floor_3"));
+        Assert.AreEqual(3, s.HintFloor);
+    }
 }

@@ -1,3 +1,4 @@
+using System.Linq;
 using IndoorAr;
 using MultiSet;
 using NUnit.Framework;
@@ -814,6 +815,58 @@ public class MultiSetLocalizerTests
         TickWithoutEditorFailure(2.5f);
         LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2500 outcome=Ok lockBusy=false lockWaitMs=0 sdkMs=2500");
         ReportSuccess();
+    }
+
+    static string ManagerHint(SingleFrameLocalizationManager manager, string field)
+    {
+        var info = typeof(SingleFrameLocalizationManager).GetField(field,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (info == null) Assert.Ignore("SDK has no " + field);
+        var value = info.GetValue(manager);
+        return value is System.Collections.IEnumerable list && value is not string ? string.Join(",", list.Cast<object>()) : (string)value;
+    }
+
+    [Test]
+    public void FloorHintBecomesAYBandForThatRequestOnlyAndIsClearedNextTime()
+    {
+        MultiSetHint? hint = new MultiSetHint(1, -2f);
+        _adapter.HintProvider = () => hint;
+        LocalizeWithoutEditorFailure();
+        Assert.AreEqual("[-2.3, 1.3]", ManagerHint(_manager, "hintFloorHeight"));
+        Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"), "no map codes are configured");
+        TickWithoutEditorFailure(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=2000 hint=Height");
+        _manager.LocalizationFailure.Invoke();
+
+        hint = null; // the retry
+        LocalizeWithoutEditorFailure();
+        Assert.AreEqual("", ManagerHint(_manager, "hintFloorHeight"), "SDK fields persist, so the retry must clear them");
+        Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"));
+        TickWithoutEditorFailure(1f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=1000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=1000");
+        _manager.LocalizationFailure.Invoke();
+    }
+
+    [Test]
+    public void MapCodeHintNeedsBothAConfiguredCodeAndAHintedFloor()
+    {
+        MultiSetHint? hint = new MultiSetHint(3, 6f);
+        _adapter.HintProvider = () => hint;
+        _adapter.HintMapCodesByFloor = new System.Collections.Generic.Dictionary<int, string[]> { [3] = new[] { "CODE_A", "CODE_B" } };
+        LocalizeWithoutEditorFailure();
+        Assert.AreEqual("CODE_A,CODE_B", ManagerHint(_manager, "hintMapCodes"));
+        Assert.AreEqual("[5.7, 9.3]", ManagerHint(_manager, "hintFloorHeight"));
+        TickWithoutEditorFailure(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=2000 hint=Both");
+        _manager.LocalizationFailure.Invoke();
+
+        hint = new MultiSetHint(1, -2f); // a floor without configured codes sends the band alone
+        LocalizeWithoutEditorFailure();
+        Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"));
+        Assert.AreEqual("[-2.3, 1.3]", ManagerHint(_manager, "hintFloorHeight"));
+        TickWithoutEditorFailure(1f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=1000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=1000 hint=Height");
+        _manager.LocalizationFailure.Invoke();
     }
 
     [Test]

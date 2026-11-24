@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using System.Reflection;
 using MultiSet;
@@ -9,6 +10,28 @@ using UnityEngine.XR.ARFoundation;
 
 namespace IndoorAr
 {
+    /// <summary>
+    /// Floor the first MultiSet request may be narrowed to, from a trusted source only. The Y band is in the MapSet
+    /// frame and spans the floor surface up to <see cref="BandAboveM"/> above it, so it holds either the camera
+    /// or the floor under a stored frame while excluding the adjacent floors (about 4 m apart).
+    /// </summary>
+    public readonly struct MultiSetHint
+    {
+        public const float BandBelowM = 0.3f;
+        public const float BandAboveM = 3.3f;
+
+        public MultiSetHint(int floor, float floorY)
+        {
+            Floor = floor;
+            MinY = floorY - BandBelowM;
+            MaxY = floorY + BandAboveM;
+        }
+
+        public int Floor { get; }
+        public float MinY { get; }
+        public float MaxY { get; }
+    }
+
     /// <summary>
     /// SDK 1.15.2 API verified in MultiSetSDK.dll IL: deferred MultisetSdkManager.LoadConfiguration;
     /// EventManager&lt;EventData&gt; AuthCallBack + AuthSuccess; CheckInternetConnection for offline status.
@@ -25,6 +48,12 @@ namespace IndoorAr
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         static readonly FieldInfo BlurCheckField = typeof(SingleFrameLocalizationManager).GetField("enableBlurCheck",
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        // Hint fields persist on the manager between requests, so every request sets or clears them.
+        // Reflection keeps the approved 1.9.3 rollback buildable; a missing field means no hint is sent.
+        static readonly FieldInfo HintMapCodesField = typeof(SingleFrameLocalizationManager).GetField("hintMapCodes",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        static readonly FieldInfo HintFloorHeightField = typeof(SingleFrameLocalizationManager).GetField("hintFloorHeight",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         static bool s_requestLive;
         static MultiSetLocalizer s_requestOwner;
         static readonly Queue<MultiSetLocalizer> WaitingLocalizers = new Queue<MultiSetLocalizer>();
@@ -39,6 +68,7 @@ namespace IndoorAr
             public double Started, SdkStarted, QueueUpdated, LockWaitS;
             public bool SdkStartedSet;
             public bool Ended;
+            public IndoorArDiagnostics.LocalizationHint Hint;
         }
 
         sealed class SdkCompletionListener
@@ -80,6 +110,13 @@ namespace IndoorAr
         public event Action<float?> Localized;
         public event Action<int> NotLocalized;
         public Func<Transform, bool> CandidatePoseValidator { get; set; }
+        /// <summary>Asked at the start of every request; null means send no hint.</summary>
+        public Func<MultiSetHint?> HintProvider { get; set; }
+        /// <summary>
+        /// Private per-map codes keyed by floor for hintMapCodes. Never committed or logged: nothing fills it in the repo,
+        /// so map-code hinting stays off until a deployment supplies them. Floors 1-2 share one map.
+        /// </summary>
+        public IReadOnlyDictionary<int, string[]> HintMapCodesByFloor { get; set; }
         public event Action<Transform, string, float?> CandidateLocalized;
         public Func<bool> TrackingReady { get; set; } = () => ARSession.state == ARSessionState.SessionTracking;
         public Transform MapSpace => mapSpace;
@@ -238,8 +275,27 @@ namespace IndoorAr
             trace.SdkStarted = Clock();
             trace.SdkStartedSet = true;
             _activeTrace = trace;
+            trace.Hint = ApplyHint(HintProvider?.Invoke());
             AttemptStarted?.Invoke(attemptId);
             manager.LocalizeFrame();
+        }
+
+        IndoorArDiagnostics.LocalizationHint ApplyHint(MultiSetHint? hint)
+        {
+            string[] codes = null;
+            if (hint is { } floor) HintMapCodesByFloor?.TryGetValue(floor.Floor, out codes);
+            var sendCodes = codes is { Length: > 0 };
+            var sendHeight = hint.HasValue;
+            if (HintMapCodesField?.FieldType == typeof(List<string>))
+                HintMapCodesField.SetValue(manager, sendCodes ? new List<string>(codes) : new List<string>());
+            else sendCodes = false;
+            if (HintFloorHeightField?.FieldType == typeof(string))
+                HintFloorHeightField.SetValue(manager, sendHeight
+                    ? string.Format(CultureInfo.InvariantCulture, "[{0:0.##}, {1:0.##}]", hint.Value.MinY, hint.Value.MaxY)
+                    : "");
+            else sendHeight = false;
+            return sendCodes ? sendHeight ? IndoorArDiagnostics.LocalizationHint.Both : IndoorArDiagnostics.LocalizationHint.Map
+                : sendHeight ? IndoorArDiagnostics.LocalizationHint.Height : IndoorArDiagnostics.LocalizationHint.None;
         }
 
         void OnLocalized(LocalizationSuccessResponse result)
@@ -375,7 +431,8 @@ namespace IndoorAr
             Debug.Log(IndoorArDiagnostics.LocalizationRequestLine(trace.Attempt,
                 IndoorArDiagnostics.LocalizationRequestKind.MultiSet, (long)((now - trace.Started) * 1000), outcome,
                 trace.LockBusy, (long)(trace.LockWaitS * 1000),
-                trace.SdkStartedSet ? (long)((now - trace.SdkStarted) * 1000) : 0));
+                trace.SdkStartedSet ? (long)((now - trace.SdkStarted) * 1000) : 0,
+                trace.Hint == IndoorArDiagnostics.LocalizationHint.None ? null : trace.Hint));
         }
 
         void EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome outcome)

@@ -120,6 +120,7 @@ namespace IndoorAr
             if (localizerBehaviour is MultiSetLocalizer multiSet)
             {
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
+                multiSet.HintProvider = FloorHint;
             }
             if (localizationMode == IndoorLocalizationMode.SignFirst)
             {
@@ -451,6 +452,16 @@ namespace IndoorAr
         {
             if (_session == null || _session.State is not (IndoorArState.Localizing or IndoorArState.Pinned)) return false;
             return !_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights);
+        }
+
+        // Only a floor with a known surface height is hinted; anything else sends no hint.
+        MultiSetHint? FloorHint()
+        {
+            var floor = _session?.HintFloor ?? 0;
+            if (floor <= 0 || _floorHeights == null) return null;
+            foreach (var (supported, floorY) in _floorHeights)
+                if (supported == floor) return new MultiSetHint(floor, floorY);
+            return null;
         }
 
         IndoorWalkGrid Grid(int floor) => _grids.GetValueOrDefault(floor);

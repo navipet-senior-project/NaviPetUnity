@@ -152,18 +152,23 @@ namespace IndoorAr
         /// <summary>Kind of one localization request. Signs are the OCR hold; MultiSet is the VPS request that owns the process lock.</summary>
         public enum LocalizationRequestKind { Sign, MultiSet }
 
+        /// <summary>Which hint a MultiSet request carried. Kinds only: never a floor, height or map code.</summary>
+        public enum LocalizationHint { None, Map, Height, Both }
+
         /// <summary>How one request ended. Timing alone does not identify the cause of a delay.</summary>
         public enum LocalizationOutcome { Ok, GenericFailure, Rejected, Timeout, Cancelled, Superseded, Late, Ignored }
 
         /// <param name="lockBusy">Another request held the process-wide lock or preceded this request in its queue; null for signs.</param>
         /// <param name="lockWaitMs">Time queued behind the lock; null for signs.</param>
         /// <param name="sdkMs">Time the SDK call was in flight; null for signs.</param>
+        /// <param name="hint">Hint kind the MultiSet request carried; omitted when it carried none, so a request without it is unhinted (every attempt above 1 is).</param>
         public static string LocalizationRequestLine(int attempt, LocalizationRequestKind kind, long elapsedMs,
-            LocalizationOutcome outcome, bool? lockBusy, long? lockWaitMs, long? sdkMs) =>
+            LocalizationOutcome outcome, bool? lockBusy, long? lockWaitMs, long? sdkMs, LocalizationHint? hint = null) =>
             $"[IndoorAr] localization request attempt={attempt} kind={kind} elapsedMs={elapsedMs} outcome={outcome}"
             + $" lockBusy={(lockBusy.HasValue ? Bool(lockBusy.Value) : "na")}"
             + $" lockWaitMs={(lockWaitMs.HasValue ? lockWaitMs.Value.ToString(CultureInfo.InvariantCulture) : "na")}"
-            + $" sdkMs={(sdkMs.HasValue ? sdkMs.Value.ToString(CultureInfo.InvariantCulture) : "na")}";
+            + $" sdkMs={(sdkMs.HasValue ? sdkMs.Value.ToString(CultureInfo.InvariantCulture) : "na")}"
+            + (hint.HasValue ? $" hint={hint.Value}" : "");
 
         // ---- DX5: waypoint churn and route blocked -------------------------------------------------------------
 
