@@ -78,7 +78,7 @@ Without valid launch evidence Unity leaves pressure sampling, the start-floor ve
 
 - **Automated.** Unity EditMode tests cover the contract, the session state machine, localizer gating, floor evidence, grid routing, sign tracking and HUD logic. CI runs them on pull requests when Unity license secrets are set ([CI notes](docs/CI.md)); it does not build the Android library.
 - **Not verified on a device:** the exported Android AAR and iOS framework with the Flutter host; physical route and arrow alignment with real doorways; MultiSet pose accuracy against surveyed points; ML Kit OCR on phones; the native barometer on both platforms; world pin and ribbon behavior; memory and battery.
-- **Not available yet:** sign-based poses (empty calibration), floors 4 and 5, verified step-free routing, a distance-based arrival check, and end-to-end height hinting. The Flutter app on its main branch does not yet send floor evidence, so hinting and the start-floor veto stay inactive until it does. The hint's server and SDK behavior is unconfirmed.
+- **Not available yet:** sign-based poses (empty calibration), floors 4 and 5, verified step-free routing, and a distance-based arrival check. The Flutter app's main branch sends floor evidence after the user confirms a start floor, but end-to-end height hinting and the start-floor veto have not been verified on a device, and the hint's server and SDK behavior is unconfirmed.
 - Metrics and the device checks still required are listed in the [baseline](Assets/IndoorAr/BASELINE.md).
 
 ## Building Directory Index Guide:
