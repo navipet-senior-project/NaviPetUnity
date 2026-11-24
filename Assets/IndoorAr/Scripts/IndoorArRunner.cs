@@ -52,7 +52,7 @@ namespace IndoorAr
         bool _stateLogged;
         bool _armingEntry;
         bool _localizeWhenTracking;
-        double _sessionStarted;
+        float _sessionStarted;
         double _requestObservedAt;
         IndoorArBaseline _baseline;
         string _baselineLog;
@@ -177,7 +177,7 @@ namespace IndoorAr
         {
             var restart = _started;
             _started = true;
-            _sessionStarted = Time.realtimeSinceStartupAsDouble;
+            _sessionStarted = Time.realtimeSinceStartup;
             _requestObservedAt = observedAt;
             _stateLogged = false;
             EndLimitedEpisode(LimitedEpisodeEnd.SessionReplaced);
@@ -241,10 +241,7 @@ namespace IndoorAr
             _session.LocalizeRequested += RequestLocalization;
             _session.FallbackStopped += StopMultiSetFallback;
             if (localizerBehaviour is MultiSetLocalizer candidateLocalizer)
-            {
                 candidateLocalizer.CandidateLocalized += OnMultiSetCandidateLocalized;
-                candidateLocalizer.HintedNoPose += OnHintedNoPose;
-            }
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += OnAttemptStarted;
@@ -312,7 +309,7 @@ namespace IndoorAr
                 _loggedState = _session.State;
                 _stateLogged = true;
                 if (!Application.isEditor)
-                    Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartupAsDouble - _sessionStarted) * 1000)} attempts={_session.Queries} multisetFallback={MultiSetFallbackStatus()}");
+                    Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)} attempts={_session.Queries} multisetFallback={MultiSetFallbackStatus()}");
             }
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
             if ((LiveDoorHud.AuthFailed(_session) || LiveDoorHud.StepFreeUnavailable(_session)) && _failureLeft < 0f)
@@ -359,7 +356,7 @@ namespace IndoorAr
             if (_localizeWhenTracking) return;
             _baseline?.NoteAttemptStarted(NowMs());
             if (!Application.isEditor)
-                Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartupAsDouble - _sessionStarted) * 1000)}");
+                Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");
             _localizer.Localize();
             LogBaseline();
         }
@@ -373,11 +370,6 @@ namespace IndoorAr
         void OnNotLocalized(int attemptId)
         {
             if (_sessionAttempts.Remove(attemptId)) _session?.OnNotLocalized();
-        }
-
-        void OnHintedNoPose(int attemptId)
-        {
-            if (_sessionAttempts.Contains(attemptId)) _session?.OnHintedNoPose();
         }
 
         void OnLocalizedObserved(float? confidence)
@@ -418,7 +410,7 @@ namespace IndoorAr
         void OnSignRead(string text, IndoorRoomMatch match, float recognitionStarted, IndoorSignObservation observation)
         {
             if (!signLocalization || _session == null || _delivered || _signs == null
-                || recognitionStarted < (float)_sessionStarted) return;
+                || recognitionStarted < _sessionStarted) return;
             var now = Time.unscaledTime;
             var ocrMs = (long)((Time.realtimeSinceStartup - recognitionStarted) * 1000);
             _baseline?.NoteOcrRead(ocrMs);
@@ -942,10 +934,7 @@ namespace IndoorAr
                 _hud.RetryRequested -= OnHudRetry;
             }
             if (localizerBehaviour is MultiSetLocalizer multiSet)
-            {
                 multiSet.CandidateLocalized -= OnMultiSetCandidateLocalized;
-                multiSet.HintedNoPose -= OnHintedNoPose;
-            }
             if (_session == null || _localizer == null) return;
             _session.LocalizeRequested -= RequestLocalization;
             _session.FallbackStopped -= StopMultiSetFallback;

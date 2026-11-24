@@ -378,7 +378,7 @@ public class IndoorArRunnerTests
         localizer.CompleteWithoutPose(oldAttempt);
 
         var match = IndoorRoomIdentityMatcher.MatchSign("VEC 120", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
-        var started = (float)Field<double>(runner, "_sessionStarted");
+        var started = Field<float>(runner, "_sessionStarted");
         var onSignRead = runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic);
         onSignRead.Invoke(runner, new object[] { "VEC 120", match, started, null });
         onSignRead.Invoke(runner, new object[] { "VEC 120", match, started, null });
@@ -397,7 +397,7 @@ public class IndoorArRunnerTests
         var session = Field<IndoorArSession>(runner, "_session");
         var match = IndoorRoomIdentityMatcher.MatchSign("VEC 119", "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"119\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
         runner.GetType().GetMethod("OnSignRead", BindingFlags.Instance | BindingFlags.NonPublic)
-            .Invoke(runner, new object[] { "VEC 119", match, (float)Field<double>(runner, "_sessionStarted") - 1f, null });
+            .Invoke(runner, new object[] { "VEC 119", match, Field<float>(runner, "_sessionStarted") - 1f, null });
         Assert.IsNull(session.SignRoom);
     }
 
@@ -933,7 +933,7 @@ public class IndoorArRunnerTests
             "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
         var camera = sign.centerInMap + new Vector3(-1.2f, 0f, .2f);
         var observation = IndoorSignPoseTests.Observe(sign, camera, Quaternion.Euler(0f, 100f, 0f), SystemInfo.deviceModel);
-        var started = (float)Field<double>(runner, "_sessionStarted");
+        var started = Field<float>(runner, "_sessionStarted");
         Call(runner, "OnSignRead", "VEC120", match, started, null);
         Call(runner, "OnSignRead", "VEC120", match, started, new IndoorSignObservation { RoomId = "VEC120" });
         Assert.AreEqual(IndoorArState.Localizing, session.State);
@@ -986,7 +986,7 @@ public class IndoorArRunnerTests
             Assert.AreEqual(IndoorArState.Localizing, session.State);
 
             var match = IndoorRoomIdentityMatcher.MatchSign("VEC 127", directory);
-            var started = (float)Field<double>(runner, "_sessionStarted");
+            var started = Field<float>(runner, "_sessionStarted");
             Call(runner, "OnSignRead", "VEC 127", match, started, null);
             Call(runner, "OnSignRead", "VEC 127", match, started, null);
             Assert.AreEqual("VEC127", session.SignRoom.Id);
@@ -1055,7 +1055,7 @@ public class IndoorArRunnerTests
             session.OnArSupport(true);
             first.Authenticate();
             var match = IndoorRoomIdentityMatcher.MatchSign("VEC 127", directory);
-            var started = (float)Field<double>(runner, "_sessionStarted");
+            var started = Field<float>(runner, "_sessionStarted");
             Call(runner, "OnSignRead", "VEC 127", match, started, null);
             Call(runner, "OnSignRead", "VEC 127", match, started, null);
             first.Tick(SignFirstLocalizer.HoldS);
@@ -1137,7 +1137,7 @@ public class IndoorArRunnerTests
         var rootPosition = _host.transform.position;
         var match = IndoorRoomIdentityMatcher.MatchSign("VEC 120",
             "{\"buildingId\":\"VEC\",\"objects\":[{\"id\":\"VEC120\",\"type\":\"door\",\"floorId\":\"floor_1\"}]}");
-        Call(runner, "OnSignRead", "VEC 120", match, (float)Field<double>(runner, "_sessionStarted"), observation);
+        Call(runner, "OnSignRead", "VEC 120", match, Field<float>(runner, "_sessionStarted"), observation);
         Assert.IsNull(session.SignRoom);
         Assert.AreEqual(rootPosition, _host.transform.position);
         Assert.AreEqual(0, inner.AttemptCount);
@@ -1691,7 +1691,7 @@ public class IndoorArRunnerTests
         session.OnAuthenticated();
         var directory = System.IO.File.ReadAllText(
             System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
-        var started = (float)Field<double>(runner, "_sessionStarted");
+        var started = Field<float>(runner, "_sessionStarted");
         const string occupancy = "MAXIMUM OCCUPANCY FOR THIS\nROOM\n119\nPERSONS";
         foreach (var text in new[] { occupancy, occupancy, "119", "119" })
         {

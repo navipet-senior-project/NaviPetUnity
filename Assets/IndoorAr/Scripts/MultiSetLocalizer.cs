@@ -11,9 +11,13 @@ using UnityEngine.XR.ARFoundation;
 namespace IndoorAr
 {
     /// <summary>
-    /// Floor the first MultiSet request may be narrowed to, from a trusted source only. The Y band is in the MapSet
-    /// frame and spans the floor surface up to <see cref="BandAboveM"/> above it, so it holds either the camera
-    /// or the floor under a stored frame while excluding the adjacent floors (about 4 m apart).
+    /// Floor the first MultiSet request may be narrowed to, from a trusted source only (floors 1-3 have walk grids).
+    /// The Y band is in the MapSet frame: <see cref="BandBelowM"/> under the floor surface to <see cref="BandAboveM"/>
+    /// above it. Measured on this building's mesh (portal, one pass): floor-to-floor slab spacing 3.91-4.32 m, so the
+    /// top sits at least 0.6 m below the next slab. That is NOT a measured ceiling: the mesh has none, and the 3.3 m
+    /// is an assumed bound. Unverified on device and server: MultiSet documents a filter on frame Y but not whether
+    /// it compares the camera or the floor under a stored frame, nor what an empty band returns. The unhinted retry
+    /// is the only fallback, so a wrong band costs one request, never a wrong pose.
     /// </summary>
     public readonly struct MultiSetHint
     {
@@ -107,7 +111,6 @@ namespace IndoorAr
         public event Action<int> AttemptStarted;
         public event Action<float?> Localized;
         public event Action<int> NotLocalized;
-        internal event Action<int> HintedNoPose;
         public Func<Transform, bool> CandidatePoseValidator { get; set; }
         /// <summary>Asked at the start of every request; null means send no hint.</summary>
         public Func<MultiSetHint?> HintProvider { get; set; }
@@ -151,6 +154,9 @@ namespace IndoorAr
             manager.firstLocalizationUntilSuccess = false;
             manager.confidenceCheck = false;
             manager.showAlert = false;
+            // Map-code hints stay off: the codes are private. Taking ownership clears any codes set in the inspector.
+            if (HintMapCodesField?.FieldType == typeof(List<string>))
+                HintMapCodesField.SetValue(manager, new List<string>());
             DisableBlurCheck();
             _completionListener ??= new SdkCompletionListener(this);
             var mode = typeof(SingleFrameLocalizationManager).GetField("queryMode");
@@ -276,8 +282,6 @@ namespace IndoorAr
 
         IndoorArDiagnostics.LocalizationHint ApplyHint(MultiSetHint? hint)
         {
-            if (HintMapCodesField?.FieldType == typeof(List<string>))
-                HintMapCodesField.SetValue(manager, new List<string>());
             if (HintFloorHeightField?.FieldType != typeof(string)) return IndoorArDiagnostics.LocalizationHint.None;
             HintFloorHeightField.SetValue(manager, hint is { } band
                 ? string.Format(CultureInfo.InvariantCulture, "[{0:0.##}, {1:0.##}]", band.MinY, band.MaxY)
@@ -322,9 +326,7 @@ namespace IndoorAr
 
         void ReportNoPose(int attemptId)
         {
-            var hinted = _activeTrace?.Hint == IndoorArDiagnostics.LocalizationHint.Height;
             EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.GenericFailure);
-            if (hinted) HintedNoPose?.Invoke(attemptId);
             NotLocalized?.Invoke(attemptId);
         }
         void OnLocalizedWithoutConfidence()

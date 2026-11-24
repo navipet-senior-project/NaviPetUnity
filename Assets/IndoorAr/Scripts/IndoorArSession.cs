@@ -251,11 +251,6 @@ namespace IndoorAr
             if (!_retried) _retryAtS = Math.Min(_retryAtS, _localizingS + NoPoseRetryS);
         }
 
-        internal void OnHintedNoPose()
-        {
-            if (State == IndoorArState.Localizing && TrustedStartFloor > 0) _startSuperseded = true;
-        }
-
         public void OnSignConfirmed(IndoorRoomLandmark room)
         {
             if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;

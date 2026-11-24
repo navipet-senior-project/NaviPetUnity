@@ -847,6 +847,17 @@ public class MultiSetLocalizerTests
         _manager.LocalizationFailure.Invoke();
     }
 
+    [Test]
+    public void TakingOwnershipClearsInspectorMapCodes()
+    {
+        var field = typeof(SingleFrameLocalizationManager).GetField("hintMapCodes",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (field == null || field.FieldType != typeof(System.Collections.Generic.List<string>)) Assert.Ignore("SDK has no hintMapCodes list");
+        field.SetValue(_manager, new System.Collections.Generic.List<string> { "TEST_CODE" });
+        typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"));
+    }
+
     [TestCase(1, 42, "false", "", 0, false, false, 1)]
     [TestCase(1, 42, "true", ",\"deltaHpa\":-0.47", 0, false, false, 2)]
     [TestCase(1, 42, "false", "", 15, false, false, 0)]
@@ -878,12 +889,15 @@ public class MultiSetLocalizerTests
             0, false, false, expectedFloor, 9.5, sentAt < 0 ? null : sentAt, initDelay);
     }
 
-    [TestCase(true, false, false, 2, IndoorArState.Pinned)]
-    [TestCase(true, true, false, 2, IndoorArState.Pinned)]
+    // The SDK reports a dropped connection and a server no-pose as the same failure, so a failed hinted request
+    // never releases the start-floor veto: a retry pose on another floor stays rejected.
+    [TestCase(true, false, false, 2, IndoorArState.Localizing)]
+    [TestCase(true, true, false, 2, IndoorArState.Localizing)]
     [TestCase(false, false, false, 2, IndoorArState.Localizing)]
     [TestCase(true, false, true, 2, IndoorArState.Localizing)]
     [TestCase(true, false, false, 0, IndoorArState.Localizing)]
-    public void RetryPoseBypassesOnlyTheFailedAppliedStartHint(bool applied, bool noPoseResponse, bool confirmSign,
+    [TestCase(true, false, false, 1, IndoorArState.Pinned)]
+    public void FailedHintedRequestKeepsTheStartFloorVeto(bool applied, bool noPoseResponse, bool confirmSign,
         int retryFloor, IndoorArState expected)
     {
         AssertRunnerHint(1, 42, "false", "", 0, false, false, applied ? 1 : 0, sentAt: applied ? 100 : null,
@@ -891,7 +905,7 @@ public class MultiSetLocalizerTests
             {
                 if (noPoseResponse) ReportSuccess(poseFound: false);
                 else _manager.LocalizationFailure.Invoke();
-                Assert.AreEqual(applied ? 0 : 1, session.TrustedStartFloor);
+                Assert.AreEqual(1, session.TrustedStartFloor);
                 if (confirmSign) session.OnSignConfirmed(new IndoorRoomLandmark("VEC120", "VEC", "floor_1"));
 
                 LocalizeWithoutEditorFailure(() => session.Tick(IndoorArSession.NoPoseRetryS));
