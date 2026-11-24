@@ -44,6 +44,9 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
 
 public class IndoorArRunnerTests
 {
+    const string ConfirmedFloorEvidence = ",\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":0," +
+        "\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":0}";
+
     GameObject _host;
     GameObject _pinPrefab;
     string _request;
@@ -116,29 +119,210 @@ public class IndoorArRunnerTests
     public void InvalidLaunchDeliversExactlyOnce(string code)
     {
         IndoorArBridge.EditorRequestJson = code == "BAD_REQUEST" ? "bad json"
-            : _request.Replace("multiset-mapset", "unity-world");
+            : _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")
+                .Replace("multiset-mapset", "unity-world").TrimEnd('}') + ConfirmedFloorEvidence + "}";
         var runner = Runner();
+        var sensorStarts = 0;
+        runner.StartPressureSampling = () => sensorStarts++;
         LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*" + code));
         Assert.IsFalse(((IEnumerator)Call(runner, "Start")).MoveNext());
         Call(runner, "Update");
         Call(runner, "Update");
+        Assert.AreEqual(0, sensorStarts);
         LogAssert.NoUnexpectedReceived();
+    }
+
+    [TestCase(2, "", "", false, 0, TestName = "SkippedFloorConfirmationDoesNotStartPressure")]
+    [TestCase(2, "\"floorEvidenceVersion\":1", "\"floorEvidenceVersion\":2", false, 0)]
+    [TestCase(2, "\"startFloor\":\"1\"", "\"startFloor\":\"unknown\"", false, 0)]
+    [TestCase(2, ",\"moved\":false", "", false, 0)]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":1201", false, 0)]
+    [TestCase(2, "\"sampleAgeS\":0", "\"sampleAgeS\":11", false, 0)]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":1200.000001", false, 0, TestName = "AStartAgeRoundingDownToTheLimitIsStillStale")]
+    [TestCase(2, "\"sampleAgeS\":0", "\"sampleAgeS\":10.0000001", false, 0, TestName = "ASampleAgeRoundingDownToTheLimitIsStillStale")]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":-1", false, 0)]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":1200", true, 1, TestName = "AStartAgeAtTheLimitIsFresh")]
+    [TestCase(2, "\"sampleAgeS\":0", "\"sampleAgeS\":10", true, 1, TestName = "ASampleAgeAtTheLimitIsFresh")]
+    [TestCase(1, null, null, false, 0, TestName = "SchemaOneIgnoresCompleteFloorEvidence")]
+    [TestCase(2, null, null, true, 1, TestName = "CompleteFloorConfirmationStartsPressure")]
+    [TestCase(2, "\"moved\":false", "\"moved\":true", true, 0, TestName = "MovedPressureAllowsSamplingWithoutTrustingTheStartFloor")]
+    public void LaunchPressureRequiresCompleteFloorConfirmation(int schemaVersion, string field, string replacement,
+        bool starts, int trustedFloor)
+    {
+        var evidence = field == null ? ConfirmedFloorEvidence
+            : field.Length == 0 ? "" : ConfirmedFloorEvidence.Replace(field, replacement);
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", $"\"schemaVersion\":{schemaVersion}").TrimEnd('}') +
+            evidence + "}";
+        var runner = Runner();
+        var sensorStarts = 0;
+        runner.StartPressureSampling = () => sensorStarts++;
+
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        Assert.AreEqual(starts ? 1 : 0, sensorStarts);
+        var session = Field<IndoorArSession>(runner, "_session");
+        var heights = Field<(int Floor, float Y)[]>(runner, "_floorHeights");
+        var floor2CameraY = heights.Single(floor => floor.Floor == 2).Y + 1.5f;
+        Assert.AreEqual(trustedFloor, session.TrustedStartFloor);
+        Assert.AreEqual(trustedFloor != 0, session.PoseConflictsWithSign(floor2CameraY, heights));
+        var floor1Sign = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+        session.OnSignConfirmed(floor1Sign);
+        Assert.AreSame(floor1Sign, session.FloorSign);
+        Assert.IsTrue(session.PoseConflictsWithSign(floor2CameraY, heights));
+
+        Call(runner, "BeginSession", _request);
+        Assert.AreEqual(starts ? 1 : 0, sensorStarts, "A warm launch without confirmation must skip pressure.");
     }
 
     [Test]
     public void ExitDuringAvailabilityDeliversCancelledAndPreventsLaterAuth()
     {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+            ConfirmedFloorEvidence + "}";
         var runner = Runner();
+        var starts = 0;
+        var stops = 0;
+        runner.StartPressureSampling = () => starts++;
+        runner.StopPressureSampling = () => stops++;
         var start = (IEnumerator)Call(runner, "Start");
         Assert.IsTrue(start.MoveNext()); // availability is still pending
+        Assert.AreEqual(1, starts);
         var session = Field<IndoorArSession>(runner, "_session");
         session.Cancel();
+        Assert.AreEqual(1, stops);
         LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*cancelled"));
         Call(runner, "Update");
         Assert.IsFalse(start.MoveNext());
         Assert.AreEqual(IndoorArState.Done, session.State);
         Call(runner, "Update");
+        Assert.AreEqual(1, stops);
         LogAssert.NoUnexpectedReceived();
+    }
+
+    // Fails the first attempt pair so the retryable failure card is up; returns the pieces the retry tests share.
+    (IndoorArRunner Runner, IndoorArSession Session, RunnerFakeLocalizer Localizer, IndoorRoomLandmark Sign, Func<float> Now)
+        RunnerAtFailureCard(bool confirmedFloor, Action onStart = null, Action onStop = null)
+    {
+        if (confirmedFloor)
+            IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+                ConfirmedFloorEvidence + "}";
+        var runner = Runner();
+        runner.StartPressureSampling = onStart ?? (() => { });
+        runner.StopPressureSampling = onStop ?? (() => { });
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        var now = 0f;
+        session.PressureClock = () => now;
+        session.OnArSupport(true);
+        localizer.Authenticate();
+        for (var i = 0; i < 21; i++)
+        {
+            now += 1f;
+            session.OnPressure(1000f, now);
+        }
+        var sign = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+        session.OnSignConfirmed(sign);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
+        return (runner, session, localizer, sign, () => now);
+    }
+
+    [Test]
+    public void TryAgainWithoutFloorEvidenceRetriesInPlaceWithoutPressure()
+    {
+        var starts = 0;
+        var stops = 0;
+        var (runner, session, _, sign, _) = RunnerAtFailureCard(false, () => starts++, () => stops++);
+        Assert.AreEqual(0, starts);
+        Assert.AreEqual(2, session.Queries);
+
+        Call(runner, "OnHudRetry");
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual(3, session.Queries);
+        Assert.AreEqual(0, starts);
+        Assert.AreEqual(0, stops);
+        Assert.AreSame(sign, session.FloorSign);
+    }
+
+    [Test]
+    public void TryAgainWithFloorEvidenceReturnsLocalizationFailedToTheHostWithoutPressureOrRetry()
+    {
+        var starts = 0;
+        var stops = 0;
+        var (runner, session, _, sign, now) = RunnerAtFailureCard(true, () => starts++, () => stops++);
+        Assert.AreEqual(1, starts);
+        Assert.AreEqual(1, stops, "the failure card already stopped sampling");
+        var reads = 0;
+        runner.ReadPressure = (out float hpa, out double capturedAtS) =>
+        {
+            reads++;
+            hpa = 999.53f;
+            capturedAtS = now();
+            return true;
+        };
+        Call(runner, "Update");
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
+        Assert.AreEqual(0, reads);
+        for (var i = 0; i < 25; i++) session.OnPressure(999.53f, now() + i); // late readings reach nothing
+
+        Call(runner, "OnHudRetry");
+        Assert.AreEqual(IndoorArState.Done, session.State, "no in-place retry with launch-time evidence");
+        Assert.AreEqual(2, session.Queries);
+        LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*localizationFailed"));
+        Call(runner, "Update");
+        Call(runner, "Update");
+        Call(runner, "OnHudRetry");
+        Assert.AreEqual(0, reads);
+        Assert.AreEqual(1, starts);
+        Assert.AreEqual(1, stops);
+        Assert.AreSame(sign, session.FloorSign, "pressure never released it");
+        LogAssert.NoUnexpectedReceived();
+    }
+
+    [Test]
+    public void PressureCaptureTimestampsSurviveDelayedDeliveryAndASilenceOverTheGapLimitClearsTheWindow()
+    {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+            ConfirmedFloorEvidence + "}";
+        var runner = Runner();
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        var sign = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+        double clock = 0;
+        session.PressureClock = () => clock;
+        session.OnArSupport(true);
+        localizer.Authenticate();
+        for (var i = 1; i <= 21; i++)
+        {
+            clock = i;
+            session.OnPressure(1000f, i);
+        }
+        session.OnSignConfirmed(sign);
+
+        var next = (Hpa: 0f, CapturedAtS: 0d);
+        runner.ReadPressure = (out float hpa, out double capturedAtS) =>
+        {
+            (hpa, capturedAtS) = next;
+            return true;
+        };
+        void Deliver(double capturedAtS, double deliveredAtS)
+        {
+            next = (999.53f, capturedAtS);
+            clock = deliveredAtS;
+            Call(runner, "Update");
+        }
+
+        for (var t = 22; t <= 32; t++) Deliver(t, t);
+        Deliver(32 + IndoorFloorBarometer.MinSpacingS, 33.4);
+        Deliver(42.9, 42.9);
+        Assert.AreSame(sign, session.FloorSign, "the 10.4 s capture gap cleared the window despite a 9.5 s delivery gap");
+
+        for (var t = 44; t <= 61; t++) Deliver(t, t);
+        Assert.IsNull(session.FloorSign, "a new settled window releases the sign");
     }
 
     [Test]
@@ -998,6 +1182,38 @@ public class IndoorArRunnerTests
         session.Tick(IndoorArSession.LocalizeTimeoutS);
         Assert.AreEqual(2, localizer.AttemptCount, "the rejected pose follows the normal retry path");
         LogAssert.NoUnexpectedReceived();
+    }
+
+    [Test]
+    public void SecondMultiSetCandidateOnAnotherFloorPinsWithoutAnotherRetry()
+    {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+            ConfirmedFloorEvidence + "}";
+        var localizer = _host.AddComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        var camera = new GameObject("AR Camera", typeof(Camera)).GetComponent<Camera>();
+        camera.transform.SetParent(_host.transform, false);
+        var grid = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+        camera.transform.localPosition = Vector3.up * (IndoorWalkGrid.ForFloor(grid, 2).FloorY + 1.5f);
+        var runner = _host.AddComponent<IndoorArRunner>();
+        runner.Configure(localizer, _pinPrefab, camera);
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        session.OnArSupport(true);
+        localizer.Authenticate();
+
+        LogAssert.Expect(LogType.Log, "[IndoorAr] floor conflict sign=none pose=2");
+        Assert.IsFalse((bool)Call(runner, "IsCandidateMultiSetPoseAllowed", localizer.MapSpace));
+        Assert.IsFalse(session.WasPinned);
+        Assert.AreEqual(1, session.TrustedStartFloor);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.AreEqual(2, localizer.AttemptCount);
+
+        Assert.IsTrue((bool)Call(runner, "IsCandidateMultiSetPoseAllowed", localizer.MapSpace));
+        localizer.CompleteLocalized(.73f);
+        Assert.AreEqual(IndoorArState.Pinned, session.State);
+        Assert.AreEqual(0, session.TrustedStartFloor);
+        Assert.AreEqual(2, session.Queries);
     }
 
     [TestCase("signConflict")]

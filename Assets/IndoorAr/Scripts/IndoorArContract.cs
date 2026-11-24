@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace IndoorAr
@@ -67,10 +69,28 @@ namespace IndoorAr
         /// step-free segments, so a true navigation request returns unavailable; localize-only requests need no route.
         /// </summary>
         public bool stepFree;
+        /// <summary>
+        /// Optional, versioned by floorEvidenceVersion (only 1 is understood; absent or any other value means none).
+        /// The floor the user confirmed they stand on (never the destination floor), how long ago, and what the
+        /// barometer did since. Trusted only when the pressure summary says the level is settled and unchanged.
+        /// </summary>
+        public int floorEvidenceVersion;
+        public string startFloor;
+        public float startFloorAgeS;
+        public IndoorArPressureSummary pressureSinceStart;
         /// <summary>Optional host features. Absent from legacy hosts, which still require checkDistanceM on every arrival.</summary>
         public string[] capabilities;
         /// <summary>The host accepts an arrived result without checkDistanceM when it carries the destination signRoom.</summary>
         public bool SupportsSignArrival => capabilities != null && Array.IndexOf(capabilities, IndoorArContract.SignArrivalCapability) >= 0;
+    }
+
+    /// <summary>Host barometer summary since the user confirmed their floor. No raw or absolute pressure.</summary>
+    [Serializable]
+    public class IndoorArPressureSummary
+    {
+        public bool settled;
+        public bool moved;
+        public float sampleAgeS;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
@@ -86,6 +106,7 @@ namespace IndoorAr
         public const int SchemaVersion = 1;
         public const int SchemaVersionV2 = 2;
         public const string SignArrivalCapability = "signArrival";
+        public const int FloorEvidenceVersion = 1;
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
         public const string Frame = "multiset-mapset";
@@ -145,9 +166,35 @@ namespace IndoorAr
             {
                 return false;
             }
+            if (parsed.floorEvidenceVersion == FloorEvidenceVersion && !HasCompleteFloorEvidence(json))
+                parsed.pressureSinceStart = null;
             request = parsed;
             return true;
         }
+
+        static bool HasCompleteFloorEvidence(string json)
+        {
+            try
+            {
+                var fields = JObject.Parse(json);
+                var version = fields["floorEvidenceVersion"];
+                return version?.Type == JTokenType.Integer && (double)version == FloorEvidenceVersion
+                    && fields["startFloor"]?.Type == JTokenType.String
+                    && IsAgeWithin(fields["startFloorAgeS"], IndoorFloorBarometer.MaxAnchorAgeS)
+                    && fields["pressureSinceStart"] is JObject pressure
+                    && pressure["settled"]?.Type == JTokenType.Boolean
+                    && pressure["moved"]?.Type == JTokenType.Boolean
+                    && IsAgeWithin(pressure["sampleAgeS"], IndoorFloorBarometer.MaxSampleGapS);
+            }
+            catch (JsonReaderException)
+            {
+                return false;
+            }
+        }
+
+        // Checked on the wire value: JsonUtility has already rounded it to float, so 1200.000001 would read as 1200.
+        static bool IsAgeWithin(JToken age, double maxS) =>
+            age?.Type is JTokenType.Integer or JTokenType.Float && (double)age >= 0 && (double)age <= maxS;
 
         public const int MaxRouteWaypoints = 1000;
 

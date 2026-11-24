@@ -97,6 +97,10 @@ namespace IndoorAr
 
         /// <summary>Receives each DX line. Unset, the line goes to the console on a device and nowhere in the editor.</summary>
         public Action<string> DiagnosticSink { get; set; }
+        internal Action StartPressureSampling { get; set; } = IndoorArPressure.Start;
+        internal Action StopPressureSampling { get; set; } = IndoorArPressure.Stop;
+        internal delegate bool PressureRead(out float hpa, out double capturedAtS);
+        internal PressureRead ReadPressure { get; set; } = IndoorArPressure.TryRead;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -206,6 +210,8 @@ namespace IndoorAr
             if (!Application.isEditor && ArSessionLifecycle.LoaderActive) ArXrInputProbe.Probe();
             _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
+            _session.PressureSamplingStopped += StopPressureSampling;
+            if (_session.PressureSamplingAllowed) StartPressureSampling();
             _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);
             _floorHeights = _grids.Select(entry => (entry.Key, entry.Value.FloorY)).ToArray();
             _walkGrid = int.TryParse(request.floor, out var floor) ? Grid(floor) : null;
@@ -256,6 +262,8 @@ namespace IndoorAr
             }
             UpdateSignOcr();
             if (_session == null || _delivered) return;
+            if (_session.PressureSamplingAllowed && ReadPressure(out var hpa, out var capturedAtS))
+                _session.OnPressure(hpa, capturedAtS);
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
             if (_localizeWhenTracking && _session.State == IndoorArState.Localizing
@@ -293,11 +301,11 @@ namespace IndoorAr
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
             if ((LiveDoorHud.AuthFailed(_session) || LiveDoorHud.StepFreeUnavailable(_session)) && _failureLeft < 0f)
                 _failureLeft = Application.isEditor ? 0f : 4f;
-            var holdingFailure = LiveDoorHud.LocalizationFailed(_session) || (_failureLeft > 0f && !_failureRelease);
+            var holdingFailure = (LiveDoorHud.LocalizationFailed(_session) && !_failureRelease) || (_failureLeft > 0f && !_failureRelease);
             if (holdingFailure) _failureLeft -= Time.unscaledDeltaTime;
             UpdateHud();
             PostStatus();
-            var keepFailure = LiveDoorHud.LocalizationFailed(_session) || (_failureLeft > 0f && !_failureRelease);
+            var keepFailure = (LiveDoorHud.LocalizationFailed(_session) && !_failureRelease) || (_failureLeft > 0f && !_failureRelease);
             if (_session.State == IndoorArState.Done && !keepFailure) Deliver(_session.ResultJson);
         }
 
@@ -427,6 +435,11 @@ namespace IndoorAr
             if (!fromMultiSet) return false;
             if (!_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights)) return false;
             var poseFloor = _session.PoseFloor(cameraInMap.y, _floorHeights);
+            if (poseFloor > 0 && _session.TrustedStartFloor > 0)
+            {
+                _session.NoteStartFloorConflict();
+                if (!_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights)) return false;
+            }
             var pose = poseFloor == -1 ? "unsupported" : poseFloor == 0 ? "unknown" : poseFloor.ToString();
             Debug.Log($"[IndoorAr] floor conflict sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose={pose}");
             if (_session.State == IndoorArState.Localizing) _session.OnNotLocalized();
@@ -518,6 +531,14 @@ namespace IndoorAr
         void OnHudRetry()
         {
             if (_session == null || !LiveDoorHud.LocalizationFailed(_session)) return;
+            if (_session.LaunchedWithFloorEvidence)
+            {
+                // Unity cannot ask for a fresh floor confirmation and the failure card must not read pressure, so the host
+                // gets the localizationFailed result, re-prompts for the floor and relaunches with new evidence.
+                _failureRelease = true;
+                DropQueuedMultiSetFallback();
+                return;
+            }
             _signFirst?.Reset();
             if (localizerBehaviour is MultiSetLocalizer multiSet) multiSet.AbandonPending();
             _session.Retry();
@@ -857,6 +878,7 @@ namespace IndoorAr
 
         void ReleaseSession()
         {
+            _session?.StopPressureSampling();
             if (_session != null) StopMultiSetFallback();
             Unhook();
             if (_hud != null)
@@ -892,6 +914,7 @@ namespace IndoorAr
             if (_session == null || _localizer == null) return;
             _session.LocalizeRequested -= RequestLocalization;
             _session.FallbackStopped -= StopMultiSetFallback;
+            _session.PressureSamplingStopped -= StopPressureSampling;
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= OnAttemptStarted;

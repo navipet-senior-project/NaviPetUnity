@@ -56,7 +56,7 @@ For outdoor AR the host app must declare `NSLocationWhenInUseUsageDescription` a
 
 ## Indoor localization and routes
 
-The shared runtime contracts live in [Signs first, MultiSet last](../Assets/IndoorAr/OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified) (authentication, request ownership and transform isolation) and [Hallway route](../Assets/IndoorAr/OCR-POC-prerequisites.md#hallway-route) (floor evidence, clearance and strict step-free policy).
+The shared runtime contracts live in [Signs first, MultiSet last](../Assets/IndoorAr/OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified) (authentication, request ownership and transform isolation), [Hallway route](../Assets/IndoorAr/OCR-POC-prerequisites.md#hallway-route) (clearance and strict step-free policy), and the [floor evidence contract](floor-evidence-contract.md) (consent, pose validation and retry handoff).
 
 ## Host bridge
 
@@ -85,6 +85,16 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 ```
 
 `sessionId` is new for each request and `seq` counts up within it. `roomRecognized` and `roomFloor` appear once a room sign is confirmed; that is an identity, not a position. The final result also gains optional `signRoom` with the last confirmed room ID; older hosts can ignore it. `pose` (camera in the MapSet frame, `source` `sign` or `multiset`) appears only when `localized` is true, and is the pose at the moment of that change, not a stream. Do not log status JSON: it can carry the camera pose. The Flutter side does not decode it yet; adding the handler there and `postStatus` to `UnityHostActivity` is a local Flutter follow-up.
+
+## Floor-change pressure
+
+The iOS reader uses the Core Motion altimeter in `IndoorArPressure.mm`. See the [floor evidence contract](floor-evidence-contract.md#what-unity-does) for sampling consent and the host retry handoff.
+
+Proposed `NSMotionUsageDescription` for the host app’s Info.plist
+
+> NaviPet uses Motion & Fitness data to count your steps and, only if you confirm which floor you are starting on, to detect when you change floors indoors using the barometer. Barometer readings stay on your device and are used only during indoor navigation.
+
+Verify `UnityFramework` linking in an iOS export. On a device, verify Motion & Fitness permission behavior and the Core Motion measurement timestamp. The [native timestamp checks](floor-evidence-contract.md#known-limits-and-disclosed-gaps) identify the Android and iOS boundaries beyond EditMode coverage.
 
 ## Not verified here
 

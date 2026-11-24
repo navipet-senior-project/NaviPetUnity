@@ -10,7 +10,7 @@
 | `arrowShownMs` | session opened | HUD first enters the guide-arrow state, after the 1.5 s “Location found” hold. It records display timing, not a rendered-frame timestamp. |
 | `arrowAlignment` | — | Always `unmeasured`. Arrow display is not evidence the arrow matches the real doorway. |
 | `attempts` | — | Session localization requests dispatched after tracking through `IndoorArRunner.RequestLocalization`, including requests held for signs or queued for MultiSet. Not SDK calls; the result's `localizationQueries` separately counts actual SDK starts. |
-| `retries` | — | Session localization requests after the first, including the timeout retry, tracking-loss restart, and Try again. |
+| `retries` | — | Session localization requests after the first, including the timeout retry, tracking-loss restart, and in-place retries. A host relaunch starts a fresh session. [Try again behavior](../../docs/floor-evidence-contract.md#what-unity-does) |
 | `trackingLosses` | — | Pinned sessions that left `SessionTracking`. |
 | `unansweredAttempts` | — | Requests superseded without a recorded first pose, plus any open request. Only the first accepted pose closes a request in this baseline; this is not the number of outstanding SDK requests. |
 | `timeToSignMs` | session opened | OCR first confirms a room sign. Room identity only, not a pose; it never sets `timeToFirstLocalizationMs`. |
