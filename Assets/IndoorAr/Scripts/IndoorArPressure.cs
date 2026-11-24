@@ -5,7 +5,7 @@ using UnityEngine.InputSystem;
 namespace IndoorAr
 {
     /// <summary>
-    /// The player's own barometer, in hPa, so floor-change detection needs nothing from the host or the bridge.
+    /// The player's own barometer, in hPa.
     /// iOS reads Core Motion's altimeter in IndoorArPressure.mm (the host app already declares NSMotionUsageDescription;
     /// Motion &amp; Fitness access can still be refused, which just means no readings). Android reads the Input System
     /// pressure sensor. A device without a barometer, a refusal and the editor give no readings, and every consumer

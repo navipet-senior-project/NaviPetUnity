@@ -88,7 +88,11 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 
 ## Floor-change pressure
 
-Unity reads the phone barometer through the Core Motion altimeter in `IndoorArPressure.mm`. Raw pressure stays in Unity. The host app must keep `NSMotionUsageDescription` in its Info.plist. If Motion & Fitness access is refused or the phone lacks a barometer, the remaining floor evidence rules still apply. A settled change of at least 0.30 hPa can release a stale floor sign or the trusted start-floor veto. Pressure never identifies a floor or directly rejects a pose.
+Unity reads the phone barometer through the Core Motion altimeter in `IndoorArPressure.mm` only if the user confirms a starting floor and the launch carries complete version 1 floor evidence. Skipping confirmation means Unity neither starts nor reads the barometer. Raw pressure stays on the device. If Motion & Fitness access is refused or the phone lacks a barometer, the remaining floor evidence rules still apply. A settled change of at least 0.30 hPa can release a stale floor sign or the trusted start-floor veto. Pressure never identifies a floor or directly rejects a pose.
+
+Proposed `NSMotionUsageDescription` for the host app’s Info.plist
+
+> NaviPet uses Motion & Fitness data to count your steps and, only if you confirm which floor you are starting on, to detect when you change floors indoors using the barometer. Barometer readings stay on your device and are used only during indoor navigation.
 
 Unity uses its first settled window after launch for the trusted start-floor baseline. A move before that window settles can be missed. A sign confirmed before pressure settles must be confirmed again during a settled window before pressure can release it. The thresholds come from one iPhone in one building. Exported `UnityFramework` linking, permission behavior, and device readings remain unverified. See the [floor evidence contract](floor-evidence-contract.md) and [calibrated constants](../Assets/IndoorAr/Scripts/IndoorFloorBarometer.cs).
 

@@ -43,9 +43,21 @@ namespace IndoorAr
         {
             Request = request;
             _allowSignRecovery = allowSignRecovery;
-            StartFloor = TrustStartFloor(request);
             if (!IndoorArContract.CheckMap(request, buildMapCode))
+            {
                 Finish(IndoorArContract.Error(IndoorArContract.MapMismatch, 0, 0));
+                return;
+            }
+            var pressure = request.pressureSinceStart;
+            if (request.floorEvidenceVersion == IndoorArContract.FloorEvidenceVersion && pressure != null
+                && int.TryParse(request.startFloor, out var floor) && floor > 0)
+            {
+                PressureSamplingAllowed = true;
+                if (pressure.settled && !pressure.moved
+                    && request.startFloorAgeS is >= 0f and <= IndoorFloorBarometer.MaxAnchorAgeS
+                    && pressure.sampleAgeS is >= 0f and <= IndoorFloorBarometer.MaxSampleGapS)
+                    StartFloor = floor;
+            }
         }
 
         /// <summary>Raised when the localizer must start a localization attempt.</summary>
@@ -53,6 +65,7 @@ namespace IndoorAr
         public event Action FallbackStopped;
 
         public IndoorArRequest Request { get; }
+        internal bool PressureSamplingAllowed { get; }
         public IndoorArState State { get; private set; } = IndoorArState.Init;
         public int Queries { get; private set; }
         public bool WasPinned { get; private set; }
@@ -73,17 +86,6 @@ namespace IndoorAr
         int StartFloor { get; }
         /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
         public int TrustedStartFloor => _startSuperseded || FloorSign != null ? 0 : StartFloor;
-
-        static int TrustStartFloor(IndoorArRequest request)
-        {
-            var summary = request?.pressureSinceStart;
-            if (request == null || request.floorEvidenceVersion != IndoorArContract.FloorEvidenceVersion
-                || !int.TryParse(request.startFloor, out var floor) || floor <= 0
-                || request.startFloorAgeS is not (>= 0f and <= IndoorFloorBarometer.MaxAnchorAgeS)
-                || summary == null || !summary.settled || summary.moved
-                || summary.sampleAgeS is not (>= 0f and <= IndoorFloorBarometer.MaxSampleGapS)) return 0;
-            return floor;
-        }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 

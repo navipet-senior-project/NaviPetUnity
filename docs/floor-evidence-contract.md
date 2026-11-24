@@ -1,6 +1,6 @@
 # Floor evidence contract (Flutter to Unity), version 1
 
-Unity implements the floor policy. The Flutter confirmation prompt, pressure capture, and request fields are a separate in-progress dispatch. Unity can use its own pressure readings with confirmed signs today.
+Unity implements the floor policy. The Flutter confirmation prompt, pressure capture, and request fields are a separate in-progress dispatch. Unity uses its own barometer only for indoor launches that carry completed floor confirmation.
 Scope limits, stated up front:
 - This is a floor VETO and RELEASE signal only. It does not name a floor from pressure and it does not send any MultiSet hint. **No MultiSet hints are implemented** (`hintFloorHeight`, `hintMapCodes`, `hintPosition` are unused); they are blocked on a server-keyframe height check and portal map codes.
 - No OCR is involved or changed.
@@ -42,6 +42,7 @@ Samples are `sensors_plus` `barometerEventStream` readings (hPa; only difference
 Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for 60 s is settled and unchanged. A 0.47 step then a 40 s hold is settled and moved. A 0.12 posture shift plus 0.10 drift is unchanged. A 25 s gap then a 40 s hold at a level 0.47 lower is settled and moved. A hold with a range of 0.2 is unsettled. After 11 s of silence the status is unsettled, and the next sample starts a new window.
 
 ## What Unity does
+- Starts its native barometer on iOS and Android only after map validation and only with complete version 1 evidence containing a positive, parseable starting floor. Skipping confirmation sends no evidence and disables Unity-side barometer collection and pressure-based release. A complete confirmation can enable sampling even if its pressure summary is too old, unsettled, or moved to support a start-floor veto.
 - Trusts `startFloor` only when all fields are present with the types above, version is 1, floor > 0, age is 0..1200 s, `settled` is true, `moved` is false, and `sampleAgeS` is 0..10 s.
 - While trusted and no confirmed sign: a MultiSet pose on a different supported floor is rejected as a floor conflict and localization retries (the existing sign-conflict path). The pose floor must also be unambiguous (unknown or outside heights is rejected as before).
 - Permanently drops the start-floor veto after a confirmed room sign, tracked motion from an accepted pose onto another floor, a settled pressure change of at least 0.30 hPa from Unity's first settled baseline after launch, or two separate attempts that return a valid pose on another floor. The second valid conflicting pose can be accepted immediately.
@@ -52,7 +53,7 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 ## Flutter implementation requirements (independent dispatch)
 1. Ask "Which floor are you on?" at entry, using explicit confirmation as in `FloorPressureRecorder.confirmFloor`. Send no fields if the user skips or confirms without a settled anchor. Add the four fields to both `toJson` branches and to `withArToken` in `IndoorArRequest` (`lib/data/indoor_ar_contract.dart`).
 2. Barometer capture from confirmation to launch (`sensors_plus`), with the rule above ported and unit-tested with the test vectors. Stop the stream when not needed.
-3. iOS: barometer needs Motion & Fitness access; `NSMotionUsageDescription` currently says steps only. Wording/consent is a product call. Denied means omit fields.
+3. On iOS, omit the fields if Motion & Fitness access is denied. Use the proposed Motion & Fitness wording in the host app’s `NSMotionUsageDescription`. [iOS export and host disclosure](ios-export.md#floor-change-pressure)
 4. Tests: field presence/absence, version value, age bounds, no field on missing sensor, no field when the floor is blank or non-numeric.
 5. Ship order is free (absent fields change nothing, old Unity ignores them).
 

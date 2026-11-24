@@ -97,6 +97,7 @@ namespace IndoorAr
 
         /// <summary>Receives each DX line. Unset, the line goes to the console on a device and nowhere in the editor.</summary>
         public Action<string> DiagnosticSink { get; set; }
+        internal Action StartPressureSampling { get; set; } = IndoorArPressure.Start;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -206,7 +207,7 @@ namespace IndoorAr
             if (!Application.isEditor && ArSessionLifecycle.LoaderActive) ArXrInputProbe.Probe();
             _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
-            IndoorArPressure.Start();
+            if (_session.PressureSamplingAllowed) StartPressureSampling();
             _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);
             _floorHeights = _grids.Select(entry => (entry.Key, entry.Value.FloorY)).ToArray();
             _walkGrid = int.TryParse(request.floor, out var floor) ? Grid(floor) : null;
@@ -257,7 +258,7 @@ namespace IndoorAr
             }
             UpdateSignOcr();
             if (_session == null || _delivered) return;
-            if (IndoorArPressure.TryRead(out var hpa)) _session.OnPressure(hpa);
+            if (_session.PressureSamplingAllowed && IndoorArPressure.TryRead(out var hpa)) _session.OnPressure(hpa);
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
             if (_localizeWhenTracking && _session.State == IndoorArState.Localizing

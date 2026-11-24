@@ -44,6 +44,9 @@ public sealed class RunnerFakeLocalizer : MonoBehaviour, IIndoorArLocalizer
 
 public class IndoorArRunnerTests
 {
+    const string ConfirmedFloorEvidence = ",\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":0," +
+        "\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":0}";
+
     GameObject _host;
     GameObject _pinPrefab;
     string _request;
@@ -116,13 +119,48 @@ public class IndoorArRunnerTests
     public void InvalidLaunchDeliversExactlyOnce(string code)
     {
         IndoorArBridge.EditorRequestJson = code == "BAD_REQUEST" ? "bad json"
-            : _request.Replace("multiset-mapset", "unity-world");
+            : _request.Replace("multiset-mapset", "unity-world").TrimEnd('}') + ConfirmedFloorEvidence + "}";
         var runner = Runner();
+        var sensorStarts = 0;
+        runner.StartPressureSampling = () => sensorStarts++;
         LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*" + code));
         Assert.IsFalse(((IEnumerator)Call(runner, "Start")).MoveNext());
         Call(runner, "Update");
         Call(runner, "Update");
+        Assert.AreEqual(0, sensorStarts);
         LogAssert.NoUnexpectedReceived();
+    }
+
+    [TestCase("", "", false, 0, TestName = "SkippedFloorConfirmationDoesNotStartPressure")]
+    [TestCase("\"floorEvidenceVersion\":1", "\"floorEvidenceVersion\":2", false, 0)]
+    [TestCase("\"startFloor\":\"1\"", "\"startFloor\":\"unknown\"", false, 0)]
+    [TestCase(",\"moved\":false", "", false, 0)]
+    [TestCase(null, null, true, 1, TestName = "CompleteFloorConfirmationStartsPressure")]
+    [TestCase("\"moved\":false", "\"moved\":true", true, 0, TestName = "MovedPressureAllowsSamplingWithoutTrustingTheStartFloor")]
+    public void LaunchPressureRequiresCompleteFloorConfirmation(string field, string replacement, bool starts, int trustedFloor)
+    {
+        var evidence = field == null ? ConfirmedFloorEvidence
+            : field.Length == 0 ? "" : ConfirmedFloorEvidence.Replace(field, replacement);
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+            evidence + "}";
+        var runner = Runner();
+        var sensorStarts = 0;
+        runner.StartPressureSampling = () => sensorStarts++;
+
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        Assert.AreEqual(starts ? 1 : 0, sensorStarts);
+        var session = Field<IndoorArSession>(runner, "_session");
+        var heights = Field<(int Floor, float Y)[]>(runner, "_floorHeights");
+        var floor2CameraY = heights.Single(floor => floor.Floor == 2).Y + 1.5f;
+        Assert.AreEqual(trustedFloor, session.TrustedStartFloor);
+        Assert.AreEqual(trustedFloor != 0, session.PoseConflictsWithSign(floor2CameraY, heights));
+        var floor1Sign = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+        session.OnSignConfirmed(floor1Sign);
+        Assert.AreSame(floor1Sign, session.FloorSign);
+        Assert.IsTrue(session.PoseConflictsWithSign(floor2CameraY, heights));
+
+        Call(runner, "BeginSession", _request);
+        Assert.AreEqual(starts ? 1 : 0, sensorStarts, "A warm launch without confirmation must skip pressure.");
     }
 
     [Test]
@@ -1004,8 +1042,7 @@ public class IndoorArRunnerTests
     public void SecondMultiSetCandidateOnAnotherFloorPinsWithoutAnotherRetry()
     {
         IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
-            ",\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":0," +
-            "\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":0}}";
+            ConfirmedFloorEvidence + "}";
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
         localizer.DeferAnswer = true;
         var camera = new GameObject("AR Camera", typeof(Camera)).GetComponent<Camera>();
