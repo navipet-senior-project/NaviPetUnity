@@ -50,6 +50,9 @@ namespace IndoorAr.Editor
             var states = (IndoorHudPreview[])Enum.GetValues(typeof(IndoorHudPreview));
             int index = 0, frames = 0;
             IndoorHud hud = null;
+            IndoorRoutePath path = null;
+            // Floor top is y = -.02: the corridor box. The route walks down the hallway to the pin.
+            var route = new[] { new Vector3(0f, -.02f, -.5f), new Vector3(0f, -.02f, 3.5f), new Vector3(1.3f, -.02f, 4.5f) };
             EditorApplication.CallbackFunction update = null;
             update = () =>
             {
@@ -66,6 +69,14 @@ namespace IndoorAr.Editor
                         Canvas.ForceUpdateCanvases();
                         var view = MockIndoorRoute.Snapshot(states[index], 1, IndoorArRunner.PinLabelAnchor(pin));
                         view.WorldPin = pin;
+                        // Only the route state draws the floor path, as on the phone.
+                        if (states[index] == IndoorHudPreview.DirectionToRoom)
+                        {
+                            path = new IndoorRoutePath(null);
+                            view.FollowingRoute = true;
+                            view.DistanceM = IndoorWalkGrid.LengthM(route);
+                            view.PathShown = path.Show(route, camera.transform.position, 0f);
+                        }
                         hud.Show(view);
                     }
                     Canvas.ForceUpdateCanvases();
@@ -77,6 +88,7 @@ namespace IndoorAr.Editor
                     File.WriteAllBytes(Path.Combine(folder, states[index].ToString().ToLowerInvariant() + ".png"), image.EncodeToPNG());
                     UnityEngine.Object.DestroyImmediate(image);
                     UnityEngine.Object.DestroyImmediate(hud.gameObject);
+                    path?.Dispose(); path = null;
                     hud = null; frames = 0;
                     if (++index < states.Length) { EditorApplication.QueuePlayerLoopUpdate(); return; }
                     EditorApplication.update -= update;

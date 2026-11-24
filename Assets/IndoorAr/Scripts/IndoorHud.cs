@@ -33,6 +33,8 @@ namespace IndoorAr
         public bool Outdoor;
         public bool FollowingRoute;
         public bool RouteBlocked;
+        // The floor path is drawn along the route, so the screen arrow stays hidden.
+        public bool PathShown;
         // Diagnostics only: the waypoint the arrow aims at (-1 for none) and why the route is blocked.
         public int RouteWaypointIndex = -1;
         public IndoorRouteBlockedCause RouteBlockedCause;
@@ -130,7 +132,7 @@ namespace IndoorAr
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             FitSafeArea();
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.CurrentFloor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.CurrentFloor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked + "|" + view.PathShown;
             if (_chrome != chrome)
             {
                 Build(view);
@@ -221,8 +223,11 @@ namespace IndoorAr
             {
                 if (!view.RouteBlocked)
                 {
-                    _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
-                    _arrow.GetComponent<Image>().type = Image.Type.Simple;
+                    if (!view.PathShown)
+                    {
+                        _arrow = At(Box(_root, "Guide arrow", ArrowSprite(), White), Center, new Vector2(0f, -60f), new Vector2(240f, 240f));
+                        _arrow.GetComponent<Image>().type = Image.Type.Simple;
+                    }
                     _lookLeft = Pill("Look left", "‹  Look this way", 34, new Vector2(0f, .5f), new Vector2(24f, 190f), 84f);
                     _lookRight = Pill("Look right", "Look this way  ›", 34, new Vector2(1f, .5f), new Vector2(-24f, 190f), 84f);
                 }
@@ -324,9 +329,9 @@ namespace IndoorAr
                 _title.text = TitleText(view);
                 _detail.text = DetailText(view);
             }
-            if (_arrow != null)
+            if (_arrow != null) _arrow.localEulerAngles = new Vector3(0f, 0f, GuidanceCue.ArrowScreenRotation(view.ArrowYaw));
+            if (_lookLeft != null)
             {
-                _arrow.localEulerAngles = new Vector3(0f, 0f, GuidanceCue.ArrowScreenRotation(view.ArrowYaw));
                 bool facing = GuidanceCue.FacingWaypoint(view.ArrowYaw);
                 bool right = Mathf.DeltaAngle(0f, view.ArrowYaw) > 0f;
                 _lookLeft.gameObject.SetActive(!facing && !right);
