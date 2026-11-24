@@ -20,19 +20,12 @@ namespace IndoorAr
         public const float BandBelowM = 0.3f;
         public const float BandAboveM = 3.3f;
 
-        public MultiSetHint(int floor, float floorY) : this(floor, floor, floorY, floorY) { }
-
-        /// <summary>Contiguous floors, lowest first, with the surface Y of the lowest and highest.</summary>
-        public MultiSetHint(int minFloor, int maxFloor, float minFloorY, float maxFloorY)
+        public MultiSetHint(float floorY)
         {
-            MinFloor = minFloor;
-            MaxFloor = maxFloor;
-            MinY = minFloorY - BandBelowM;
-            MaxY = maxFloorY + BandAboveM;
+            MinY = floorY - BandBelowM;
+            MaxY = floorY + BandAboveM;
         }
 
-        public int MinFloor { get; }
-        public int MaxFloor { get; }
         public float MinY { get; }
         public float MaxY { get; }
     }
@@ -117,11 +110,6 @@ namespace IndoorAr
         public Func<Transform, bool> CandidatePoseValidator { get; set; }
         /// <summary>Asked at the start of every request; null means send no hint.</summary>
         public Func<MultiSetHint?> HintProvider { get; set; }
-        /// <summary>
-        /// Private per-map codes keyed by floor for hintMapCodes. Never committed or logged: nothing fills it in the repo,
-        /// so map-code hinting stays off until a deployment supplies them. Floors 1-2 share one map.
-        /// </summary>
-        public IReadOnlyDictionary<int, string[]> HintMapCodesByFloor { get; set; }
         public event Action<Transform, string, float?> CandidateLocalized;
         public Func<bool> TrackingReady { get; set; } = () => ARSession.state == ARSessionState.SessionTracking;
         public Transform MapSpace => mapSpace;
@@ -287,24 +275,13 @@ namespace IndoorAr
 
         IndoorArDiagnostics.LocalizationHint ApplyHint(MultiSetHint? hint)
         {
-            var codes = new List<string>();
-            if (hint is { } range && HintMapCodesByFloor != null)
-                for (var floor = range.MinFloor; floor <= range.MaxFloor; floor++)
-                    if (HintMapCodesByFloor.TryGetValue(floor, out var floorCodes))
-                        foreach (var code in floorCodes)
-                            if (!codes.Contains(code)) codes.Add(code);
-            var sendCodes = codes.Count > 0;
-            var sendHeight = hint.HasValue;
             if (HintMapCodesField?.FieldType == typeof(List<string>))
-                HintMapCodesField.SetValue(manager, codes);
-            else sendCodes = false;
-            if (HintFloorHeightField?.FieldType == typeof(string))
-                HintFloorHeightField.SetValue(manager, sendHeight
-                    ? string.Format(CultureInfo.InvariantCulture, "[{0:0.##}, {1:0.##}]", hint.Value.MinY, hint.Value.MaxY)
-                    : "");
-            else sendHeight = false;
-            return sendCodes ? sendHeight ? IndoorArDiagnostics.LocalizationHint.Both : IndoorArDiagnostics.LocalizationHint.Map
-                : sendHeight ? IndoorArDiagnostics.LocalizationHint.Height : IndoorArDiagnostics.LocalizationHint.None;
+                HintMapCodesField.SetValue(manager, new List<string>());
+            if (HintFloorHeightField?.FieldType != typeof(string)) return IndoorArDiagnostics.LocalizationHint.None;
+            HintFloorHeightField.SetValue(manager, hint is { } band
+                ? string.Format(CultureInfo.InvariantCulture, "[{0:0.##}, {1:0.##}]", band.MinY, band.MaxY)
+                : "");
+            return hint.HasValue ? IndoorArDiagnostics.LocalizationHint.Height : IndoorArDiagnostics.LocalizationHint.None;
         }
 
         void OnLocalized(LocalizationSuccessResponse result)

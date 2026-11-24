@@ -50,7 +50,7 @@ public class IndoorArDiagnosticsTests
         lines.Add(IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.Sign, 15000,
             IndoorArDiagnostics.LocalizationOutcome.Timeout, null, null, null));
         lines.Add(IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.MultiSet, 900,
-            IndoorArDiagnostics.LocalizationOutcome.GenericFailure, false, 0, 900, IndoorArDiagnostics.LocalizationHint.Both));
+            IndoorArDiagnostics.LocalizationOutcome.GenericFailure, false, 0, 900, IndoorArDiagnostics.LocalizationHint.Height));
         return lines;
     }
 

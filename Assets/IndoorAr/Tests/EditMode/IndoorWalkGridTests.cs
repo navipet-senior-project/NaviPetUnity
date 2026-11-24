@@ -531,11 +531,11 @@ public class IndoorWalkGridTests
 
         // Mocked barometer: confirmed floor 1, then one storey of pressure drop before launch.
         var session = new IndoorArSession(HostMoved(-0.47f), "MSET_X");
-        var floors = session.PressureCandidateFloors(heights);
-        Assert.AreEqual((2, 2), floors);
-        var yOf = new Dictionary<int, float>();
-        foreach (var (floor, y) in heights) yOf[floor] = y;
-        var hint = new MultiSetHint(floors.Value.Min, floors.Value.Max, yOf[floors.Value.Min], yOf[floors.Value.Max]);
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        var hintedFloor = session.HintFloor(0);
+        Assert.AreEqual(2, hintedFloor);
+        var hint = new MultiSetHint(grids[hintedFloor].FloorY);
         TestContext.WriteLine($"hint band Y [{hint.MinY:0.00}, {hint.MaxY:0.00}]");
 
         // Stand-in server: keeps frames whose Y is in the band. Camera or floor height, standing or seated, all pass.
@@ -553,19 +553,19 @@ public class IndoorWalkGridTests
         }
 
         // A wrong estimate is only a failed first hint: the retry carries no hint and the unhinted server accepts it.
-        session.OnArSupport(true);
-        session.OnAuthenticated();
         session.OnAttemptStarted();
-        Assert.IsNull(session.PressureCandidateFloors(heights));
-        Assert.AreEqual(0, session.HintFloor);
+        Assert.AreEqual(0, session.HintFloor(0));
     }
 
     [Test]
     public void WithoutAUsableDeltaTheWalkIsLocalizedUnhinted()
     {
-        var heights = new List<(int Floor, float Y)>();
-        foreach (var entry in IndoorWalkGrid.LoadFloors(Scan)) heights.Add((entry.Key, entry.Value.FloorY));
         foreach (var delta in new[] { 0f, -0.2f, -0.67f, -3.5f })
-            Assert.IsNull(new IndoorArSession(HostMoved(delta), "MSET_X").PressureCandidateFloors(heights), $"delta {delta}");
+        {
+            var session = new IndoorArSession(HostMoved(delta), "MSET_X");
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            Assert.AreEqual(0, session.HintFloor(0), $"delta {delta}");
+        }
     }
 }

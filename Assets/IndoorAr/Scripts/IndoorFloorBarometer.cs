@@ -23,7 +23,8 @@ namespace IndoorAr
         /// Settled change that counts as a level change: above the worst same-floor error seen (0.225), below the
         /// smallest storey step (0.415). A real step hidden by opposing posture and drift error is missed on purpose.
         /// </summary>
-        public const float MoveHpa = 0.30f;
+        public const float MoveHpa = (float)WireMoveHpa;
+        internal const double WireMoveHpa = 0.30;
         /// <summary>Drift was only observed over 20 min, so an older anchor is not compared.</summary>
         public const float MaxAnchorAgeS = 1200f;
         /// <summary>Samples arrived about every 1.07 s; a longer silence is sensor loss.</summary>

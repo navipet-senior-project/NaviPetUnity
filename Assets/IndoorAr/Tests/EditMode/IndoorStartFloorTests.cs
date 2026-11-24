@@ -24,17 +24,6 @@ public class IndoorStartFloorTests
         pressureSinceStart = summary ? new IndoorArPressureSummary { settled = settled, moved = moved, sampleAgeS = sampleAgeS } : null,
     };
 
-    static readonly (int Floor, float Y)[] ThreeFloors = { (1, -2f), (2, 2.08f), (3, 6.03f) };
-
-    // The host reports pressure that had already moved at launch, with the signed change (as the parser would mark it).
-    static IndoorArRequest Moved(float deltaHpa, string startFloor = "1", bool settled = true, bool valid = true)
-    {
-        var request = Request(startFloor: startFloor, settled: settled, moved: true);
-        request.pressureSinceStart.deltaHpa = deltaHpa;
-        request.pressureSinceStart.deltaValid = valid;
-        return request;
-    }
-
     IndoorArSession Localizing(IndoorArRequest request)
     {
         _pressureTime = 0f;
@@ -190,9 +179,9 @@ public class IndoorStartFloorTests
     public void OnlyTheFirstAttemptIsHintedWithTheTrustedStartFloor()
     {
         var s = Localizing(Request());
-        Assert.AreEqual(1, s.HintFloor);
+        Assert.AreEqual(1, s.HintFloor(0));
         s.OnAttemptStarted();
-        Assert.AreEqual(0, s.HintFloor, "every later request is unhinted");
+        Assert.AreEqual(0, s.HintFloor(0), "every later request is unhinted");
     }
 
     [Test]
@@ -201,18 +190,18 @@ public class IndoorStartFloorTests
         var s = Localizing(Request());
         var retried = 0;
         s.LocalizeRequested += () => retried++;
-        Assert.AreEqual(1, s.HintFloor);
+        Assert.AreEqual(1, s.HintFloor(0));
         s.OnAttemptStarted();
         s.OnNotLocalized();
         s.Tick(IndoorArSession.NoPoseRetryS);
         Assert.AreEqual(1, retried);
-        Assert.AreEqual(0, s.HintFloor);
+        Assert.AreEqual(0, s.HintFloor(0));
     }
 
     [Test]
     public void TheDestinationFloorNeverBecomesAHint()
     {
-        Assert.AreEqual(0, Localizing(Request(startFloor: null)).HintFloor, "destination is floor 2");
+        Assert.AreEqual(0, Localizing(Request(startFloor: null)).HintFloor(0), "destination is floor 2");
     }
 
     [TestCase(true, true, 30f, TestName = "no hint: pressure moved")]
@@ -220,7 +209,7 @@ public class IndoorStartFloorTests
     [TestCase(true, false, 1300f, TestName = "no hint: confirmation too old")]
     public void UnvouchedStartEvidenceGivesNoHint(bool settled, bool moved, float ageS)
     {
-        Assert.AreEqual(0, Localizing(Request(settled: settled, moved: moved, ageS: ageS)).HintFloor);
+        Assert.AreEqual(0, Localizing(Request(settled: settled, moved: moved, ageS: ageS)).HintFloor(0));
     }
 
     [Test]
@@ -230,82 +219,68 @@ public class IndoorStartFloorTests
         Feed(s, 0f, 30f);
         _pressureTime += 25f;
         Feed(s, -Step, 40f);
-        Assert.AreEqual(0, s.HintFloor);
+        Assert.AreEqual(0, s.HintFloor(0));
     }
 
-    [Test]
-    public void AConfirmedSignFloorWinsOverTheStartFloor()
+    [TestCase("-0.47", "1", 2)]
+    [TestCase("0.47", "2", 1)]
+    [TestCase("-0.30", "1", 2)]
+    [TestCase("0.30", "2", 1)]
+    [TestCase("-0.95", "1", 3)]
+    [TestCase("-1.15", "1", 0)]
+    [TestCase("1.15", "4", 0)]
+    [TestCase("-0.67", "1", 0)]
+    [TestCase("0.47", "1", 0)]
+    public void ParsedPressureDeltaMustFitExactlyOneStoreyCount(string delta, string start, int hintFloor)
     {
-        var s = Localizing(Request());
-        s.OnSignConfirmed(new IndoorRoomLandmark("VEC315", "VEC", "floor_3"));
-        Assert.AreEqual(3, s.HintFloor);
-    }
-
-    [TestCase("1", -0.47f, 2, 2, TestName = "estimate: one storey up from 1")]
-    [TestCase("2", -0.47f, 3, 3, TestName = "estimate: one storey up from 2")]
-    [TestCase("2", 0.47f, 1, 1, TestName = "estimate: one storey down from 2")]
-    [TestCase("1", -0.95f, 3, 3, TestName = "estimate: two storeys up from 1")]
-    [TestCase("1", -1.15f, 3, 3, TestName = "estimate: only the supported floor of two or three up")]
-    public void PressureChangeSinceConfirmationNamesCandidateFloors(string start, float delta, int min, int max)
-    {
-        var s = Localizing(Moved(delta, start));
-        Assert.AreEqual((min, max), s.PressureCandidateFloors(ThreeFloors));
-        Assert.AreEqual(0, s.HintFloor, "no trusted floor: only the estimate is available");
-    }
-
-    [TestCase("1", -0.67f, TestName = "no estimate: change fits no storey count")]
-    [TestCase("2", -1.15f, TestName = "no estimate: two or three up is above every supported floor")]
-    [TestCase("1", -1.5f, TestName = "no estimate: candidates are all above the supported floors")]
-    [TestCase("1", 0.47f, TestName = "no estimate: below the lowest floor")]
-    [TestCase("3", -0.47f, TestName = "no estimate: above the highest floor")]
-    [TestCase("1", -4f, TestName = "no estimate: implausibly large change")]
-    public void UnmatchedOrOutOfRangePressureGivesNoCandidate(string start, float delta)
-    {
-        Assert.IsNull(Localizing(Moved(delta, start)).PressureCandidateFloors(ThreeFloors));
-    }
-
-    [Test]
-    public void AChangeThatFitsTwoStoreyCountsNamesBothSupportedFloors()
-    {
-        var floors = new[] { (1, -2f), (2, 2.08f), (3, 6.03f), (4, 10f) };
-        Assert.AreEqual((3, 4), Localizing(Moved(-1.15f)).PressureCandidateFloors(floors));
-    }
-
-    [Test]
-    public void PressureCandidatesNeedAValidSettledDeltaAndNoOtherFloorEvidence()
-    {
-        Assert.IsNull(Localizing(Moved(-0.47f, valid: false)).PressureCandidateFloors(ThreeFloors), "delta absent or inconsistent");
-        Assert.IsNull(Localizing(Moved(-0.47f, settled: false)).PressureCandidateFloors(ThreeFloors), "unsettled");
-        Assert.IsNull(Localizing(Request()).PressureCandidateFloors(ThreeFloors), "unmoved: the trusted start floor decides");
-        Assert.IsNull(Localizing(Moved(-0.47f)).PressureCandidateFloors(null));
-        var sign = Localizing(Moved(-0.47f));
-        sign.OnSignConfirmed(Sign215);
-        Assert.IsNull(sign.PressureCandidateFloors(ThreeFloors), "a sign decides");
-        var later = Localizing(Moved(-0.47f));
-        later.OnAttemptStarted();
-        Assert.IsNull(later.PressureCandidateFloors(ThreeFloors), "later requests are unhinted");
-    }
-
-    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":-0.47", true, TestName = "delta accepted when consistent")]
-    [TestCase("\"settled\":true,\"moved\":false,\"deltaHpa\":-0.47", false, TestName = "delta ignored when moved disagrees")]
-    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":-0.1", false, TestName = "delta ignored when small but moved")]
-    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":-9", false, TestName = "delta ignored when implausibly large")]
-    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":\"-0.47\"", false, TestName = "delta ignored when not a number")]
-    [TestCase("\"settled\":false,\"moved\":true,\"deltaHpa\":-0.47", false, TestName = "delta ignored when unsettled")]
-    [TestCase("\"settled\":true,\"moved\":true", false, TestName = "delta absent")]
-    public void HostDeltaIsTrustedOnlyWhenValid(string summary, bool valid)
-    {
-        var json = HostRequest.Replace("\"settled\":true,\"moved\":false", summary);
+        var json = HostRequest.Replace("\"startFloor\":\"1\"", $"\"startFloor\":\"{start}\"")
+            .Replace("\"moved\":false", $"\"moved\":true,\"deltaHpa\":{delta}");
         Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
-        Assert.AreEqual(valid, request.pressureSinceStart.deltaValid);
-        Assert.IsFalse(JsonUtility.ToJson(request.pressureSinceStart).Contains("deltaValid"));
+        var session = Localizing(request);
+        Assert.IsTrue(request.pressureSinceStart.deltaValid);
+        Assert.AreEqual(hintFloor, session.HintFloor(0));
+        Assert.AreEqual(0, session.TrustedStartFloor);
+        session.OnSignConfirmed(Sign215);
+        Assert.AreEqual(0, session.HintFloor(0));
+    }
+
+    [TestCase("false", "-0.47")]
+    [TestCase("false", "0.30")]
+    [TestCase("true", "-0.299999999")]
+    [TestCase("true", "-3.01")]
+    [TestCase("false", "null")]
+    [TestCase("false", "\"-0.47\"")]
+    public void InvalidSuppliedDeltaDisablesHostFloorTrust(string moved, string delta)
+    {
+        var json = HostRequest.Replace("\"moved\":false", $"\"moved\":{moved},\"deltaHpa\":{delta}");
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        var session = Localizing(request);
+        Assert.AreEqual(0, session.HintFloor(0));
+        Assert.AreEqual(0, session.TrustedStartFloor);
+        Assert.IsFalse(session.PressureSamplingAllowed);
+    }
+
+    [TestCase(1, 1, "\"settled\":true,\"deltaHpa\":-0.47")]
+    [TestCase(2, 2, "\"settled\":true,\"deltaHpa\":-0.47")]
+    [TestCase(2, 2, "\"moved\":true,\"deltaHpa\":-0.47")]
+    [TestCase(2, 1, "\"settled\":true,\"deltaHpa\":-0.47")]
+    [TestCase(2, 1, "\"settled\":true,\"moved\":\"true\",\"deltaHpa\":-0.47")]
+    public void UnsupportedAndIncompleteEvidenceIsIgnored(int schema, int version, string summary)
+    {
+        var json = HostRequest.Replace("\"schemaVersion\":2", $"\"schemaVersion\":{schema}")
+            .Replace("\"floorEvidenceVersion\":1", $"\"floorEvidenceVersion\":{version}")
+            .Replace("\"settled\":true,\"moved\":false", summary);
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.IsNull(request.pressureSinceStart);
+        Assert.AreEqual(0, Localizing(request).HintFloor(0));
     }
 
     [Test]
     public void DeltaValidFlagCannotComeFromTheWire()
     {
-        var json = HostRequest.Replace("\"settled\":true,\"moved\":false", "\"settled\":true,\"moved\":true,\"deltaValid\":true");
+        var json = HostRequest.Replace("\"moved\":false", "\"moved\":true,\"deltaValid\":true");
         Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
         Assert.IsFalse(request.pressureSinceStart.deltaValid);
+        Assert.AreEqual(0, Localizing(request).HintFloor(0));
     }
 }

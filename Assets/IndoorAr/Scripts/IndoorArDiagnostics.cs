@@ -153,7 +153,7 @@ namespace IndoorAr
         public enum LocalizationRequestKind { Sign, MultiSet }
 
         /// <summary>Which hint a MultiSet request carried. Kinds only: never a floor, height or map code.</summary>
-        public enum LocalizationHint { None, Map, Height, Both }
+        public enum LocalizationHint { None, Height }
 
         /// <summary>How one request ended. Timing alone does not identify the cause of a delay.</summary>
         public enum LocalizationOutcome { Ok, GenericFailure, Rejected, Timeout, Cancelled, Superseded, Late, Ignored }

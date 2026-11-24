@@ -52,7 +52,7 @@ namespace IndoorAr
         bool _stateLogged;
         bool _armingEntry;
         bool _localizeWhenTracking;
-        float _sessionStarted;
+        double _sessionStarted;
         IndoorArBaseline _baseline;
         string _baselineLog;
         IndoorSignPoseStatus? _signPoseStatus;
@@ -167,7 +167,7 @@ namespace IndoorAr
         {
             var restart = _started;
             _started = true;
-            _sessionStarted = Time.realtimeSinceStartup;
+            _sessionStarted = Time.realtimeSinceStartupAsDouble;
             _stateLogged = false;
             EndLimitedEpisode(LimitedEpisodeEnd.SessionReplaced);
             ReleaseSession();
@@ -297,7 +297,7 @@ namespace IndoorAr
                 _loggedState = _session.State;
                 _stateLogged = true;
                 if (!Application.isEditor)
-                    Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)} attempts={_session.Queries} multisetFallback={MultiSetFallbackStatus()}");
+                    Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartupAsDouble - _sessionStarted) * 1000)} attempts={_session.Queries} multisetFallback={MultiSetFallbackStatus()}");
             }
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
             if ((LiveDoorHud.AuthFailed(_session) || LiveDoorHud.StepFreeUnavailable(_session)) && _failureLeft < 0f)
@@ -344,7 +344,7 @@ namespace IndoorAr
             if (_localizeWhenTracking) return;
             _baseline?.NoteAttemptStarted(NowMs());
             if (!Application.isEditor)
-                Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");
+                Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartupAsDouble - _sessionStarted) * 1000)}");
             _localizer.Localize();
             LogBaseline();
         }
@@ -398,7 +398,7 @@ namespace IndoorAr
         void OnSignRead(string text, IndoorRoomMatch match, float recognitionStarted, IndoorSignObservation observation)
         {
             if (!signLocalization || _session == null || _delivered || _signs == null
-                || recognitionStarted < _sessionStarted) return;
+                || recognitionStarted < (float)_sessionStarted) return;
             var now = Time.unscaledTime;
             var ocrMs = (long)((Time.realtimeSinceStartup - recognitionStarted) * 1000);
             _baseline?.NoteOcrRead(ocrMs);
@@ -454,21 +454,11 @@ namespace IndoorAr
             return !_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights);
         }
 
-        // Only floors with a known surface height are hinted; anything else sends no hint. A sign or trusted start floor
-        // hints one floor; otherwise the host's pressure change may hint the one or two floors it fits.
         MultiSetHint? FloorHint()
         {
-            if (_session == null || _floorHeights == null) return null;
-            var floor = _session.HintFloor;
-            var (min, max) = floor > 0 ? (floor, floor) : _session.PressureCandidateFloors(_floorHeights) ?? (0, 0);
-            if (min <= 0) return null;
-            float? minY = null, maxY = null;
-            foreach (var (supported, floorY) in _floorHeights)
-            {
-                if (supported == min) minY = floorY;
-                if (supported == max) maxY = floorY;
-            }
-            return minY.HasValue && maxY.HasValue ? new MultiSetHint(min, max, minY.Value, maxY.Value) : null;
+            var floor = _session?.HintFloor(Time.realtimeSinceStartupAsDouble - _sessionStarted) ?? 0;
+            var grid = floor > 0 ? Grid(floor) : null;
+            return grid == null ? null : new MultiSetHint(grid.FloorY);
         }
 
         IndoorWalkGrid Grid(int floor) => _grids.GetValueOrDefault(floor);

@@ -37,7 +37,7 @@ namespace IndoorAr
         // sign is read, tracked motion or pressure shows another level, or two attempts in a row land on another floor.
         bool _startSuperseded;
         // The user's confirmed floor and the host's signed settled pressure change since then, kept only when pressure
-        // had already moved at launch (no start-floor veto then). Input to the advisory PressureCandidateFloors.
+        // had already moved at launch (no start-floor veto then).
         int _confirmedFloor;
         float _hostDeltaHpa;
         int _lastConflictQueries = -1;
@@ -63,7 +63,7 @@ namespace IndoorAr
                 Barometer = new IndoorFloorBarometer();
                 LaunchedWithFloorEvidence = true;
                 if (pressure.settled && !pressure.moved) StartFloor = floor;
-                else if (pressure.settled && pressure.deltaValid)
+                else if (pressure.settled && pressure.moved && pressure.deltaValid)
                 {
                     _confirmedFloor = floor;
                     _hostDeltaHpa = pressure.deltaHpa;
@@ -102,31 +102,19 @@ namespace IndoorAr
         /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
         public int TrustedStartFloor => _startSuperseded ? 0 : StartFloor;
 
-        /// <summary>
-        /// Floor to narrow the first MultiSet request to: the confirmed sign's, else the trusted start floor, else 0.
-        /// Never the destination. Every later request is unhinted, so a wrong or failed hint costs one retry.
-        /// </summary>
-        public int HintFloor => Queries == 0 ? Math.Max(FloorSign?.Floor ?? TrustedStartFloor, 0) : 0;
-
-        /// <summary>
-        /// Supported floors the user may now be on, as an inclusive range, from the host's settled pressure change since
-        /// the floor they confirmed. An estimate, never a floor: advisory, for the first request's hint only, and null
-        /// when a sign or trusted start floor already decides, there is no valid delta, the change fits no storey count,
-        /// or no supported floor matches. The change fits at most two storey counts, so at most two floors.
-        /// </summary>
-        public (int Min, int Max)? PressureCandidateFloors(IReadOnlyList<(int Floor, float Y)> supported)
+        internal int HintFloor(double secondsSinceLaunch)
         {
-            if (Queries != 0 || _confirmedFloor <= 0 || FloorSign != null || TrustedStartFloor > 0 || supported == null) return null;
-            if (!IndoorFloorBarometer.TryStoreyOffsets(_hostDeltaHpa, out var minOffset, out var maxOffset)) return null;
-            int min = 0, max = 0, count = 0;
-            foreach (var (floor, _) in supported)
-            {
-                if (floor < _confirmedFloor + minOffset || floor > _confirmedFloor + maxOffset) continue;
-                min = count == 0 ? floor : Math.Min(min, floor);
-                max = count == 0 ? floor : Math.Max(max, floor);
-                count++;
-            }
-            return count > 0 && max - min + 1 == count ? (min, max) : null;
+            if (State != IndoorArState.Localizing || Queries != 0 || _retried || _startSuperseded
+                || Request.pressureSinceStart == null
+                || Request.startFloorAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxAnchorAgeS
+                || Request.pressureSinceStart.sampleAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxSampleGapS)
+                return 0;
+            if (TrustedStartFloor > 0) return TrustedStartFloor;
+            if (_confirmedFloor <= 0
+                || !IndoorFloorBarometer.TryStoreyOffsets(_hostDeltaHpa, out var minOffset, out var maxOffset)
+                || minOffset != maxOffset)
+                return 0;
+            return Math.Max(0, _confirmedFloor + minOffset);
         }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
