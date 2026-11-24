@@ -16,11 +16,11 @@ No native host change. Flutter `jsonEncode`s the request (`IndoorArLauncher._lau
 |---|---|---|
 | `floorEvidenceVersion` | int | Must be `1`. Absent or any other value: Unity ignores every field below. |
 | `startFloor` | string | Floor the USER confirmed they are standing on, same format as `floor` (e.g. `"1"`). Never the destination floor, never derived from `floor`, `room` or `doorKey`. Positive integer. |
-| `startFloorAgeS` | number | Finite seconds since the user confirmed it, measured on a monotonic clock. Must be `0..1200`. |
+| `startFloorAgeS` | number | Finite seconds since the user confirmed the starting floor, measured on a monotonic clock. The start-floor veto requires `0..1200`. |
 | `pressureSinceStart` | object | Host barometer summary since the confirmation (below). |
 | `pressureSinceStart.settled` | bool | A settled window exists now and a settled anchor was captured at confirmation. |
 | `pressureSinceStart.moved` | bool | The settled level moved at least 0.30 hPa from the level at confirmation. |
-| `pressureSinceStart.sampleAgeS` | number | Finite age of the newest barometer sample in seconds, `0..10`. |
+| `pressureSinceStart.sampleAgeS` | number | Finite age of the newest host barometer sample in seconds. The start-floor veto requires `0..10`. |
 
 Example:
 ```json
@@ -36,14 +36,14 @@ Samples are `sensors_plus` `barometerEventStream` readings (hPa; only difference
 - Drop a reading closer than 0.5 s to the previous one. A gap over 10 s, or time going backward, clears the window.
 - At confirmation and at each comparison, evaluate only the samples from the last 20 s. A level is settled when the window has at least 8 samples, spans at least 18 s, its newest sample is at most 10 s old, and its peak-to-peak range is at most 0.06 hPa. The level is the median.
 - Capture the settled level when the user confirms the floor. If pressure is unsettled, omit all floor-evidence fields and ask for a fresh confirmation once pressure settles.
-- `moved` = current settled level differs from the anchor by at least 0.30 hPa. After 1200 s since confirmation, or any sensor loss or denial, send `settled:false` (or omit the object): never `moved:false` on missing data.
+- `moved` means the current settled level differs from the host anchor by at least 0.30 hPa. If more than 1200 s has elapsed since confirmation or the sensor stream is lost, send `settled:false` if all required fields are available, or omit the floor evidence. A complete request with `settled:false` can still authorize Unity sampling.
 - Permission or sensor missing: omit all fields. Unity then behaves as today.
 
 Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for 60 s is settled and unchanged. A 0.47 step then a 40 s hold is settled and moved. A 0.12 posture shift plus 0.10 drift is unchanged. A 25 s gap then a 40 s hold at a level 0.47 lower is settled and moved. A hold with a range of 0.2 is unsettled. After 11 s of silence the status is unsettled, and the next sample starts a new window.
 
 ## What Unity does
-- Starts its native barometer on iOS and Android only after map validation and only with complete version 1 evidence containing a positive, parseable starting floor. Skipping confirmation sends no evidence and disables Unity-side barometer collection and pressure-based release. A complete confirmation can enable sampling even if its pressure summary is too old, unsettled, or moved to support a start-floor veto.
-- Trusts `startFloor` only when all fields are present with the types above, version is 1, floor > 0, age is 0..1200 s, `settled` is true, `moved` is false, and `sampleAgeS` is 0..10 s.
+- **Sampling consent.** After map validation, Unity starts its native barometer on iOS and Android only with complete, well-typed version 1 evidence from the user's confirmation of a positive, parseable starting floor. Skipping confirmation sends no evidence and disables collection and pressure-based release.
+- **Start-floor trust.** A veto additionally requires `startFloorAgeS` in `0..1200`, `settled:true`, `moved:false`, and `sampleAgeS` in `0..10`. For example, complete evidence with `startFloorAgeS:1201` can authorize sampling, including a later pressure-based sign release, while the start-floor veto stays inactive.
 - While trusted and no confirmed sign: a MultiSet pose on a different supported floor is rejected as a floor conflict and localization retries (the existing sign-conflict path). The pose floor must also be unambiguous (unknown or outside heights is rejected as before).
 - Permanently drops the start-floor veto after a confirmed room sign, tracked motion from an accepted pose onto another floor, a settled pressure change of at least 0.30 hPa from Unity's first settled baseline after launch, or two separate attempts that return a valid pose on another floor. The second valid conflicting pose can be accepted immediately.
 - Unity anchors the trusted start floor at its first settled window. Moving before that window settles can establish the baseline on a different floor and miss the move.
@@ -59,7 +59,7 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 
 ## Known limits and disclosed gaps
 - Missed on purpose: a real one-storey step hidden by opposing posture plus drift error above about 0.115 hPa.
-- Drift only observed to 20 minutes; confirmation older than 20 minutes is ignored.
+- **Unity anchor lifetime.** Drift was observed for up to 20 minutes. Unity stops comparing against a pressure anchor once more than 20 minutes have elapsed since Unity captured it, whether at its first settled launch window or at sign confirmation. This timer starts when Unity captures the anchor.
 - Even with a valid pressure anchor, tracking loss during an elevator ride can leave a stale sign vetoing poses on the new floor until pressure settles. MultiSet can exhaust its automatic retry first. The user may need to retry localization manually.
 - Cold starts without valid host evidence have no start-floor veto. A wrong confirmation can cost one retry when both attempts return valid conflicting poses.
 - Device behavior, iOS export linking CoreMotion, Android hardware, privacy and Motion & Fitness permission behavior, and the Flutter integration remain unverified.
