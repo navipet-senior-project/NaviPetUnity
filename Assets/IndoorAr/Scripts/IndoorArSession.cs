@@ -21,6 +21,7 @@ namespace IndoorAr
         public const float MaxEyeHeightM = 2.2f;
 
         float _elapsedS;
+        float _pressureElapsedS;
         float _localizingS;
         float _retryAtS = LocalizeTimeoutS;
         float _startupS;
@@ -85,7 +86,7 @@ namespace IndoorAr
         /// <summary>Confirmed starting floor the host vouched for with settled, unchanged pressure; 0 when absent or distrusted.</summary>
         int StartFloor { get; }
         /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
-        public int TrustedStartFloor => _startSuperseded || FloorSign != null ? 0 : StartFloor;
+        public int TrustedStartFloor => _startSuperseded ? 0 : StartFloor;
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 
@@ -139,7 +140,7 @@ namespace IndoorAr
         {
             var poseFloor = PoseFloor(cameraY, floors);
             return poseFloor <= 0 || FloorSign != null && FloorSign.Floor > 0 && poseFloor != FloorSign.Floor
-                || FloorSign == null && TrustedStartFloor > 0 && poseFloor != TrustedStartFloor;
+                || TrustedStartFloor > 0 && poseFloor != TrustedStartFloor;
         }
 
         /// <summary>The unique floor in the camera's eye-height band. Gaps and overlaps give 0, outside gives -1.</summary>
@@ -188,16 +189,16 @@ namespace IndoorAr
         /// </summary>
         public void OnPressure(float hpa)
         {
-            if (State == IndoorArState.Done) return;
-            Barometer.Sample(hpa, _elapsedS);
-            if (StartFloor > 0 && !_startSuperseded && SignRoom == null)
+            if (!PressureSamplingAllowed || State == IndoorArState.Done) return;
+            Barometer.Sample(hpa, _pressureElapsedS);
+            if (TrustedStartFloor > 0)
             {
                 // Pressure at launch is the baseline for the host's "unchanged" claim; retry until it is settled.
-                if (!Barometer.HasAnchor) Barometer.Anchor(_elapsedS);
-                else if (Barometer.Status(_elapsedS) == IndoorBarometerStatus.Moved) _startSuperseded = true;
+                if (!Barometer.HasAnchor) Barometer.Anchor(_pressureElapsedS);
+                else if (Barometer.Status(_pressureElapsedS) == IndoorBarometerStatus.Moved) _startSuperseded = true;
             }
             if (SignRoom != null && !_signSuperseded
-                && Barometer.Status(_elapsedS) == IndoorBarometerStatus.Moved) _signSuperseded = true;
+                && Barometer.Status(_pressureElapsedS) == IndoorBarometerStatus.Moved) _signSuperseded = true;
         }
 
         /// <summary>
@@ -227,7 +228,7 @@ namespace IndoorAr
             SignRoom = room;
             _signSuperseded = false;
             _startSuperseded = true;
-            Barometer.Anchor(_elapsedS);
+            if (PressureSamplingAllowed) Barometer.Anchor(_pressureElapsedS);
             if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
                 || Request.LocalizeOnly
                 || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
@@ -264,6 +265,7 @@ namespace IndoorAr
 
         public void Tick(float dt)
         {
+            _pressureElapsedS += dt;
             if (State == IndoorArState.Done) return;
             _elapsedS += dt;
             if (State == IndoorArState.Init || State == IndoorArState.Auth)

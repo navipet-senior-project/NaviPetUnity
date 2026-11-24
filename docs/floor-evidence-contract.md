@@ -34,7 +34,7 @@ Never send absolute or raw pressure, timestamps, coordinates or location. Locali
 ## Rule the Flutter side must compute (identical to `IndoorFloorBarometer.cs`)
 Samples are `sensors_plus` `barometerEventStream` readings (hPa; only differences are used).
 - Drop a reading closer than 0.5 s to the previous one. A gap over 10 s, or time going backward, clears the window.
-- At confirmation and at each comparison, evaluate only the samples from the last 20 s. A level is settled when the window has at least 8 samples, spans at least 18 s, its newest sample is at most 10 s old, and its peak-to-peak range is at most 0.06 hPa. The level is the median.
+- At confirmation and at each comparison, evaluate only the samples from the last 20 s. A level is settled when the window has at least 8 samples, spans at least 18 s, and has a peak-to-peak range of at most 0.06 hPa. The level is the median.
 - Capture the settled level when the user confirms the floor. If pressure is unsettled, omit all floor-evidence fields and ask for a fresh confirmation once pressure settles.
 - `moved` means the current settled level differs from the host anchor by at least 0.30 hPa. If more than 1200 s has elapsed since confirmation or the sensor stream is lost, send `settled:false` if all required fields are available, or omit the floor evidence. A complete request with `settled:false` can still authorize Unity sampling.
 - Permission or sensor missing: omit all fields. Unity then behaves as today.

@@ -78,7 +78,7 @@ namespace IndoorAr
             var first = _window.FindIndex(sample => sample.T >= cutoff);
             if (first < 0 || _window.Count - first < MinSamples) return null;
             var last = _window[_window.Count - 1].T;
-            if (nowS - last > MaxSampleGapS || last - _window[first].T < SettleWindowS - 2f) return null;
+            if (last - _window[first].T < SettleWindowS - 2f) return null;
             var values = new List<float>(_window.Count - first);
             for (var i = first; i < _window.Count; i++) values.Add(_window[i].Hpa);
             values.Sort();

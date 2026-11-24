@@ -175,13 +175,16 @@ public class IndoorFloorBarometerTests
     static readonly (int Floor, float Y)[] Floors = { (1, -2f), (2, 2.2f) };
     const float Floor1CameraY = 0f, Floor2CameraY = 4f;
 
-    static IndoorArSession Pinned()
+    static IndoorArSession Pinned(bool confirmedFloor = true)
     {
         var session = new IndoorArSession(new IndoorArRequest
         {
-            schemaVersion = 1, room = "119", doorKey = "VEC119", floor = "1",
+            schemaVersion = 2, room = "119", doorKey = "VEC119", floor = "1",
             position = new IndoorArVector3 { x = -5.7651f, y = -1.8186f, z = 22.6689f },
             headingDeg = 185.36f, mapCode = "MSET_XTBY7AM7ZK77", frame = "multiset-mapset",
+            floorEvidenceVersion = confirmedFloor ? IndoorArContract.FloorEvidenceVersion : 0,
+            startFloor = confirmedFloor ? "1" : null,
+            pressureSinceStart = confirmedFloor ? new IndoorArPressureSummary { settled = true } : null,
         }, "MSET_XTBY7AM7ZK77");
         session.OnArSupport(true);
         session.OnAuthenticated();
@@ -198,10 +201,11 @@ public class IndoorFloorBarometerTests
         }
     }
 
-    [Test]
-    public void SettledMoveSinceTheSignReleasesTheStaleSignSoTheNewFloorPoseIsAccepted()
+    [TestCase(true)]
+    [TestCase(false)]
+    public void SettledMoveReleasesTheStaleSignOnlyWithStartFloorConfirmation(bool confirmedFloor)
     {
-        var s = Pinned();
+        var s = Pinned(confirmedFloor);
         Feed(s, 0f, 30f);
         s.OnSignConfirmed(Sign120);
         Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors), "stale-sign rejection is the bug being fixed");
@@ -209,9 +213,9 @@ public class IndoorFloorBarometerTests
         Assert.AreSame(Sign120, s.FloorSign, "same level keeps the sign");
         s.Tick(25f); // travel, no samples
         Feed(s, -Step, 40f);
-        Assert.IsNull(s.FloorSign);
+        Assert.AreSame(confirmedFloor ? null : Sign120, s.FloorSign);
         Assert.AreSame(Sign120, s.SignRoom);
-        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+        Assert.AreEqual(!confirmedFloor, s.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
 
     [Test]
@@ -255,6 +259,28 @@ public class IndoorFloorBarometerTests
         s.Tick(8f);
         var sign = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
         s.OnSignConfirmed(sign);
+        Feed(s, -Step, 40f);
+
+        Assert.AreSame(sign, s.FloorSign);
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+    }
+
+    [Test]
+    public void RetryAfterChangingFloorsOnTheFailureScreenDoesNotAnchorToThePreviousFloor()
+    {
+        var s = Pinned();
+        s.OnTrackingLost();
+        s.Tick(IndoorArSession.LocalizeTimeoutS);
+        Feed(s, 0f, IndoorArSession.LocalizeTimeoutS - 1f);
+        s.Tick(1f);
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(s));
+
+        Feed(s, -Step, 25f);
+        s.Retry();
+        Assert.AreEqual(IndoorArState.Localizing, s.State);
+        var sign = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
+        s.OnSignConfirmed(sign);
+        s.OnLocalized();
         Feed(s, -Step, 40f);
 
         Assert.AreSame(sign, s.FloorSign);
