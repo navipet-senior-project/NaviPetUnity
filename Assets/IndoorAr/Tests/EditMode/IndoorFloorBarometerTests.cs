@@ -430,4 +430,24 @@ public class IndoorFloorBarometerTests
         s.OnPressure(0f, _pressureTime);
         Assert.AreEqual(IndoorArState.Done, s.State);
     }
+
+    // Offsets are storeys, positive up. Pressure falls going up. Gaps between storey counts are no estimate.
+    [TestCase(-0.47, 1)]
+    [TestCase(0.47, -1)]
+    [TestCase(-0.60, 1)]
+    [TestCase(-1.15, 0)]
+    [TestCase(1.15, 0)]
+    [TestCase(-0.95, 2)]
+    [TestCase(-1.40, 3)]
+    [TestCase(-1.55, 0)]
+    [TestCase(-0.29, 0)]
+    [TestCase(-0.68, 0)]
+    [TestCase(-0.67, 0)]
+    [TestCase(-3.5, 0)]
+    [TestCase(double.NaN, 0)]
+    public void StoreyOffsetFromASettledChange(double delta, int expectedOffset)
+    {
+        Assert.AreEqual(expectedOffset != 0, IndoorFloorBarometer.TryStoreyOffset(delta, out var offset));
+        Assert.AreEqual(expectedOffset, offset);
+    }
 }

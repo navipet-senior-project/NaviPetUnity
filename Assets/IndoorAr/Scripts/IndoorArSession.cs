@@ -36,6 +36,10 @@ namespace IndoorAr
         // The user's confirmed floor, trusted only with settled unchanged pressure. Weaker than a sign: it lapses when a
         // sign is read, tracked motion or pressure shows another level, or two attempts in a row land on another floor.
         bool _startSuperseded;
+        // The user's confirmed floor and the host's signed settled pressure change since then, kept only when pressure
+        // had already moved at launch (no start-floor veto then).
+        int _confirmedFloor;
+        double _hostDeltaHpa;
         int _lastConflictQueries = -1;
         int _startConflicts;
         const int MaxStartConflicts = 2;
@@ -59,6 +63,11 @@ namespace IndoorAr
                 Barometer = new IndoorFloorBarometer();
                 LaunchedWithFloorEvidence = true;
                 if (pressure.settled && !pressure.moved) StartFloor = floor;
+                else if (pressure.settled && pressure.moved && pressure.deltaValid)
+                {
+                    _confirmedFloor = floor;
+                    _hostDeltaHpa = pressure.deltaHpa;
+                }
             }
         }
 
@@ -92,6 +101,20 @@ namespace IndoorAr
         int StartFloor { get; set; }
         /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
         public int TrustedStartFloor => _startSuperseded ? 0 : StartFloor;
+
+        internal int HintFloor(double secondsSinceLaunch)
+        {
+            if (State != IndoorArState.Localizing || Queries != 0 || _retried || _startSuperseded
+                || Request.pressureSinceStart is not { deltaValid: true } pressure
+                || Request.startFloorAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxAnchorAgeS
+                || pressure.sampleAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxSampleGapS)
+                return 0;
+            if (TrustedStartFloor > 0) return TrustedStartFloor;
+            if (_confirmedFloor <= 0
+                || !IndoorFloorBarometer.TryStoreyOffset(_hostDeltaHpa, out var offset))
+                return 0;
+            return Math.Max(0, _confirmedFloor + offset);
+        }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 

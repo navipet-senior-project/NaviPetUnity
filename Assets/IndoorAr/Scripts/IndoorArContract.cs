@@ -76,8 +76,9 @@ namespace IndoorAr
         /// </summary>
         public int floorEvidenceVersion;
         public string startFloor;
-        public float startFloorAgeS;
+        public double startFloorAgeS;
         public IndoorArPressureSummary pressureSinceStart;
+        internal double? RequestSentAtBootS { get; set; }
         /// <summary>Optional host features. Absent from legacy hosts, which still require checkDistanceM on every arrival.</summary>
         public string[] capabilities;
         /// <summary>The host accepts an arrived result without checkDistanceM when it carries the destination signRoom.</summary>
@@ -90,7 +91,14 @@ namespace IndoorAr
     {
         public bool settled;
         public bool moved;
-        public float sampleAgeS;
+        public double sampleAgeS;
+        /// <summary>
+        /// Optional. Signed change of the host's settled level since the confirmation, hPa (negative: pressure fell, so
+        /// the user went up). Relative only. Used only when <see cref="deltaValid"/>.
+        /// </summary>
+        [NonSerialized] public double deltaHpa;
+        /// <summary>Set by the parser, never read from the wire: deltaHpa was present, finite, bounded and agrees with settled and moved.</summary>
+        [NonSerialized] public bool deltaValid;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
@@ -166,25 +174,43 @@ namespace IndoorAr
             {
                 return false;
             }
-            if (parsed.floorEvidenceVersion == FloorEvidenceVersion && !HasCompleteFloorEvidence(json))
+            if (parsed.schemaVersion != SchemaVersionV2 || parsed.floorEvidenceVersion != FloorEvidenceVersion
+                || parsed.pressureSinceStart == null || !ValidateFloorEvidence(json, parsed))
                 parsed.pressureSinceStart = null;
             request = parsed;
             return true;
         }
 
-        static bool HasCompleteFloorEvidence(string json)
+        static bool ValidateFloorEvidence(string json, IndoorArRequest request)
         {
             try
             {
                 var fields = JObject.Parse(json);
                 var version = fields["floorEvidenceVersion"];
-                return version?.Type == JTokenType.Integer && (double)version == FloorEvidenceVersion
-                    && fields["startFloor"]?.Type == JTokenType.String
-                    && IsAgeWithin(fields["startFloorAgeS"], IndoorFloorBarometer.MaxAnchorAgeS)
-                    && fields["pressureSinceStart"] is JObject pressure
-                    && pressure["settled"]?.Type == JTokenType.Boolean
-                    && pressure["moved"]?.Type == JTokenType.Boolean
-                    && IsAgeWithin(pressure["sampleAgeS"], IndoorFloorBarometer.MaxSampleGapS);
+                if (version?.Type != JTokenType.Integer || (double)version != FloorEvidenceVersion
+                    || fields["startFloor"]?.Type != JTokenType.String
+                    || !IsAgeWithin(fields["startFloorAgeS"], IndoorFloorBarometer.MaxAnchorAgeS)
+                    || fields["pressureSinceStart"] is not JObject pressure
+                    || pressure["settled"]?.Type != JTokenType.Boolean
+                    || pressure["moved"]?.Type != JTokenType.Boolean
+                    || !IsAgeWithin(pressure["sampleAgeS"], IndoorFloorBarometer.MaxSampleGapS))
+                    return false;
+                var summary = request.pressureSinceStart;
+                var delta = pressure["deltaHpa"];
+                if (summary.settled && delta?.Type is (JTokenType.Integer or JTokenType.Float))
+                {
+                    var change = (double)delta;
+                    var magnitude = Math.Abs(change);
+                    if (magnitude <= IndoorFloorBarometer.MaxDeltaHpa
+                        && (magnitude >= IndoorFloorBarometer.WireMoveHpa) == summary.moved)
+                    {
+                        summary.deltaHpa = change;
+                        summary.deltaValid = true;
+                    }
+                }
+                var sentAt = fields["requestSentAtBootS"];
+                if (IsAgeWithin(sentAt, double.MaxValue)) request.RequestSentAtBootS = (double)sentAt;
+                return true;
             }
             catch (JsonReaderException)
             {
@@ -192,7 +218,6 @@ namespace IndoorAr
             }
         }
 
-        // Checked on the wire value: JsonUtility has already rounded it to float, so 1200.000001 would read as 1200.
         static bool IsAgeWithin(JToken age, double maxS) =>
             age?.Type is JTokenType.Integer or JTokenType.Float && (double)age >= 0 && (double)age <= maxS;
 

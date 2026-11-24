@@ -23,7 +23,8 @@ namespace IndoorAr
         /// Settled change that counts as a level change: above the worst same-floor error seen (0.225), below the
         /// smallest storey step (0.415). A real step hidden by opposing posture and drift error is missed on purpose.
         /// </summary>
-        public const float MoveHpa = 0.30f;
+        public const float MoveHpa = (float)WireMoveHpa;
+        internal const double WireMoveHpa = 0.30;
         /// <summary>Drift was only observed over 20 min, so an older anchor is not compared.</summary>
         public const float MaxAnchorAgeS = 1200f;
         /// <summary>Samples arrived about every 1.07 s; a longer silence is sensor loss.</summary>
@@ -31,6 +32,17 @@ namespace IndoorAr
         /// <summary>Readings closer than this are dropped, so a 60 Hz feed costs the same as 1 Hz.</summary>
         public const float MinSpacingS = 0.5f;
         public const int MinSamples = 8;
+        /// <summary>
+        /// Settled pressure change per storey. Measured segment-to-segment steps ran 0.40-0.59 hPa (stairs and elevator,
+        /// up and down); the slack below covers posture shifts and drift on top. One device, one building.
+        /// </summary>
+        const int StepMinHundredths = 40;
+        const int StepMaxHundredths = 55;
+        const int StepSlackHundredths = 10;
+        /// <summary>Largest storey count tried; the calibration building has 5 floors.</summary>
+        public const int MaxStoreys = 4;
+        /// <summary>Larger settled changes than this are rejected as a sensor or unit error, not a floor change.</summary>
+        public const float MaxDeltaHpa = 3f;
 
         readonly List<(double T, float Hpa)> _window = new List<(double, float)>();
         float? _baseline;
@@ -73,6 +85,27 @@ namespace IndoorAr
             return System.Math.Abs(level.Value - _baseline.Value) >= MoveHpa
                 ? IndoorBarometerStatus.Moved
                 : IndoorBarometerStatus.Unchanged;
+        }
+
+        /// <summary>
+        /// Returns a signed offset only when the settled pressure change fits exactly one storey count.
+        /// Positive is up (pressure falls going up).
+        /// </summary>
+        public static bool TryStoreyOffset(double deltaHpa, out int offset)
+        {
+            offset = 0;
+            var change = System.Math.Abs(deltaHpa);
+            if (!double.IsFinite(deltaHpa) || change < WireMoveHpa || change > MaxDeltaHpa) return false;
+            var count = 0;
+            for (var k = 1; k <= MaxStoreys; k++)
+            {
+                if (change < (k * StepMinHundredths - StepSlackHundredths) / 100.0
+                    || change > (k * StepMaxHundredths + StepSlackHundredths) / 100.0) continue;
+                if (count != 0) return false;
+                count = k;
+            }
+            offset = deltaHpa < 0 ? count : -count;
+            return count != 0;
         }
 
         float? SettledLevel(double nowS)

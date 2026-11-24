@@ -54,6 +54,7 @@ namespace IndoorAr
         bool _armingEntry;
         bool _localizeWhenTracking;
         float _sessionStarted;
+        double _requestObservedAt;
         IndoorArBaseline _baseline;
         string _baselineLog;
         IndoorSignPoseStatus? _signPoseStatus;
@@ -102,6 +103,7 @@ namespace IndoorAr
         internal Action StopPressureSampling { get; set; } = IndoorArPressure.Stop;
         internal delegate bool PressureRead(out float hpa, out double capturedAtS);
         internal PressureRead ReadPressure { get; set; } = IndoorArPressure.TryRead;
+        internal Func<double> RequestClock { get; set; } = IndoorArBridge.RequestClock;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -121,6 +123,7 @@ namespace IndoorAr
             if (localizerBehaviour is MultiSetLocalizer multiSet)
             {
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
+                multiSet.HintProvider = FloorHint;
             }
             if (localizationMode == IndoorLocalizationMode.SignFirst)
             {
@@ -138,8 +141,10 @@ namespace IndoorAr
             UpdateSignOcr();
             if (!Application.isEditor)
                 Debug.Log($"[IndoorAr] mode={localizationMode} signLocalization={signLocalization}");
+            var json = IndoorArBridge.ReadRequestJson();
+            var observedAt = RequestClock();
             if (ArSessionLifecycle.StartNeedsLoader(Application.isEditor, ArSessionLifecycle.LoaderActive,
-                IndoorArRouterHold.Holds(IndoorArBridge.ReadRequestJson())))
+                IndoorArRouterHold.Holds(json)))
             {
                 // A scene reloaded after the last exit finds the loader torn down; nothing else would start it.
                 _armingEntry = true;
@@ -147,10 +152,16 @@ namespace IndoorAr
                 while (init.MoveNext()) yield return init.Current;
                 _armingEntry = false;
                 ArSessionLifecycle.RestartArComponents();
+                var latest = IndoorArBridge.ReadRequestJson();
+                if (latest != json)
+                {
+                    json = latest;
+                    observedAt = RequestClock();
+                }
             }
             // A scene reloaded while a restarted loader still runs has a fresh pose driver with the same fault.
             ArSessionLifecycle.DriveCameraFromXrInput();
-            BeginSession(IndoorArBridge.ReadRequestJson());
+            BeginSession(json, observedAt);
             if (_session == null || _session.State == IndoorArState.Done) yield break;
             var started = _session;
             yield return ARSession.CheckAvailability();
@@ -163,11 +174,12 @@ namespace IndoorAr
 
         // A host that only unpauses the player keeps this object. The launch
         // JSON is the new session; the previous door and the delivered flag are not.
-        void BeginSession(string json)
+        void BeginSession(string json, double observedAt)
         {
             var restart = _started;
             _started = true;
             _sessionStarted = Time.realtimeSinceStartup;
+            _requestObservedAt = observedAt;
             _stateLogged = false;
             EndLimitedEpisode(LimitedEpisodeEnd.SessionReplaced);
             ReleaseSession();
@@ -252,12 +264,13 @@ namespace IndoorAr
                 var json = IndoorArBridge.ReadRequestJson();
                 if (json != null && json != _requestJson)
                 {
+                    var observedAt = RequestClock();
                     if (Application.isEditor || !ArSessionLifecycle.ShouldInitialize(ArSessionLifecycle.LoaderActive))
-                        BeginSession(json);
+                        BeginSession(json, observedAt);
                     else
                     {
                         _armingEntry = true;
-                        StartCoroutine(ArmEntry(json));
+                        StartCoroutine(ArmEntry(json, observedAt));
                     }
                 }
             }
@@ -452,6 +465,17 @@ namespace IndoorAr
         {
             if (_session == null || _session.State is not (IndoorArState.Localizing or IndoorArState.Pinned)) return false;
             return !_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights);
+        }
+
+        MultiSetHint? FloorHint()
+        {
+            if (_session?.Request.RequestSentAtBootS is not double sentAt || !(sentAt <= _requestObservedAt))
+                return null;
+            var now = RequestClock();
+            if (!double.IsFinite(now) || !(now >= _requestObservedAt)) return null;
+            var floor = _session.HintFloor(now - sentAt);
+            var grid = floor > 0 ? Grid(floor) : null;
+            return grid == null ? null : new MultiSetHint(grid.FloorY);
         }
 
         IndoorWalkGrid Grid(int floor) => _grids.GetValueOrDefault(floor);
@@ -946,12 +970,12 @@ namespace IndoorAr
             else DestroyImmediate(obj);
         }
 
-        IEnumerator ArmEntry(string json)
+        IEnumerator ArmEntry(string json, double observedAt)
         {
             var init = ArSessionLifecycle.InitializeOnEntry(true);
             while (init.MoveNext()) yield return init.Current;
             _armingEntry = false;
-            BeginSession(json);
+            BeginSession(json, observedAt);
         }
 
         void Deliver(string resultJson)

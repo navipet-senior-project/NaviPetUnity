@@ -49,6 +49,8 @@ public class IndoorArDiagnosticsTests
             IndoorArDiagnostics.LocalizationOutcome.Ok, true, 40000, 2400));
         lines.Add(IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.Sign, 15000,
             IndoorArDiagnostics.LocalizationOutcome.Timeout, null, null, null));
+        lines.Add(IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.MultiSet, 900,
+            IndoorArDiagnostics.LocalizationOutcome.GenericFailure, false, 0, 900, IndoorArDiagnostics.LocalizationHint.Height));
         return lines;
     }
 
@@ -79,6 +81,9 @@ public class IndoorArDiagnosticsTests
         Assert.AreEqual("[IndoorAr] localization request attempt=1 kind=Sign elapsedMs=15000 outcome=Timeout lockBusy=na lockWaitMs=na sdkMs=na",
             IndoorArDiagnostics.LocalizationRequestLine(1, IndoorArDiagnostics.LocalizationRequestKind.Sign, 15000,
                 IndoorArDiagnostics.LocalizationOutcome.Timeout, null, null, null));
+        Assert.AreEqual("[IndoorAr] localization request attempt=3 kind=MultiSet elapsedMs=900 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=900 hint=Height",
+            IndoorArDiagnostics.LocalizationRequestLine(3, IndoorArDiagnostics.LocalizationRequestKind.MultiSet, 900,
+                IndoorArDiagnostics.LocalizationOutcome.GenericFailure, false, 0, 900, IndoorArDiagnostics.LocalizationHint.Height));
         Assert.AreEqual("[IndoorAr] re-pin jump shiftM=1.23 turnDeg=-7.9", IndoorArDiagnostics.RepinJumpLine(1.234f, -7.89f));
         Assert.AreEqual("[IndoorAr] pin mode=Docked distM=3-6 view=Behind",
             IndoorArDiagnostics.PinModeLine(IndoorPinMode.Docked, 4.27f, IndoorPinViewClass.Behind));
@@ -362,6 +367,7 @@ public class IndoorArDiagnosticsTests
         try
         {
             if (boundary == "OnDestroy") Call(runner, boundary);
+            else if (boundary == "BeginSession") Call(runner, boundary, null, runner.RequestClock());
             else Call(runner, boundary, (object)null);
             var line = lines.Single();
             StringAssert.Contains("relocalize=true", line);
