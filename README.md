@@ -9,7 +9,7 @@ This repository is only the Unity AR runtime that the NaviPet Flutter app embeds
 
 | Part | Repository | Owns |
 | --- | --- | --- |
-| Flutter app | NaviPetFlutter | Search and room selection, camera permission, fetching the MultiSet token, building the launch request, launching Unity, showing the result. |
+| Flutter app | NaviPetFlutter | Search and room selection, camera permission, fetching the MultiSet launch token, building the launch request, launching Unity, showing the result. |
 | Backend | NavipetBackend | Campus and room data, the saved door pose for each indoor destination, and the authenticated token endpoint. Holds the MultiSet client credentials. |
 | MultiSet | External service | Visual positioning (VPS) against the hosted VEC scan map. |
 | Unity runtime (this repo) | NaviPetUnity | The AR camera session, localization, floor decision, hallway routing and the AR display. |
@@ -18,7 +18,7 @@ Unity does not call the backend or Supabase. It also has no door database of its
 
 ```
 Flutter ──GET door pose──▶ Backend            Flutter ──POST /indoor/ar-token──▶ Backend ──▶ MultiSet (token only)
-   │  request JSON (door pose, floor, short-lived token)
+   │  request JSON (door pose, floor, optional short-lived token)
    ▼
 Unity: AR camera → MultiSet VPS request (Unity ↔ MultiSet, camera frame) → pose in MapSet frame
        → floor check → walk-grid route → AR HUD
@@ -29,10 +29,10 @@ Flutter
 
 ### Interfaces
 
-- **Flutter → Unity request.** Flutter JSON-encodes the request and passes it untouched through the native channel (`navipet/indoor_ar`). On Android it is the `navipet.indoorAr.request` intent extra; on iOS it goes through `IndoorArHost`. `IndoorArContract.TryParseRequest` accepts `schemaVersion` 1 or 2. A request carries the room, door key, floor, door position and heading, build map code, the frame name, and the token. A `mode: localize` request has no door and only locates the phone. Pose fields are in the MultiSet MapSet frame and nothing converts them. A request whose frame or map code does not match the build is refused as `MAP_MISMATCH`.
+- **Flutter → Unity request.** Flutter JSON-encodes the request and passes it untouched through the native channel (`navipet/indoor_ar`). On Android it is the `navipet.indoorAr.request` intent extra; on iOS it goes through `IndoorArHost`. `IndoorArContract.TryParseRequest` accepts `schemaVersion` 1 or 2. A navigation request carries the room, door key, floor, door position and heading, build map code, and frame name. Either mode may include `arToken` with `token` and `expiresOn`. A `mode: localize` request has no door and only locates the phone. Pose fields are in the MultiSet MapSet frame and nothing converts them. A request whose frame or map code does not match the build is refused as `MAP_MISMATCH`.
 - **Unity → Flutter result.** One result per session through `IndoorArBridge.Deliver`: `arrived`, `cancelled`, `localizationFailed`, `unavailable` or `error`, with counts and duration, and an optional distance, confidence and `signRoom`. Error codes include `BAD_REQUEST`, `MAP_MISMATCH`, `ARCORE_UNSUPPORTED`, `MULTISET_AUTH`, `NETWORK` and `STEP_FREE_UNVERIFIED`.
-- **Unity → Flutter status.** Optional progress messages (state, tracking, recognized room, whether localized, pose source) through the host's status handler. A host without one drops them.
-- **Backend token.** `POST /indoor/ar-token` needs the app's normal signed-in session and returns a short-lived MultiSet token and its expiry. The MultiSet client credentials stay on the backend, which caches the token. The app fetches it per launch and sends it in the request; Unity loads it into the MultiSet SDK instead of using client credentials. A project-local, gitignored `MultiSetConfig.asset` exists only for builds and editor runs; never commit or print it.
+- **Unity → Flutter status.** Optional progress messages include state, tracking, recognized room and floor when available, localization and fallback availability, and the raw `mapCode` and frame. Localized status includes the camera position, quaternion rotation and pose source in the MapSet frame. Keep status JSON out of logs. A host without a status handler drops these messages.
+- **Backend token.** `POST /indoor/ar-token` needs the app's normal signed-in session and returns a short-lived MultiSet token and its expiry. The backend uses its client credentials and caches the token. Flutter fetches the token for each launch. Unity skips SDK configuration when both token fields are nonempty. If either is missing or empty, the editor and players fall back to the SDK configuration, which can use a project-local, gitignored `MultiSetConfig.asset`. Never commit or print that asset.
 - **Door poses.** The backend stores each VEC door as a point in the MapSet frame and the Flutter app forwards it. The app has no door pose for a room without one, so it can only run a localize request. Unity's own copy of the directory (`vec_floors123.json`) is used for sign matching, floor connectors and rooms the request does not carry; the backend stays authoritative for the destination door.
 
 Detailed field tables: [floor evidence contract](docs/floor-evidence-contract.md), [host bridge](docs/ios-export.md#host-bridge).
@@ -40,36 +40,36 @@ Detailed field tables: [floor evidence contract](docs/floor-evidence-contract.md
 ### Localization
 
 1. The session opens and waits for AR support and camera tracking.
-2. Flutter's token authenticates the MultiSet SDK. Unity then sends one camera frame at a time for VPS localization; at most one SDK request exists process-wide. Each request times out after 30 s, and one automatic retry follows (after 3 s if MultiSet answered without a pose, or immediately if a confirmed sign is in view).
+2. Unity authenticates MultiSet with the supplied token or the SDK configuration described above. Unity sends selected camera frames to MultiSet for VPS, one request at a time across the process. The session schedules one automatic retry after its 30 s localization window, or earlier after a reply without an accepted pose (after 3 s or as soon as a confirmed sign is in view). At 30 s in flight or queued behind a live request, that session's MultiSet fallback becomes unavailable. Only a success or failure callback releases the process-wide lock. A late reply releases the lock without applying the stale pose. If the callback never arrives, even a fresh Unity launch in the same process cannot start a VPS request until the app process restarts.
 3. A returned pose is only a candidate. Unity checks it before moving the map: the camera must be 1 to 2.2 m above exactly one supported floor, and the floor must agree with any active sign or start-floor evidence. A rejected pose is discarded and follows the retry path.
 4. An accepted pose moves the navigation root so the AR camera sits at the pose; the session then shows a short "Location found" hold and starts guidance.
 
-Room-sign OCR runs alongside, on the AR camera's own frames, using the bundled ML Kit Latin recognizer on both platforms. A room is confirmed after two matching reads within four seconds. A sign identifies a room and a floor; on its own it never sets a pose. A sign can pose the camera only through `SignFirst`, which needs a surveyed, device-validated calibration entry. The calibration ships empty, so sign poses are inert today. Without a pose after the MultiSet budget, the HUD keeps scanning and gives room-only directions. See [OCR and sign prerequisites](Assets/IndoorAr/OCR-POC-prerequisites.md).
+Room-sign OCR runs alongside, on the AR camera's own frames, using the bundled ML Kit Latin recognizer on both platforms. A room is confirmed after two matching reads within four seconds. A sign identifies a room and a floor. A sign can pose the camera only through `SignFirst`, which needs a surveyed, device-validated calibration entry. The calibration ships empty, so sign poses are inert today. When the localization budget runs out, the shipped MultiSet mode shows the localization failure card even with OCR enabled. Only OCR-enabled `SignFirst` keeps scanning with room-only guidance after that budget expires. See [OCR and sign prerequisites](Assets/IndoorAr/OCR-POC-prerequisites.md).
 
 ### Pressure floor hints
 
 The barometer is advisory evidence for which floor the user is on. It never produces a position.
 
-- **Host evidence (schema 2).** After the user confirms their starting floor, the host may send `startFloor`, its age, and a pressure summary (`settled`, `moved`, optionally a signed relative change in hPa). Raw or absolute pressure never crosses the bridge.
+- **Host evidence (schema 2).** After the user confirms their starting floor, the host may send `floorEvidenceVersion: 1`, a positive floor number as a `startFloor` string, `startFloorAgeS` (0–1200 s), and `pressureSinceStart` with booleans `settled` and `moved` and `sampleAgeS` (0–10 s). Raw or absolute pressure never crosses the bridge.
 - **Unity's own barometer.** Only for a request carrying such evidence, Unity reads the device barometer (Core Motion on iOS, the pressure sensor on Android). It uses only differences from a settled baseline. A change of at least 0.30 hPa releases a stale confirmed sign or the start-floor veto. Unity stops sampling and clears its window when the session ends.
-- **Start-floor veto.** While the confirmed start floor is trusted and pressure is unchanged, a MultiSet pose on another supported floor is rejected and localization retries. The veto drops after a confirmed sign, tracked motion onto another floor, a settled pressure change, or two separate attempts that return a pose on another floor.
-- **First-request height hint.** When the evidence is complete and fresh, Unity may narrow the first MultiSet request to a height band for floors 1 to 3 (the candidate floor's surface Y minus 0.3 m to plus 3.3 m). The band is advisory, and no horizontal position hint is sent. If an unhinted retry is not available the hint is not sent.
+- **Start-floor veto.** Valid launch evidence with `settled: true` and `moved: false` makes the confirmed start floor trusted. A conflicting MultiSet pose on another supported floor follows the retry path. The veto drops after a confirmed sign, tracked motion onto another floor, a settled pressure change, or two separate attempts that return a pose on another floor.
+- **First-request height hint.** Height hinting additionally requires a valid `requestSentAtBootS` from the device's boot clock and a valid signed `pressureSinceStart.deltaHpa`. Unity checks that the evidence is still fresh when the request starts. If the evidence identifies a supported floor, Unity may narrow the first MultiSet request to a height band for floors 1 to 3 (the candidate floor's surface Y minus 0.3 m to plus 3.3 m). The band is advisory and the retry is unhinted. Missing or invalid hint fields still allow sampling and the veto when their launch requirements are met.
 
-Without valid floor evidence none of this runs and localization behaves as before. Evidence ages require the device's boot clock, and a stale or malformed field leaves the request unhinted.
+Without valid launch evidence Unity leaves pressure sampling, the start-floor veto and height hinting off.
 
 ### Routing and AR display
 
 - **Walk grid.** `Resources/IndoorWalkGrid.json` is generated in the editor from the scanned floor mesh: 0.25 m cells in the MapSet frame, walkable where a floor surface exists and nothing sits 0.4 to 1.4 m above it. Floors 1 to 3 are covered; the scan has hallways only, not room interiors.
-- **Route.** A* runs over the grid from the localized camera to the door, with endpoint snapping within 1.6 m and smoothing that respects blocked cells. On another floor the route goes to the nearest stairs or elevator marker on the user's floor, and the HUD names the connector. The path through the connector is not verified.
-- **Step-free.** A `stepFree` request returns `unavailable` with `STEP_FREE_UNVERIFIED`, because the grid has no verified accessibility data.
-- **HUD.** `IndoorHud` and `IndoorRoutePath` draw a chevron ribbon on the floor to the first clear waypoint, falling back to a screen arrow when the stretch is too short or off screen, with **Look this way**, **Route unavailable**, wrong-floor, arrival and **Try again** states. The destination appears as a pin in the world, which docks or clips to the screen when out of view. See [HUD preview](Assets/IndoorAr/HUD-preview.md).
-- **Arrival.** The user taps **I'm here**, or reads the destination sign, then **Done** returns `arrived`. Arrival is not detected by distance alone.
+- **Route.** A* runs over the grid from the localized camera to the door, with endpoint snapping within 1.6 m and smoothing that respects blocked cells. On another floor, Unity chooses the shortest reachable grid route to a stairs or elevator marker with a matching destination-floor landing and a clear onward route to the door. The HUD names the selected connector or shows **Route unavailable** if none qualifies. The path through the connector is not verified.
+- **Step-free.** When a `stepFree` navigation request reaches route generation, Unity returns `unavailable` with `STEP_FREE_UNVERIFIED` because the grid has no verified accessibility data.
+- **HUD.** `IndoorHud` and `IndoorRoutePath` draw a chevron ribbon on the floor to the first clear waypoint, falling back to a screen arrow when the stretch is too short or off screen, with **Look this way**, **Route unavailable**, wrong-floor and arrival states. The destination appears as a pin in the world, which docks or clips to the screen when out of view. On the localization failure card, **Try again** returns `localizationFailed` to the host after a launch with valid floor evidence so the host can get a fresh floor confirmation and relaunch. With no valid launch evidence, **Try again** retries in place. Both paths remain subject to the process-wide VPS lock. See [HUD preview](Assets/IndoorAr/HUD-preview.md).
+- **Arrival.** In ordinary localized guidance the user can tap **I'm here**, then **Done** returns `arrived`. Confirming the destination sign also opens the arrival card, including on a `stepFree` request when the sign is confirmed before route generation. **Done** then returns `arrived`. Arrival is not detected by distance alone.
 
 ### Privacy
 
-- Camera frames stay on the device. MultiSet VPS localization sends frames to MultiSet through its SDK; OCR does not upload anything.
-- The MultiSet token is handled in memory in the request and stored by the SDK in `PlayerPrefs` on the device. It is not logged. Client credentials are never in the app or this repository.
-- Logs (`[IndoorAr]`, `[IndoorArBaseline]`, `[ArDiag]`) carry no positions, raw map codes, images, recognized text or credentials. Map identity is reduced to a short hash.
+- Unity sends selected camera frames to MultiSet through its SDK for VPS. ML Kit processes OCR images and text on the device and reports usage metrics to Google.
+- Unity stores the supplied MultiSet token in the SDK's `PlayerPrefs` entry and keeps it out of logs. An iOS export built with local MultiSet client credentials can include them. Keep that framework private and out of source control. See [iOS export](docs/ios-export.md).
+- Unity diagnostics (`[IndoorAr]`, `[IndoorArBaseline]`, `[ArDiag]`) keep camera poses, raw map codes, images, raw OCR text and credentials out of logs. Map identity uses a short hash. Sign diagnostics can include normalized room IDs, and Unity's logged final result can include `signRoom`. Host status JSON is a separate payload carrying the raw map code and, when localized, the camera pose. Keep it out of host logs.
 - Pressure readings stay on the device, and only a relative summary reaches Unity. The iOS host must supply a Motion & Fitness usage description; proposed wording is in [the iOS export notes](docs/ios-export.md#floor-change-pressure).
 - A frozen-camera guard hides world content and asks the user to reopen AR instead of showing misplaced guidance.
 
