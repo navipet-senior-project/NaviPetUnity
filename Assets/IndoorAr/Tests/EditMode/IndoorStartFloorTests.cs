@@ -16,12 +16,15 @@ public class IndoorStartFloorTests
         "\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":42,\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":1.5}}";
 
     static IndoorArRequest Request(string startFloor = "1", float ageS = 30f, bool settled = true, bool moved = false,
-        float sampleAgeS = 1f, bool summary = true, int version = 1) => new IndoorArRequest
+        float sampleAgeS = 1f, bool summary = true, int version = 1, double? deltaHpa = null) => new IndoorArRequest
     {
         schemaVersion = 2, room = "215", doorKey = "VEC215", floor = "2",
         position = new IndoorArVector3 { x = 1f, y = 2f, z = 3f }, headingDeg = 0f, mapCode = "MSET_X", frame = "multiset-mapset",
         floorEvidenceVersion = version, startFloor = startFloor, startFloorAgeS = ageS,
-        pressureSinceStart = summary ? new IndoorArPressureSummary { settled = settled, moved = moved, sampleAgeS = sampleAgeS } : null,
+        pressureSinceStart = summary ? new IndoorArPressureSummary
+        {
+            settled = settled, moved = moved, sampleAgeS = sampleAgeS, deltaHpa = deltaHpa ?? 0, deltaValid = deltaHpa.HasValue
+        } : null,
     };
 
     IndoorArSession Localizing(IndoorArRequest request)
@@ -178,7 +181,7 @@ public class IndoorStartFloorTests
     [Test]
     public void OnlyTheFirstAttemptIsHintedWithTheTrustedStartFloor()
     {
-        var s = Localizing(Request());
+        var s = Localizing(Request(deltaHpa: 0.05));
         Assert.AreEqual(1, s.HintFloor(0));
         s.OnAttemptStarted();
         Assert.AreEqual(0, s.HintFloor(0), "every later request is unhinted");
@@ -187,7 +190,7 @@ public class IndoorStartFloorTests
     [Test]
     public void AFailedHintedAttemptIsRetriedUnhintedWithoutWaitingForTheTimeout()
     {
-        var s = Localizing(Request());
+        var s = Localizing(Request(deltaHpa: 0.05));
         var retried = 0;
         s.LocalizeRequested += () => retried++;
         Assert.AreEqual(1, s.HintFloor(0));
@@ -201,7 +204,7 @@ public class IndoorStartFloorTests
     [Test]
     public void TheDestinationFloorNeverBecomesAHint()
     {
-        Assert.AreEqual(0, Localizing(Request(startFloor: null)).HintFloor(0), "destination is floor 2");
+        Assert.AreEqual(0, Localizing(Request(startFloor: null, deltaHpa: 0.05)).HintFloor(0), "destination is floor 2");
     }
 
     [TestCase(true, true, 30f, TestName = "no hint: pressure moved")]
@@ -209,13 +212,15 @@ public class IndoorStartFloorTests
     [TestCase(true, false, 1300f, TestName = "no hint: confirmation too old")]
     public void UnvouchedStartEvidenceGivesNoHint(bool settled, bool moved, float ageS)
     {
-        Assert.AreEqual(0, Localizing(Request(settled: settled, moved: moved, ageS: ageS)).HintFloor(0));
+        var delta = settled && !moved ? 0.05 : (double?)null;
+        Assert.AreEqual(0, Localizing(Request(settled: settled, moved: moved, ageS: ageS, deltaHpa: delta)).HintFloor(0));
     }
 
     [Test]
     public void PressureMovedBeforeTheFirstAttemptDropsTheHint()
     {
-        var s = Localizing(Request());
+        var s = Localizing(Request(deltaHpa: 0.05));
+        Assert.AreEqual(1, s.HintFloor(0));
         Feed(s, 0f, 30f);
         _pressureTime += 25f;
         Feed(s, -Step, 40f);

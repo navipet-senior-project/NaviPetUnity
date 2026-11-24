@@ -105,16 +105,15 @@ namespace IndoorAr
         internal int HintFloor(double secondsSinceLaunch)
         {
             if (State != IndoorArState.Localizing || Queries != 0 || _retried || _startSuperseded
-                || Request.pressureSinceStart == null
+                || Request.pressureSinceStart is not { deltaValid: true } pressure
                 || Request.startFloorAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxAnchorAgeS
-                || Request.pressureSinceStart.sampleAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxSampleGapS)
+                || pressure.sampleAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxSampleGapS)
                 return 0;
             if (TrustedStartFloor > 0) return TrustedStartFloor;
             if (_confirmedFloor <= 0
-                || !IndoorFloorBarometer.TryStoreyOffsets(_hostDeltaHpa, out var minOffset, out var maxOffset)
-                || minOffset != maxOffset)
+                || !IndoorFloorBarometer.TryStoreyOffset(_hostDeltaHpa, out var offset))
                 return 0;
-            return Math.Max(0, _confirmedFloor + minOffset);
+            return Math.Max(0, _confirmedFloor + offset);
         }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);

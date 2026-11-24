@@ -552,9 +552,8 @@ public class IndoorWalkGridTests
             Assert.IsFalse(Passes(y) || Passes(y + StandingEyeM) || Passes(y + SeatedEyeM), $"floor {floor} is outside the band");
         }
 
-        // A wrong estimate is only a failed first hint: the retry carries no hint and the unhinted server accepts it.
         session.OnAttemptStarted();
-        Assert.AreEqual(0, session.HintFloor(0));
+        Assert.AreEqual(0, session.HintFloor(0), "later attempts carry no height hint");
     }
 
     [Test]

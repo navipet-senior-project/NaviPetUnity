@@ -16,8 +16,8 @@ namespace IndoorAr
     /// above it. Measured on this building's mesh (portal, one pass): floor-to-floor slab spacing 3.91-4.32 m, so the
     /// top sits at least 0.6 m below the next slab. That is NOT a measured ceiling: the mesh has none, and the 3.3 m
     /// is an assumed bound. Unverified on device and server: MultiSet documents a filter on frame Y but not whether
-    /// it compares the camera or the floor under a stored frame, nor what an empty band returns. The unhinted retry
-    /// is the only fallback, so a wrong band costs one request, never a wrong pose.
+    /// it compares the camera or the floor under a stored frame, nor what an empty band returns. The band is advisory.
+    /// A pressure estimate can favor the wrong floor. The pose validator decides whether to accept a returned pose.
     /// </summary>
     public readonly struct MultiSetHint
     {

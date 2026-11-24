@@ -858,21 +858,21 @@ public class MultiSetLocalizerTests
         Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"));
     }
 
-    [TestCase(1, 42, "false", "", 0, false, false, 1)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 0, false, false, 1)]
     [TestCase(1, 42, "true", ",\"deltaHpa\":-0.47", 0, false, false, 2)]
-    [TestCase(1, 42, "false", "", 15, false, false, 0)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 15, false, false, 0)]
     [TestCase(1, 42, "true", ",\"deltaHpa\":-0.47", 15, false, false, 0)]
-    [TestCase(1, 1199, "false", "", 2, false, false, 0)]
+    [TestCase(1, 1199, "false", ",\"deltaHpa\":0.05", 2, false, false, 0)]
     [TestCase(1, 1199, "true", ",\"deltaHpa\":-0.47", 2, false, false, 0)]
     [TestCase(1, 42, "true", ",\"deltaHpa\":-1.15", 0, false, false, 0)]
     [TestCase(4, 42, "true", ",\"deltaHpa\":1.15", 0, false, false, 0)]
     [TestCase(3, 42, "true", ",\"deltaHpa\":1.15", 0, false, false, 0)]
     [TestCase(3, 42, "true", ",\"deltaHpa\":-0.47", 0, false, false, 0)]
     [TestCase(1, 42, "false", ",\"deltaHpa\":-0.47", 0, false, false, 0)]
-    [TestCase(1, 42, "false", "", 0, true, false, 0)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 0, true, false, 0)]
     [TestCase(1, 42, "true", ",\"deltaHpa\":-0.47", 0, true, false, 0)]
-    [TestCase(0, 42, "false", "", 0, false, true, 0)]
-    [TestCase(1, 42, "false", "", 0, false, true, 0)]
+    [TestCase(0, 42, "false", ",\"deltaHpa\":0.05", 0, false, true, 0)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 0, false, true, 0)]
     public void RunnerDispatchUsesOnlyFreshUnambiguousHostEvidence(int startFloor, int startAge, string moved,
         string deltaField, int dispatchDelay, bool spendRetry, bool confirmSign, int expectedFloor) =>
         AssertRunnerHint(startFloor, startAge, moved, deltaField, dispatchDelay, spendRetry, confirmSign, expectedFloor);
@@ -885,24 +885,27 @@ public class MultiSetLocalizerTests
     [TestCase(-1, 0, false, 0)]
     public void TransportAndEntryWaitCountAgainstEvidenceAge(double sentAt, double initDelay, bool moved, int expectedFloor)
     {
-        AssertRunnerHint(1, 42, moved ? "true" : "false", moved ? ",\"deltaHpa\":-0.47" : "",
+        AssertRunnerHint(1, 42, moved ? "true" : "false", moved ? ",\"deltaHpa\":-0.47" : ",\"deltaHpa\":0.05",
             0, false, false, expectedFloor, 9.5, sentAt < 0 ? null : sentAt, initDelay);
     }
 
     // The SDK reports a dropped connection and a server no-pose as the same failure, so a failed hinted request
     // never releases the start-floor veto: a retry pose on another floor stays rejected.
-    [TestCase(true, false, false, 2, IndoorArState.Localizing)]
-    [TestCase(true, true, false, 2, IndoorArState.Localizing)]
-    [TestCase(false, false, false, 2, IndoorArState.Localizing)]
-    [TestCase(true, false, true, 2, IndoorArState.Localizing)]
-    [TestCase(true, false, false, 0, IndoorArState.Localizing)]
-    [TestCase(true, false, false, 1, IndoorArState.Pinned)]
-    public void FailedHintedRequestKeepsTheStartFloorVeto(bool applied, bool noPoseResponse, bool confirmSign,
+    [TestCase(true, true, false, false, 2, IndoorArState.Localizing)]
+    [TestCase(true, true, true, false, 2, IndoorArState.Localizing)]
+    [TestCase(true, false, false, false, 2, IndoorArState.Localizing)]
+    [TestCase(false, true, false, false, 2, IndoorArState.Localizing)]
+    [TestCase(true, true, false, true, 2, IndoorArState.Localizing)]
+    [TestCase(true, true, false, false, 0, IndoorArState.Localizing)]
+    [TestCase(true, true, false, false, 1, IndoorArState.Pinned)]
+    public void FailedFirstRequestKeepsTheStartFloorVeto(bool hasDelta, bool hasStamp, bool noPoseResponse, bool confirmSign,
         int retryFloor, IndoorArState expected)
     {
-        AssertRunnerHint(1, 42, "false", "", 0, false, false, applied ? 1 : 0, sentAt: applied ? 100 : null,
+        AssertRunnerHint(1, 42, "false", hasDelta ? ",\"deltaHpa\":0.05" : "", 0, false, false,
+            hasDelta && hasStamp ? 1 : 0, sentAt: hasStamp ? 100 : null,
             afterFirst: session =>
             {
+                Assert.IsTrue(session.LaunchedWithFloorEvidence);
                 if (noPoseResponse) ReportSuccess(poseFound: false);
                 else _manager.LocalizationFailure.Invoke();
                 Assert.AreEqual(1, session.TrustedStartFloor);

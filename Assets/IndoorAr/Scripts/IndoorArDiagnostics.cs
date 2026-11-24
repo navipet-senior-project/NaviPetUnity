@@ -161,7 +161,8 @@ namespace IndoorAr
         /// <param name="lockBusy">Another request held the process-wide lock or preceded this request in its queue; null for signs.</param>
         /// <param name="lockWaitMs">Time queued behind the lock; null for signs.</param>
         /// <param name="sdkMs">Time the SDK call was in flight; null for signs.</param>
-        /// <param name="hint">Hint kind the MultiSet request carried; omitted when it carried none, so a request without it is unhinted (every attempt above 1 is).</param>
+        /// <param name="attempt">Request ID. MultiSet IDs count across the adapter's lifetime.</param>
+        /// <param name="hint">Hint kind carried by the MultiSet request. An omitted field indicates an unhinted request.</param>
         public static string LocalizationRequestLine(int attempt, LocalizationRequestKind kind, long elapsedMs,
             LocalizationOutcome outcome, bool? lockBusy, long? lockWaitMs, long? sdkMs, LocalizationHint? hint = null) =>
             $"[IndoorAr] localization request attempt={attempt} kind={kind} elapsedMs={elapsedMs} outcome={outcome}"

@@ -26,7 +26,7 @@ Send all floor-evidence fields together or omit them. Unity ignores these fields
 | `pressureSinceStart.settled` | bool | A settled window exists now and a settled anchor was captured at confirmation. |
 | `pressureSinceStart.moved` | bool | The settled level moved at least 0.30 hPa from the level at confirmation. |
 | `pressureSinceStart.sampleAgeS` | number | Finite age of the newest host barometer sample in seconds. Sampling and the start-floor veto require `0..10`. |
-| `pressureSinceStart.deltaHpa` | number, optional | Signed difference, current settled level minus the level at confirmation, in hPa (negative: pressure fell, so the user went up). Relative only. Send only with `settled:true`. A supplied delta must be finite, satisfy `abs <= 3`, and agree with `moved` (`abs >= 0.30` exactly when `moved`). An invalid supplied delta invalidates the floor evidence. An omitted delta still allows unchanged-pressure start-floor evidence. |
+| `pressureSinceStart.deltaHpa` | number, optional for the start-floor veto and sampling consent. Required for all height hints. | Signed difference, current settled level minus the level at confirmation, in hPa. Negative means the pressure fell as the user went up. Send only with `settled:true`. A supplied delta must be finite, satisfy `abs <= 3`, and agree with `moved` (`abs >= 0.30` exactly when `moved`). An invalid supplied delta invalidates the floor evidence. |
 
 Example:
 ```json
@@ -68,7 +68,7 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 5. Ship order is free (absent fields change nothing, old Unity ignores them).
 
 ## Known limits and disclosed gaps
-- Height hints through Flutter require the companion host to emit the shared-clock send stamp. Pressure-based candidate hints also require the signed settled delta. Unity’s own barometer starts after launch and cannot supply that first-request delta. End-to-end candidate hinting remains unverified.
+- Height hinting stays inert until the companion Flutter host emits both a valid `requestSentAtBootS` and a valid `pressureSinceStart.deltaHpa`. This applies to both the confirmed-start-floor hint and the pressure-based candidate hint. Unity’s own barometer starts after launch and cannot supply that first-request delta. End-to-end height hinting remains unverified.
 - Missed on purpose: a real one-storey step hidden by opposing posture plus drift error above about 0.115 hPa.
 - Unity receives hPa as a float. Near 1000 hPa, rounding can make a step of exactly 0.30 hPa read just under the threshold for either anchor.
 - EditMode tests exercise timestamp forwarding and capture gaps using delayed reader output. Android polling with the event capture timestamp and the iOS Core Motion measurement timestamp require device verification.

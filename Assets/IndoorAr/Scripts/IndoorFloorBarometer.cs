@@ -88,29 +88,24 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// Storey offsets that a settled pressure change could mean: positive is up (pressure falls going up). One storey
-        /// fits alone; from two storeys up the slack makes neighbouring counts overlap, so the answer is a range, never
-        /// a floor. False when the change is below <see cref="MoveHpa"/>, implausibly large, or fits no storey count.
+        /// Returns a signed offset only when the settled pressure change fits exactly one storey count.
+        /// Positive is up (pressure falls going up).
         /// </summary>
-        public static bool TryStoreyOffsets(double deltaHpa, out int minOffset, out int maxOffset)
+        public static bool TryStoreyOffset(double deltaHpa, out int offset)
         {
-            minOffset = maxOffset = 0;
+            offset = 0;
             var change = System.Math.Abs(deltaHpa);
             if (!double.IsFinite(deltaHpa) || change < WireMoveHpa || change > MaxDeltaHpa) return false;
-            var first = 0;
-            var last = 0;
+            var count = 0;
             for (var k = 1; k <= MaxStoreys; k++)
             {
                 if (change < (k * StepMinHundredths - StepSlackHundredths) / 100.0
                     || change > (k * StepMaxHundredths + StepSlackHundredths) / 100.0) continue;
-                if (first == 0) first = k;
-                last = k;
+                if (count != 0) return false;
+                count = k;
             }
-            if (first == 0) return false;
-            var up = deltaHpa < 0;
-            minOffset = up ? first : -last;
-            maxOffset = up ? last : -first;
-            return true;
+            offset = deltaHpa < 0 ? count : -count;
+            return count != 0;
         }
 
         float? SettledLevel(double nowS)
