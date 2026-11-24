@@ -40,6 +40,7 @@ namespace IndoorAr
             var door = request.position;
             if (cameraFrozen) route = null;
             var target = Vector3.zero;
+            var origin = Vector3.zero;
             var wrongFloor = wrongFloorEvidence || session.FloorSign != null && session.IsWrongFloor(session.FloorSign.Floor);
             var waypointIndex = -1;
             var cause = IndoorRouteBlockedCause.NoRoute;
@@ -47,7 +48,7 @@ namespace IndoorAr
             if (session.State != IndoorArState.Pinned || door == null || route == null || route.Length < 2 || request.LocalizeOnly || floorUnknown
                 || wrongFloor != (floorChange != null)) route = null;
             else if (routeGrid == null) route = null;
-            else if (!routeGrid.TryNextWaypoint(route, cameraInMap, RouteLookAheadM, out target, out waypointIndex))
+            else if (!routeGrid.TryNextWaypoint(route, cameraInMap, RouteLookAheadM, out target, out waypointIndex, out origin))
             {
                 route = null;
                 cause = routeGrid.IsWalkableAt(cameraInMap) ? IndoorRouteBlockedCause.NoClearLine : IndoorRouteBlockedCause.CameraCellBlocked;
@@ -67,6 +68,7 @@ namespace IndoorAr
                 WrongFloor = !request.LocalizeOnly && door != null && wrongFloor,
                 FollowingRoute = route != null,
                 RouteBlocked = routeBlocked,
+                RouteStart = origin,
                 RouteWaypointIndex = route == null ? -1 : waypointIndex,
                 RouteBlockedCause = routeBlocked ? cause : IndoorRouteBlockedCause.None,
                 FloorChange = route == null ? null : floorChange,

@@ -50,6 +50,10 @@ namespace IndoorAr.Editor
             var states = (IndoorHudPreview[])Enum.GetValues(typeof(IndoorHudPreview));
             int index = 0, frames = 0;
             IndoorHud hud = null;
+            IndoorRoutePath path = null;
+            // Floor top is y = -.02: the corridor box. The route walks down the hallway to the pin.
+            var start = new Vector3(0f, -.02f, -.5f);
+            var end = new Vector3(pin.position.x, start.y, pin.position.z);
             EditorApplication.CallbackFunction update = null;
             update = () =>
             {
@@ -66,7 +70,15 @@ namespace IndoorAr.Editor
                         Canvas.ForceUpdateCanvases();
                         var view = MockIndoorRoute.Snapshot(states[index], 1, IndoorArRunner.PinLabelAnchor(pin));
                         view.WorldPin = pin;
-                        hud.Show(view);
+                        // Only the route state draws the floor path, as on the phone.
+                        if (states[index] == IndoorHudPreview.DirectionToRoom)
+                        {
+                            path = new IndoorRoutePath(null);
+                            view.FollowingRoute = true;
+                            view.DistanceM = Vector3.Distance(start, end);
+                            path.Place(start, end);
+                        }
+                        hud.Show(view, path);
                     }
                     Canvas.ForceUpdateCanvases();
                     camera.Render();
@@ -77,6 +89,7 @@ namespace IndoorAr.Editor
                     File.WriteAllBytes(Path.Combine(folder, states[index].ToString().ToLowerInvariant() + ".png"), image.EncodeToPNG());
                     UnityEngine.Object.DestroyImmediate(image);
                     UnityEngine.Object.DestroyImmediate(hud.gameObject);
+                    path?.Dispose(); path = null;
                     hud = null; frames = 0;
                     if (++index < states.Length) { EditorApplication.QueuePlayerLoopUpdate(); return; }
                     EditorApplication.update -= update;

@@ -7,7 +7,7 @@
 | `arStartupMs` | session opened | `BeginSession` until `OnArSupport`. Includes `ARSession.CheckAvailability`. Excludes the Unity splash and the Flutter tap. |
 | `requestLatencyMs` | localization dispatched after tracking | Latest dispatched session localization request before the first accepted sign or MultiSet pose, until that pose. Includes any sign hold, authentication or SDK queue wait, but excludes the initial wait for tracking. With no request or accepted pose this stays `na`; it is not an SDK response latency or the 30 s timeout. |
 | `timeToFirstLocalizationMs` | session opened | First accepted sign or MultiSet pose. Later poses do not replace it. |
-| `arrowShownMs` | session opened | HUD first enters the guide-arrow state, after the 1.5 s “Location found” hold. It records display timing, not a rendered-frame timestamp. |
+| `arrowShownMs` | session opened | HUD first shows route guidance using the ribbon or arrow, after the 1.5 s “Location found” hold. The timestamp comes from the HUD state update. |
 | `arrowAlignment` | — | Always `unmeasured`. Arrow display is not evidence the arrow matches the real doorway. |
 | `attempts` | — | Session localization requests dispatched after tracking through `IndoorArRunner.RequestLocalization`, including requests held for signs or queued for MultiSet. Not SDK calls; the result's `localizationQueries` separately counts actual SDK starts. |
 | `retries` | — | Session localization requests after the first, including the timeout retry, tracking-loss restart, and in-place retries. A host relaunch starts a fresh session. [Try again behavior](../../docs/floor-evidence-contract.md#what-unity-does) |

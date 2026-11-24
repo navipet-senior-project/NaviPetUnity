@@ -40,6 +40,7 @@ namespace IndoorAr
         Vector3 _pinMapPoint;
         Vector3 _connectorPosition;
         IndoorHud _hud;
+        IndoorRoutePath _path;
         float _pinnedFor;
         float _failureLeft = -1f;
         bool _failureRelease;
@@ -553,15 +554,18 @@ namespace IndoorAr
                 && !LiveDoorHud.StepFreeUnavailable(_session))
             {
                 if (_pin != null) _pin.gameObject.SetActive(false);
+                _path?.Hide();
                 return;
             }
             var cameraInMap = CameraInMap();
             var route = Route(cameraInMap);
             var currentFloor = _session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived
                 ? _session.CurrentFloor(cameraInMap.y, _floorHeights) : 0;
+            var grid = Grid(_routeFloor);
             var view = LiveDoorHud.Compose(_session, cameraInMap, CameraForwardInMap(), _pinnedFor, route,
-                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), currentFloor, _frozenCamera.Frozen);
+                _floorChange, _floorUnknown, _routeWrongFloor, grid, currentFloor, _frozenCamera.Frozen);
             NoteRoute(view);
+            UpdatePath(view, route, grid);
             UpdatePin(view, currentFloor);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
@@ -585,7 +589,7 @@ namespace IndoorAr
                 _baseline?.NoteArrowShown(NowMs());
                 LogBaseline();
             }
-            _hud.Show(view);
+            _hud.Show(view, _path);
         }
 
         /// <summary>
@@ -696,6 +700,18 @@ namespace IndoorAr
             _scanPoseReady = true;
             _slowHoldLeft = GuidanceCue.HoldSlowScan(_slowHoldLeft, tooFast, Time.unscaledDeltaTime);
             return _slowHoldLeft > 0f;
+        }
+
+        // The floor path follows the same clear route the arrow would aim along; with none, nothing is drawn.
+        void UpdatePath(IndoorHudView view, Vector3[] route, IndoorWalkGrid grid)
+        {
+            if (!view.FollowingRoute || view.RouteBlocked || view.State != IndoorHudState.Straight)
+            {
+                _path?.Hide();
+                return;
+            }
+            _path ??= new IndoorRoutePath(_localizer.MapSpace);
+            _path.Place(view.RouteStart, route[view.RouteWaypointIndex], grid);
         }
 
         void UpdatePin(IndoorHudView view, int currentFloor)
@@ -891,6 +907,8 @@ namespace IndoorAr
                 DestroyOwned(_pin.gameObject);
                 _pin = null;
             }
+            _path?.Dispose();
+            _path = null;
             DestroyOwned(_pinAmberMaterial);
             DestroyOwned(_pinCoreMaterial);
             _pinAmberMaterial = null;
@@ -941,6 +959,7 @@ namespace IndoorAr
             if (_delivered) return;
             EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
+            _path?.Hide();
             _requestJson = null;
             StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();
