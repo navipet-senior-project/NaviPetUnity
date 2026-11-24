@@ -39,7 +39,7 @@ namespace IndoorAr
         // The user's confirmed floor and the host's signed settled pressure change since then, kept only when pressure
         // had already moved at launch (no start-floor veto then).
         int _confirmedFloor;
-        float _hostDeltaHpa;
+        double _hostDeltaHpa;
         int _lastConflictQueries = -1;
         int _startConflicts;
         const int MaxStartConflicts = 2;
@@ -249,6 +249,11 @@ namespace IndoorAr
             if (State != IndoorArState.Localizing) return;
             _noPose = true;
             if (!_retried) _retryAtS = Math.Min(_retryAtS, _localizingS + NoPoseRetryS);
+        }
+
+        internal void OnHintedNoPose()
+        {
+            if (State == IndoorArState.Localizing && TrustedStartFloor > 0) _startSuperseded = true;
         }
 
         public void OnSignConfirmed(IndoorRoomLandmark room)

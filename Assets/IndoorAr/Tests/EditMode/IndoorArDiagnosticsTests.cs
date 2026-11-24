@@ -367,6 +367,7 @@ public class IndoorArDiagnosticsTests
         try
         {
             if (boundary == "OnDestroy") Call(runner, boundary);
+            else if (boundary == "BeginSession") Call(runner, boundary, null, runner.RequestClock());
             else Call(runner, boundary, (object)null);
             var line = lines.Single();
             StringAssert.Contains("relocalize=true", line);

@@ -36,9 +36,9 @@ namespace IndoorAr
         /// Settled pressure change per storey. Measured segment-to-segment steps ran 0.40-0.59 hPa (stairs and elevator,
         /// up and down); the slack below covers posture shifts and drift on top. One device, one building.
         /// </summary>
-        public const float StepMinHpa = 0.40f;
-        public const float StepMaxHpa = 0.55f;
-        public const float StepSlackHpa = 0.10f;
+        const int StepMinHundredths = 40;
+        const int StepMaxHundredths = 55;
+        const int StepSlackHundredths = 10;
         /// <summary>Largest storey count tried; the calibration building has 5 floors.</summary>
         public const int MaxStoreys = 4;
         /// <summary>Larger settled changes than this are rejected as a sensor or unit error, not a floor change.</summary>
@@ -92,21 +92,22 @@ namespace IndoorAr
         /// fits alone; from two storeys up the slack makes neighbouring counts overlap, so the answer is a range, never
         /// a floor. False when the change is below <see cref="MoveHpa"/>, implausibly large, or fits no storey count.
         /// </summary>
-        public static bool TryStoreyOffsets(float deltaHpa, out int minOffset, out int maxOffset)
+        public static bool TryStoreyOffsets(double deltaHpa, out int minOffset, out int maxOffset)
         {
             minOffset = maxOffset = 0;
             var change = System.Math.Abs(deltaHpa);
-            if (!float.IsFinite(deltaHpa) || change < MoveHpa || change > MaxDeltaHpa) return false;
+            if (!double.IsFinite(deltaHpa) || change < WireMoveHpa || change > MaxDeltaHpa) return false;
             var first = 0;
             var last = 0;
             for (var k = 1; k <= MaxStoreys; k++)
             {
-                if (change < k * StepMinHpa - StepSlackHpa || change > k * StepMaxHpa + StepSlackHpa) continue;
+                if (change < (k * StepMinHundredths - StepSlackHundredths) / 100.0
+                    || change > (k * StepMaxHundredths + StepSlackHundredths) / 100.0) continue;
                 if (first == 0) first = k;
                 last = k;
             }
             if (first == 0) return false;
-            var up = deltaHpa < 0f;
+            var up = deltaHpa < 0;
             minOffset = up ? first : -last;
             maxOffset = up ? last : -first;
             return true;

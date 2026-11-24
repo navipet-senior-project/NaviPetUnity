@@ -10,6 +10,8 @@ Scope limits, stated up front:
 ## Transport
 Flutter `jsonEncode`s the request (`IndoorArLauncher._launch`), `IndoorArChannel.swift` passes the string untouched to `IndoorArHost`, and Android passes it in the `navipet.indoorAr.request` intent extra. `IndoorArContract.TryParseRequest` uses `JsonUtility` for the request and validates the optional evidence against the original JSON. Older Unity builds ignore the new fields.
 
+The first Unity read gives a lower bound on elapsed time because a request can wait in the host or native bridge. A height hint requires `requestSentAtBootS` from the same device boot clock as Unity. Stamp it when computing the two evidence ages for send, before handing off the request. Unity checks that the stamp precedes or equals its first read, preserves that read across XR initialization, and adds the full send-to-SDK elapsed time to both ages. A missing, malformed, or future stamp leaves the request unhinted. Existing start-floor pose checks and sampling consent still use the launch summary.
+
 ## Optional request fields for schemaVersion 2
 
 Send all floor-evidence fields together or omit them. Unity ignores these fields in schema 1 requests, which retain their usual pose and sign policy without native pressure sampling or a start-floor veto.
@@ -19,6 +21,7 @@ Send all floor-evidence fields together or omit them. Unity ignores these fields
 | `floorEvidenceVersion` | int | Must be `1`. Absent or any other value: Unity ignores every field below. |
 | `startFloor` | string | Floor the USER confirmed they are standing on, same format as `floor` (e.g. `"1"`). Never the destination floor, never derived from `floor`, `room` or `doorKey`. Positive integer. |
 | `startFloorAgeS` | number | Finite seconds since the user confirmed the starting floor, measured on a monotonic clock. Sampling and the start-floor veto require `0..1200`. |
+| `requestSentAtBootS` | number, optional | Device monotonic time in seconds when the request ages were computed. Required for height hints. Use Android `SystemClock.elapsedRealtimeNanos() / 1e9` or iOS `mach_continuous_time()` converted with `mach_timebase_info` to seconds. Both clocks include time spent asleep. |
 | `pressureSinceStart` | object | Host barometer summary since the confirmation (below). |
 | `pressureSinceStart.settled` | bool | A settled window exists now and a settled anchor was captured at confirmation. |
 | `pressureSinceStart.moved` | bool | The settled level moved at least 0.30 hPa from the level at confirmation. |
@@ -32,7 +35,7 @@ Example:
  "floorEvidenceVersion":1,"startFloor":"1","startFloorAgeS":42,
  "pressureSinceStart":{"settled":true,"moved":false,"sampleAgeS":1.5}}
 ```
-Raw pressure stays on the device. Keep absolute or raw pressure, timestamps, coordinates and location out of the floor-evidence fields. Localize-only requests (`mode: localize`) may carry the same fields.
+Raw pressure stays on the device. Keep absolute or raw pressure, sensor timestamps, coordinates and location out of the floor-evidence fields. Localize-only requests (`mode: localize`) may carry the same fields.
 
 ## Rule the Flutter side must compute (identical to `IndoorFloorBarometer.cs`)
 Samples are `sensors_plus` `barometerEventStream` readings (hPa; only differences are used).
@@ -50,6 +53,7 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 - **Start-floor trust.** A veto additionally requires `settled:true` and `moved:false`.
 - While trusted and no confirmed sign: a MultiSet pose on a different supported floor is rejected as a floor conflict and localization retries (the existing sign-conflict path). The pose floor must also be unambiguous (unknown or outside heights is rejected as before).
 - Permanently drops the start-floor veto after a confirmed room sign, tracked motion from an accepted pose onto another floor, a settled pressure change of at least 0.30 hPa from Unity's first settled baseline after launch, or two separate attempts that return a valid pose on another floor. The second valid conflicting pose can be accepted immediately.
+- A no-pose result from the SDK after an applied start-floor hint also drops the start-floor veto. The unhinted retry still requires a supported, unambiguous pose floor and must agree with any trusted sign.
 - Unity anchors the trusted start floor at its first settled window. Moving before that window settles can establish the baseline on a different floor and miss the move.
 - Unity's own barometer (iOS Core Motion plugin, Android pressure sensor) also releases a stale confirmed sign after a settled change of at least 0.30 hPa from the pressure at sign confirmation. A sign confirmed before pressure settles must be confirmed again during a settled window for pressure to release it thereafter. Seeing the same still-valid sign again while pressure is unsettled (for example a posture shift) keeps the earlier baseline.
 - Continuously tracked motion from an accepted pose can supersede a sign when it reaches a supported floor different from the sign's floor. Tracking loss or elapsed time alone leaves the sign veto in place.
@@ -64,7 +68,7 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 5. Ship order is free (absent fields change nothing, old Unity ignores them).
 
 ## Known limits and disclosed gaps
-- Pressure-based candidate hinting remains unreachable through Flutter until the companion host emits the signed settled delta. Unity’s own barometer starts after launch and cannot supply that first-request delta. End-to-end candidate hinting remains unverified.
+- Height hints through Flutter require the companion host to emit the shared-clock send stamp. Pressure-based candidate hints also require the signed settled delta. Unity’s own barometer starts after launch and cannot supply that first-request delta. End-to-end candidate hinting remains unverified.
 - Missed on purpose: a real one-storey step hidden by opposing posture plus drift error above about 0.115 hPa.
 - Unity receives hPa as a float. Near 1000 hPa, rounding can make a step of exactly 0.30 hPa read just under the threshold for either anchor.
 - EditMode tests exercise timestamp forwarding and capture gaps using delayed reader output. Android polling with the event capture timestamp and the iOS Core Motion measurement timestamp require device verification.

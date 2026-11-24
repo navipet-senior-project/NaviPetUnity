@@ -231,6 +231,22 @@ public class IndoorStartFloorTests
     [TestCase("1.15", "4", 0)]
     [TestCase("-0.67", "1", 0)]
     [TestCase("0.47", "1", 0)]
+    [TestCase("-0.65", "1", 2)]
+    [TestCase("0.65", "4", 3)]
+    [TestCase("-0.65000001", "1", 0)]
+    [TestCase("0.65000001", "4", 0)]
+    [TestCase("-0.69999999", "1", 0)]
+    [TestCase("0.69999999", "4", 0)]
+    [TestCase("-0.70", "1", 3)]
+    [TestCase("0.70", "4", 2)]
+    [TestCase("-1.09999999", "1", 3)]
+    [TestCase("1.09999999", "4", 2)]
+    [TestCase("-1.10", "1", 0)]
+    [TestCase("1.10", "4", 0)]
+    [TestCase("-1.20", "1", 0)]
+    [TestCase("1.20", "4", 0)]
+    [TestCase("-1.20000001", "1", 4)]
+    [TestCase("1.20000001", "4", 1)]
     public void ParsedPressureDeltaMustFitExactlyOneStoreyCount(string delta, string start, int hintFloor)
     {
         var json = HostRequest.Replace("\"startFloor\":\"1\"", $"\"startFloor\":\"{start}\"")

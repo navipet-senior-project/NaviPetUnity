@@ -31,6 +31,18 @@ namespace IndoorAr
 #endif
         }
 
+        internal static double RequestClock()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using var clock = new AndroidJavaClass("android.os.SystemClock");
+            return clock.CallStatic<long>("elapsedRealtimeNanos") / 1e9;
+#elif UNITY_IOS && !UNITY_EDITOR
+            return IndoorArRequestClock();
+#else
+            return Time.realtimeSinceStartupAsDouble;
+#endif
+        }
+
         public static void Deliver(string resultJson)
         {
             Debug.Log($"[IndoorAr] result {resultJson}");
@@ -84,6 +96,9 @@ namespace IndoorAr
 
         [DllImport("__Internal")]
         static extern IntPtr IndoorArReadRequest();
+
+        [DllImport("__Internal")]
+        static extern double IndoorArRequestClock();
 
         [DllImport("__Internal")]
         static extern void IndoorArDeliverResult([MarshalAs(UnmanagedType.LPUTF8Str)] string resultJson);

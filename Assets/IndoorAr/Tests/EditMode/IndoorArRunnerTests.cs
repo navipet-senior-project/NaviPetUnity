@@ -169,7 +169,7 @@ public class IndoorArRunnerTests
         Assert.AreSame(floor1Sign, session.FloorSign);
         Assert.IsTrue(session.PoseConflictsWithSign(floor2CameraY, heights));
 
-        Call(runner, "BeginSession", _request);
+        Call(runner, "BeginSession", _request, runner.RequestClock());
         Assert.AreEqual(starts ? 1 : 0, sensorStarts, "A warm launch without confirmation must skip pressure.");
     }
 
@@ -370,7 +370,7 @@ public class IndoorArRunnerTests
         var oldAttempt = localizer.LastAttemptId;
 
         runner.GetType().GetMethod("BeginSession", BindingFlags.Instance | BindingFlags.NonPublic)
-            .Invoke(runner, new object[] { _request });
+            .Invoke(runner, new object[] { _request, runner.RequestClock() });
         var currentSession = Field<IndoorArSession>(runner, "_session");
         currentSession.OnArSupport(true);
         currentSession.OnAuthenticated();

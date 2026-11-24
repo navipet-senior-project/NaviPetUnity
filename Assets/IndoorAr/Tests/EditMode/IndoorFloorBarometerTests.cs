@@ -432,20 +432,20 @@ public class IndoorFloorBarometerTests
     }
 
     // Offsets are storeys, positive up. Pressure falls going up. Gaps between storey counts are no estimate.
-    [TestCase(-0.47f, true, 1, 1)]
-    [TestCase(0.47f, true, -1, -1)]
-    [TestCase(-0.60f, true, 1, 1)]
-    [TestCase(-1.15f, true, 2, 3)]
-    [TestCase(1.15f, true, -3, -2)]
-    [TestCase(-0.95f, true, 2, 2)]
-    [TestCase(-1.40f, true, 3, 3)]
-    [TestCase(-1.55f, true, 3, 4)]
-    [TestCase(-0.29f, false, 0, 0)]
-    [TestCase(-0.68f, false, 0, 0)]
-    [TestCase(-0.67f, false, 0, 0)]
-    [TestCase(-3.5f, false, 0, 0)]
-    [TestCase(float.NaN, false, 0, 0)]
-    public void StoreyOffsetsFromASettledChange(float delta, bool expected, int min, int max)
+    [TestCase(-0.47, true, 1, 1)]
+    [TestCase(0.47, true, -1, -1)]
+    [TestCase(-0.60, true, 1, 1)]
+    [TestCase(-1.15, true, 2, 3)]
+    [TestCase(1.15, true, -3, -2)]
+    [TestCase(-0.95, true, 2, 2)]
+    [TestCase(-1.40, true, 3, 3)]
+    [TestCase(-1.55, true, 3, 4)]
+    [TestCase(-0.29, false, 0, 0)]
+    [TestCase(-0.68, false, 0, 0)]
+    [TestCase(-0.67, false, 0, 0)]
+    [TestCase(-3.5, false, 0, 0)]
+    [TestCase(double.NaN, false, 0, 0)]
+    public void StoreyOffsetsFromASettledChange(double delta, bool expected, int min, int max)
     {
         Assert.AreEqual(expected, IndoorFloorBarometer.TryStoreyOffsets(delta, out var lo, out var hi));
         Assert.AreEqual((min, max), (lo, hi));

@@ -78,6 +78,7 @@ namespace IndoorAr
         public string startFloor;
         public double startFloorAgeS;
         public IndoorArPressureSummary pressureSinceStart;
+        internal double? RequestSentAtBootS { get; set; }
         /// <summary>Optional host features. Absent from legacy hosts, which still require checkDistanceM on every arrival.</summary>
         public string[] capabilities;
         /// <summary>The host accepts an arrived result without checkDistanceM when it carries the destination signRoom.</summary>
@@ -95,7 +96,7 @@ namespace IndoorAr
         /// Optional. Signed change of the host's settled level since the confirmation, hPa (negative: pressure fell, so
         /// the user went up). Relative only. Used only when <see cref="deltaValid"/>.
         /// </summary>
-        public float deltaHpa;
+        public double deltaHpa;
         /// <summary>Set by the parser, never read from the wire: deltaHpa was present, finite, bounded and agrees with settled and moved.</summary>
         [NonSerialized] public bool deltaValid;
     }
@@ -174,13 +175,13 @@ namespace IndoorAr
                 return false;
             }
             if (parsed.schemaVersion != SchemaVersionV2 || parsed.floorEvidenceVersion != FloorEvidenceVersion
-                || parsed.pressureSinceStart == null || !ValidateFloorEvidence(json, parsed.pressureSinceStart))
+                || parsed.pressureSinceStart == null || !ValidateFloorEvidence(json, parsed))
                 parsed.pressureSinceStart = null;
             request = parsed;
             return true;
         }
 
-        static bool ValidateFloorEvidence(string json, IndoorArPressureSummary summary)
+        static bool ValidateFloorEvidence(string json, IndoorArRequest request)
         {
             try
             {
@@ -194,16 +195,21 @@ namespace IndoorAr
                     || pressure["moved"]?.Type != JTokenType.Boolean
                     || !IsAgeWithin(pressure["sampleAgeS"], IndoorFloorBarometer.MaxSampleGapS))
                     return false;
+                var summary = request.pressureSinceStart;
                 var delta = pressure["deltaHpa"];
-                if (delta == null) return true;
-                if (delta.Type is not (JTokenType.Integer or JTokenType.Float)) return false;
-                var change = (double)delta;
-                var magnitude = Math.Abs(change);
-                if (!summary.settled || !(magnitude <= IndoorFloorBarometer.MaxDeltaHpa)
-                    || (magnitude >= IndoorFloorBarometer.WireMoveHpa) != summary.moved)
-                    return false;
-                summary.deltaHpa = (float)change;
-                summary.deltaValid = true;
+                if (delta != null)
+                {
+                    if (delta.Type is not (JTokenType.Integer or JTokenType.Float)) return false;
+                    var change = (double)delta;
+                    var magnitude = Math.Abs(change);
+                    if (!summary.settled || !(magnitude <= IndoorFloorBarometer.MaxDeltaHpa)
+                        || (magnitude >= IndoorFloorBarometer.WireMoveHpa) != summary.moved)
+                        return false;
+                    summary.deltaHpa = change;
+                    summary.deltaValid = true;
+                }
+                var sentAt = fields["requestSentAtBootS"];
+                if (IsAgeWithin(sentAt, double.MaxValue)) request.RequestSentAtBootS = (double)sentAt;
                 return true;
             }
             catch (JsonReaderException)

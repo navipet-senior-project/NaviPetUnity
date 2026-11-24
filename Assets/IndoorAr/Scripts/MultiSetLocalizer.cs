@@ -107,6 +107,7 @@ namespace IndoorAr
         public event Action<int> AttemptStarted;
         public event Action<float?> Localized;
         public event Action<int> NotLocalized;
+        internal event Action<int> HintedNoPose;
         public Func<Transform, bool> CandidatePoseValidator { get; set; }
         /// <summary>Asked at the start of every request; null means send no hint.</summary>
         public Func<MultiSetHint?> HintProvider { get; set; }
@@ -289,11 +290,7 @@ namespace IndoorAr
             var success = result != null && result.poseFound;
             if (!CompleteRequest(out var attemptId))
                 return;
-            if (!success)
-            {
-                EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.GenericFailure);
-                NotLocalized?.Invoke(attemptId);
-            }
+            if (!success) ReportNoPose(attemptId);
             else CompleteLocalizedPose(attemptId, result.confidence, result);
         }
 
@@ -320,7 +317,14 @@ namespace IndoorAr
         void OnNotLocalized()
         {
             if (!CompleteRequest(out var attemptId)) return;
+            ReportNoPose(attemptId);
+        }
+
+        void ReportNoPose(int attemptId)
+        {
+            var hinted = _activeTrace?.Hint == IndoorArDiagnostics.LocalizationHint.Height;
             EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome.GenericFailure);
+            if (hinted) HintedNoPose?.Invoke(attemptId);
             NotLocalized?.Invoke(attemptId);
         }
         void OnLocalizedWithoutConfidence()
