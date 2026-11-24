@@ -152,8 +152,8 @@ namespace IndoorAr
         /// <summary>Kind of one localization request. Signs are the OCR hold; MultiSet is the VPS request that owns the process lock.</summary>
         public enum LocalizationRequestKind { Sign, MultiSet }
 
-        /// <summary>Which hint a MultiSet request carried. Kinds only: never a floor, height or map code.</summary>
-        public enum LocalizationHint { None, Height }
+        /// <summary>Hint kind configured in the MultiSet SDK.</summary>
+        public enum LocalizationHint { Height = 1 }
 
         /// <summary>How one request ended. Timing alone does not identify the cause of a delay.</summary>
         public enum LocalizationOutcome { Ok, GenericFailure, Rejected, Timeout, Cancelled, Superseded, Late, Ignored }
@@ -162,7 +162,7 @@ namespace IndoorAr
         /// <param name="lockWaitMs">Time queued behind the lock; null for signs.</param>
         /// <param name="sdkMs">Time the SDK call was in flight; null for signs.</param>
         /// <param name="attempt">Request ID. MultiSet IDs count across the adapter's lifetime.</param>
-        /// <param name="hint">Hint kind carried by the MultiSet request. An omitted field indicates an unhinted request.</param>
+        /// <param name="hint">Height indicates SDK configuration before localization. The field is omitted when no hint was configured.</param>
         public static string LocalizationRequestLine(int attempt, LocalizationRequestKind kind, long elapsedMs,
             LocalizationOutcome outcome, bool? lockBusy, long? lockWaitMs, long? sdkMs, LocalizationHint? hint = null) =>
             $"[IndoorAr] localization request attempt={attempt} kind={kind} elapsedMs={elapsedMs} outcome={outcome}"

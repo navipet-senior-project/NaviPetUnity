@@ -96,7 +96,7 @@ namespace IndoorAr
         /// Optional. Signed change of the host's settled level since the confirmation, hPa (negative: pressure fell, so
         /// the user went up). Relative only. Used only when <see cref="deltaValid"/>.
         /// </summary>
-        public double deltaHpa;
+        [NonSerialized] public double deltaHpa;
         /// <summary>Set by the parser, never read from the wire: deltaHpa was present, finite, bounded and agrees with settled and moved.</summary>
         [NonSerialized] public bool deltaValid;
     }
@@ -197,16 +197,16 @@ namespace IndoorAr
                     return false;
                 var summary = request.pressureSinceStart;
                 var delta = pressure["deltaHpa"];
-                if (delta != null)
+                if (summary.settled && delta?.Type is (JTokenType.Integer or JTokenType.Float))
                 {
-                    if (delta.Type is not (JTokenType.Integer or JTokenType.Float)) return false;
                     var change = (double)delta;
                     var magnitude = Math.Abs(change);
-                    if (!summary.settled || !(magnitude <= IndoorFloorBarometer.MaxDeltaHpa)
-                        || (magnitude >= IndoorFloorBarometer.WireMoveHpa) != summary.moved)
-                        return false;
-                    summary.deltaHpa = change;
-                    summary.deltaValid = true;
+                    if (magnitude <= IndoorFloorBarometer.MaxDeltaHpa
+                        && (magnitude >= IndoorFloorBarometer.WireMoveHpa) == summary.moved)
+                    {
+                        summary.deltaHpa = change;
+                        summary.deltaValid = true;
+                    }
                 }
                 var sentAt = fields["requestSentAtBootS"];
                 if (IsAgeWithin(sentAt, double.MaxValue)) request.RequestSentAtBootS = (double)sentAt;

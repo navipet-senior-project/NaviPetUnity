@@ -200,11 +200,11 @@ public class IndoorArRunnerTests
 
     // Fails the first attempt pair so the retryable failure card is up; returns the pieces the retry tests share.
     (IndoorArRunner Runner, IndoorArSession Session, RunnerFakeLocalizer Localizer, IndoorRoomLandmark Sign, Func<float> Now)
-        RunnerAtFailureCard(bool confirmedFloor, Action onStart = null, Action onStop = null)
+        RunnerAtFailureCard(bool confirmedFloor, Action onStart = null, Action onStop = null, string deltaField = "")
     {
         if (confirmedFloor)
             IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
-                ConfirmedFloorEvidence + "}";
+                ConfirmedFloorEvidence.Insert(ConfirmedFloorEvidence.Length - 1, deltaField) + "}";
         var runner = Runner();
         runner.StartPressureSampling = onStart ?? (() => { });
         runner.StopPressureSampling = onStop ?? (() => { });
@@ -246,12 +246,13 @@ public class IndoorArRunnerTests
         Assert.AreSame(sign, session.FloorSign);
     }
 
-    [Test]
-    public void TryAgainWithFloorEvidenceReturnsLocalizationFailedToTheHostWithoutPressureOrRetry()
+    [TestCase("")]
+    [TestCase(",\"deltaHpa\":null")]
+    public void TryAgainWithFloorEvidenceReturnsLocalizationFailedToTheHostWithoutPressureOrRetry(string deltaField)
     {
         var starts = 0;
         var stops = 0;
-        var (runner, session, _, sign, now) = RunnerAtFailureCard(true, () => starts++, () => stops++);
+        var (runner, session, _, sign, now) = RunnerAtFailureCard(true, () => starts++, () => stops++, deltaField);
         Assert.AreEqual(1, starts);
         Assert.AreEqual(1, stops, "the failure card already stopped sampling");
         var reads = 0;

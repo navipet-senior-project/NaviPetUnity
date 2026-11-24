@@ -271,14 +271,15 @@ public class IndoorStartFloorTests
     [TestCase("true", "-3.01")]
     [TestCase("false", "null")]
     [TestCase("false", "\"-0.47\"")]
-    public void InvalidSuppliedDeltaDisablesHostFloorTrust(string moved, string delta)
+    public void InvalidSuppliedDeltaOnlyDisablesTheHeightHint(string moved, string delta)
     {
         var json = HostRequest.Replace("\"moved\":false", $"\"moved\":{moved},\"deltaHpa\":{delta}");
         Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
         var session = Localizing(request);
         Assert.AreEqual(0, session.HintFloor(0));
-        Assert.AreEqual(0, session.TrustedStartFloor);
-        Assert.IsFalse(session.PressureSamplingAllowed);
+        Assert.IsFalse(request.pressureSinceStart.deltaValid);
+        Assert.AreEqual(moved == "false" ? 1 : 0, session.TrustedStartFloor);
+        Assert.IsTrue(session.PressureSamplingAllowed);
     }
 
     [TestCase(1, 1, "\"settled\":true,\"deltaHpa\":-0.47")]

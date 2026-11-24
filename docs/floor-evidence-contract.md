@@ -14,7 +14,7 @@ The first Unity read gives a lower bound on elapsed time because a request can w
 
 ## Optional request fields for schemaVersion 2
 
-Send all floor-evidence fields together or omit them. Unity ignores these fields in schema 1 requests, which retain their usual pose and sign policy without native pressure sampling or a start-floor veto.
+Send the required floor-evidence fields together or omit them. Height hints also require both optional inputs below. Unity ignores these fields in schema 1 requests, which retain their usual pose and sign policy without native pressure sampling or a start-floor veto.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -26,9 +26,9 @@ Send all floor-evidence fields together or omit them. Unity ignores these fields
 | `pressureSinceStart.settled` | bool | A settled window exists now and a settled anchor was captured at confirmation. |
 | `pressureSinceStart.moved` | bool | The settled level moved at least 0.30 hPa from the level at confirmation. |
 | `pressureSinceStart.sampleAgeS` | number | Finite age of the newest host barometer sample in seconds. Sampling and the start-floor veto require `0..10`. |
-| `pressureSinceStart.deltaHpa` | number, optional for the start-floor veto and sampling consent. Required for all height hints. | Signed difference, current settled level minus the level at confirmation, in hPa. Negative means the pressure fell as the user went up. Send only with `settled:true`. A supplied delta must be finite, satisfy `abs <= 3`, and agree with `moved` (`abs >= 0.30` exactly when `moved`). An invalid supplied delta invalidates the floor evidence. |
+| `pressureSinceStart.deltaHpa` | number, optional for the start-floor veto and sampling consent. Required for all height hints. | Signed difference, current settled level minus the level at confirmation, in hPa. Negative means the pressure fell as the user went up. Send only with `settled:true`. A supplied delta must be finite, satisfy `abs <= 3`, and agree with `moved` (`abs >= 0.30` exactly when `moved`). When the delta is missing or invalid, the request is unhinted. Valid legacy evidence still governs sampling consent, the start-floor veto, and Try Again. |
 
-Example:
+Legacy payload example. Unity localizes without a height hint.
 ```json
 {"schemaVersion":2,"room":"215","doorKey":"VEC215","floor":"2","position":{"x":1,"y":2,"z":3},"headingDeg":0,
  "mapCode":"<unchanged>","frame":"multiset-mapset","capabilities":["signArrival"],
@@ -61,10 +61,10 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 - When a session reaches Done, Unity stops collecting pressure and clears its pressure window, anchor, and trusted start floor. This includes opening the localization failure card. **Try again** depends on the launch. A session launched **with** valid floor evidence does not retry in place: Unity delivers the existing `localizationFailed` result to the host, and the host must re-prompt for the starting floor and relaunch Unity with new evidence. Unity does not support in-place re-confirmation, and the host must never reuse launch-time evidence. A session launched **without** floor evidence (skipped, schema 1, stale, partial or invalid) retries in place as before, with no pressure. Signs superseded by tracked motion stay superseded.
 
 ## Flutter implementation requirements (independent dispatch)
-1. Ask "Which floor are you on?" at entry, using explicit confirmation as in `FloorPressureRecorder.confirmFloor`. Send no fields if the user skips or confirms without a settled anchor. Add the four fields to both `toJson` branches and to `withArToken` in `IndoorArRequest` (`lib/data/indoor_ar_contract.dart`).
-2. Capture barometer readings from confirmation to launch (`sensors_plus`), using the rule and test vectors above. Send `pressureSinceStart.deltaHpa` as the signed settled change in hPa since the confirmed start, negative when going up. Include it only when settled and `abs(deltaHpa) <= 3`. Set `moved == (abs(deltaHpa) >= 0.30)` and send a sample age from 0 to 10 s. Stop the stream when no longer needed.
+1. Ask "Which floor are you on?" at entry, using explicit confirmation as in `FloorPressureRecorder.confirmFloor`. Send no fields if the user skips or confirms without a settled anchor. Preserve floor evidence in both `toJson` branches and in `withArToken` in `IndoorArRequest` (`lib/data/indoor_ar_contract.dart`).
+2. Capture barometer readings from confirmation to launch (`sensors_plus`), using the rule and test vectors above. For height hinting, serialize both `requestSentAtBootS` and `pressureSinceStart.deltaHpa`. Stamp the request when computing the evidence ages for send. Include the signed change in hPa only when settled and `abs(deltaHpa) <= 3`. It is negative when going up. Set `moved == (abs(deltaHpa) >= 0.30)` and send a sample age from 0 to 10 s. Stop the stream when no longer needed.
 3. On iOS, omit the fields if Motion & Fitness access is denied. Use the proposed Motion & Fitness wording in the host app’s `NSMotionUsageDescription`. [iOS export and host disclosure](ios-export.md#floor-change-pressure)
-4. Tests: field presence/absence, version value, age bounds, no field on missing sensor, no field when the floor is blank or non-numeric.
+4. Test field presence and omission, including `requestSentAtBootS` and `pressureSinceStart.deltaHpa`, the version value, the age bounds, and omission when the sensor is missing or the floor is blank or non-numeric.
 5. Ship order is free (absent fields change nothing, old Unity ignores them).
 
 ## Known limits and disclosed gaps

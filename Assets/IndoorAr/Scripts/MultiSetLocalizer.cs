@@ -70,7 +70,7 @@ namespace IndoorAr
             public double Started, SdkStarted, QueueUpdated, LockWaitS;
             public bool SdkStartedSet;
             public bool Ended;
-            public IndoorArDiagnostics.LocalizationHint Hint;
+            public IndoorArDiagnostics.LocalizationHint? Hint;
         }
 
         sealed class SdkCompletionListener
@@ -280,13 +280,13 @@ namespace IndoorAr
             manager.LocalizeFrame();
         }
 
-        IndoorArDiagnostics.LocalizationHint ApplyHint(MultiSetHint? hint)
+        IndoorArDiagnostics.LocalizationHint? ApplyHint(MultiSetHint? hint)
         {
-            if (HintFloorHeightField?.FieldType != typeof(string)) return IndoorArDiagnostics.LocalizationHint.None;
+            if (HintFloorHeightField?.FieldType != typeof(string)) return null;
             HintFloorHeightField.SetValue(manager, hint is { } band
                 ? string.Format(CultureInfo.InvariantCulture, "[{0:0.##}, {1:0.##}]", band.MinY, band.MaxY)
                 : "");
-            return hint.HasValue ? IndoorArDiagnostics.LocalizationHint.Height : IndoorArDiagnostics.LocalizationHint.None;
+            return hint.HasValue ? IndoorArDiagnostics.LocalizationHint.Height : null;
         }
 
         void OnLocalized(LocalizationSuccessResponse result)
@@ -424,7 +424,7 @@ namespace IndoorAr
                 IndoorArDiagnostics.LocalizationRequestKind.MultiSet, (long)((now - trace.Started) * 1000), outcome,
                 trace.LockBusy, (long)(trace.LockWaitS * 1000),
                 trace.SdkStartedSet ? (long)((now - trace.SdkStarted) * 1000) : 0,
-                trace.Hint == IndoorArDiagnostics.LocalizationHint.None ? null : trace.Hint));
+                trace.Hint));
         }
 
         void EndActiveTrace(IndoorArDiagnostics.LocalizationOutcome outcome)

@@ -889,6 +889,25 @@ public class MultiSetLocalizerTests
             0, false, false, expectedFloor, 9.5, sentAt < 0 ? null : sentAt, initDelay);
     }
 
+    [TestCase("")]
+    [TestCase(",\"deltaHpa\":null")]
+    [TestCase(",\"deltaHpa\":NaN")]
+    [TestCase(",\"deltaHpa\":Infinity")]
+    [TestCase(",\"deltaHpa\":3.01")]
+    [TestCase(",\"deltaHpa\":-0.47")]
+    public void UnusableDeltaLeavesTheFirstRequestUnhintedAndRejectsTheWrongFloor(string deltaField)
+    {
+        AssertRunnerHint(1, 42, "false", deltaField, 0, false, false, 0, afterFirst: session =>
+        {
+            Assert.IsTrue(session.PressureSamplingAllowed);
+            var grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid").text);
+            _adapter.SdkMapSpace.position = Vector3.down * (grids[2].FloorY + 1.5f);
+            ReportSuccess();
+            Assert.AreEqual(1, session.TrustedStartFloor);
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+        });
+    }
+
     // The SDK reports a dropped connection and a server no-pose as the same failure, so a failed hinted request
     // never releases the start-floor veto: a retry pose on another floor stays rejected.
     [TestCase(true, true, false, false, 2, IndoorArState.Localizing)]
