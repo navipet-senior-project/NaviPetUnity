@@ -78,7 +78,8 @@ namespace IndoorAr
         static int TrustStartFloor(IndoorArRequest request)
         {
             var summary = request?.pressureSinceStart;
-            if (request == null || !int.TryParse(request.startFloor, out var floor) || floor <= 0
+            if (request == null || request.floorEvidenceVersion != IndoorArContract.FloorEvidenceVersion
+                || !int.TryParse(request.startFloor, out var floor) || floor <= 0
                 || request.startFloorAgeS < 0f || request.startFloorAgeS > IndoorFloorBarometer.MaxAnchorAgeS
                 || summary == null || !summary.settled || summary.moved
                 || summary.sampleAgeS < 0f || summary.sampleAgeS > IndoorFloorBarometer.MaxSampleGapS) return 0;

@@ -11,11 +11,11 @@ public class IndoorStartFloorTests
     static readonly IndoorRoomLandmark Sign215 = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
 
     static IndoorArRequest Request(string startFloor = "1", float ageS = 30f, bool settled = true, bool moved = false,
-        float sampleAgeS = 1f, bool summary = true) => new IndoorArRequest
+        float sampleAgeS = 1f, bool summary = true, int version = 1) => new IndoorArRequest
     {
         schemaVersion = 2, room = "215", doorKey = "VEC215", floor = "2",
         position = new IndoorArVector3 { x = 1f, y = 2f, z = 3f }, headingDeg = 0f, mapCode = "MSET_X", frame = "multiset-mapset",
-        startFloor = startFloor, startFloorAgeS = ageS,
+        floorEvidenceVersion = version, startFloor = startFloor, startFloorAgeS = ageS,
         pressureSinceStart = summary ? new IndoorArPressureSummary { settled = settled, moved = moved, sampleAgeS = sampleAgeS } : null,
     };
 
@@ -64,6 +64,15 @@ public class IndoorStartFloorTests
     public void AnUnvouchedStartFloorIsIgnored(string floor, float ageS, bool settled, bool moved, float sampleAgeS, bool summary)
     {
         var s = Localizing(Request(floor, ageS, settled, moved, sampleAgeS, summary));
+        Assert.AreEqual(0, s.TrustedStartFloor);
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+    }
+
+    [TestCase(0, TestName = "version missing")]
+    [TestCase(2, TestName = "future version")]
+    public void AnUnknownEvidenceVersionIsIgnored(int version)
+    {
+        var s = Localizing(Request(version: version));
         Assert.AreEqual(0, s.TrustedStartFloor);
         Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
@@ -135,10 +144,10 @@ public class IndoorStartFloorTests
     {
         const string host = "{\"schemaVersion\":2,\"room\":\"215\",\"doorKey\":\"VEC215\",\"floor\":\"2\"," +
             "\"position\":{\"x\":1,\"y\":2,\"z\":3},\"headingDeg\":0,\"mapCode\":\"MSET_X\",\"frame\":\"multiset-mapset\"," +
-            "\"startFloor\":\"1\",\"startFloorAgeS\":42,\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":1.5}}";
+            "\"floorEvidenceVersion\":1,\"startFloor\":\"1\",\"startFloorAgeS\":42,\"pressureSinceStart\":{\"settled\":true,\"moved\":false,\"sampleAgeS\":1.5}}";
         Assert.IsTrue(IndoorArContract.TryParseRequest(host, out var request));
         Assert.AreEqual(1, Localizing(request).TrustedStartFloor);
-        Assert.IsTrue(IndoorArContract.TryParseRequest(host.Replace(",\"startFloor\":\"1\"", ",\"x\":0"), out var noFloor));
+        Assert.IsTrue(IndoorArContract.TryParseRequest(host.Replace(",\"floorEvidenceVersion\":1,\"startFloor\":\"1\"", ",\"x\":0"), out var noFloor));
         Assert.AreEqual(0, Localizing(noFloor).TrustedStartFloor);
         Assert.IsTrue(IndoorArContract.TryParseRequest(IndoorArBridge.EditorRequestJson, out var legacy));
         Assert.AreEqual(0, Localizing(legacy).TrustedStartFloor, "an old host sends nothing and nothing changes");

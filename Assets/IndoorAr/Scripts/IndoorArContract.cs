@@ -68,9 +68,11 @@ namespace IndoorAr
         /// </summary>
         public bool stepFree;
         /// <summary>
-        /// Optional. The floor the user confirmed they stand on (never the destination floor), how long ago, and what the
+        /// Optional, versioned by floorEvidenceVersion (only 1 is understood; absent or any other value means none).
+        /// The floor the user confirmed they stand on (never the destination floor), how long ago, and what the
         /// barometer did since. Trusted only when the pressure summary says the level is settled and unchanged.
         /// </summary>
+        public int floorEvidenceVersion;
         public string startFloor;
         public float startFloorAgeS;
         public IndoorArPressureSummary pressureSinceStart;
@@ -102,6 +104,7 @@ namespace IndoorAr
         public const int SchemaVersion = 1;
         public const int SchemaVersionV2 = 2;
         public const string SignArrivalCapability = "signArrival";
+        public const int FloorEvidenceVersion = 1;
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
         public const string Frame = "multiset-mapset";
