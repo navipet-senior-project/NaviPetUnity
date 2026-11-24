@@ -98,6 +98,8 @@ Unity uses its first settled window after launch for the trusted start-floor bas
 
 Even with a valid pressure anchor, a stale sign can veto poses on the new floor while pressure is still settling after an elevator ride. MultiSet can exhaust its automatic retry in that time, and the user may need to retry localization manually.
 
+EditMode tests cover delayed readings from the reader output onward. Verify on devices that the Android poll throttle preserves the sensor event capture timestamp and that iOS uses the Core Motion measurement timestamp.
+
 ## Not verified here
 
 The final indoor OCR change still requires a native player build and device validation. Prior framework linking does not verify the final change. EditMode tests cover the shared contract, the editor bridge stand-in, and the saved iOS player and XR settings.

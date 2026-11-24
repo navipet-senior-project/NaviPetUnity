@@ -254,7 +254,17 @@ public class IndoorArRunnerTests
         var (runner, session, _, sign, now) = RunnerAtFailureCard(true, () => starts++, () => stops++);
         Assert.AreEqual(1, starts);
         Assert.AreEqual(1, stops, "the failure card already stopped sampling");
-        runner.ReadPressure = (out float _, out double _) => throw new AssertionException("the failure card must not read pressure");
+        var reads = 0;
+        runner.ReadPressure = (out float hpa, out double capturedAtS) =>
+        {
+            reads++;
+            hpa = 999.53f;
+            capturedAtS = now();
+            return true;
+        };
+        Call(runner, "Update");
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
+        Assert.AreEqual(0, reads);
         for (var i = 0; i < 25; i++) session.OnPressure(999.53f, now() + i); // late readings reach nothing
 
         Call(runner, "OnHudRetry");
@@ -264,6 +274,7 @@ public class IndoorArRunnerTests
         Call(runner, "Update");
         Call(runner, "Update");
         Call(runner, "OnHudRetry");
+        Assert.AreEqual(0, reads);
         Assert.AreEqual(1, starts);
         Assert.AreEqual(1, stops);
         Assert.AreSame(sign, session.FloorSign, "pressure never released it");
@@ -306,13 +317,12 @@ public class IndoorArRunnerTests
         }
 
         for (var t = 22; t <= 32; t++) Deliver(t, t);
-        Deliver(32.1, 33); // held by the poll throttle: delivered 0.9 s after capture
-        Deliver(42.5, 42.5); // 10.4 s after the capture at 32.1, but 9.5 s after that delivery
-        for (var t = 43.5; t <= 53; t += 1) Deliver(t, t);
-        Assert.AreSame(sign, session.FloorSign, "the real gap cleared the window, so 10.5 s of readings are not settled");
+        Deliver(32 + IndoorFloorBarometer.MinSpacingS, 33.4);
+        Deliver(42.9, 42.9);
+        Assert.AreSame(sign, session.FloorSign, "the 10.4 s capture gap cleared the window despite a 9.5 s delivery gap");
 
-        for (var t = 54.0; t <= 62; t += 1) Deliver(t, t);
-        Assert.IsNull(session.FloorSign, "the same readings without that gap would have released the sign");
+        for (var t = 44; t <= 61; t++) Deliver(t, t);
+        Assert.IsNull(session.FloorSign, "a new settled window releases the sign");
     }
 
     [Test]

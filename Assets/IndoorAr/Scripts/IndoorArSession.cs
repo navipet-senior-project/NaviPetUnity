@@ -89,7 +89,7 @@ namespace IndoorAr
         IndoorFloorBarometer Barometer { get; set; }
 
         /// <summary>Confirmed starting floor the host vouched for with settled, unchanged pressure; 0 when absent or distrusted.</summary>
-        int StartFloor { get; }
+        int StartFloor { get; set; }
         /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
         public int TrustedStartFloor => _startSuperseded ? 0 : StartFloor;
 
@@ -329,7 +329,6 @@ namespace IndoorAr
             if (State != IndoorArState.Done || ResultJson == null || !ResultJson.Contains("\"status\":\"localizationFailed\"")) return;
             ResultJson = null;
             FallbackExpired = false;
-            _startSuperseded = true;
             _signSupersededByPressure = false;
             StartLocalizing();
         }
@@ -364,6 +363,7 @@ namespace IndoorAr
         {
             ResultJson = IndoorArContract.WithSignRoom(resultJson, SignRoom?.Id);
             State = IndoorArState.Done;
+            StartFloor = 0;
             StopPressureSampling();
             FallbackStopped?.Invoke();
         }

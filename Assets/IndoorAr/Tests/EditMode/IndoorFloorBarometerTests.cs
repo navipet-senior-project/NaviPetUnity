@@ -313,7 +313,7 @@ public class IndoorFloorBarometerTests
     }
 
     [Test]
-    public void RetryAfterChangingFloorsOnTheFailureScreenDropsTheStartFloorAndPressureAnchor()
+    public void FailureScreenDropsTheStartFloorAndPressureAnchor()
     {
         var s = Pinned();
         s.OnTrackingLost();
@@ -321,10 +321,11 @@ public class IndoorFloorBarometerTests
         Feed(s, 0f, IndoorArSession.LocalizeTimeoutS - 1f);
         Advance(s, 1f);
         Assert.IsTrue(LiveDoorHud.LocalizationFailed(s));
-        Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+        Assert.AreEqual(0, s.TrustedStartFloor);
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
 
         Feed(s, -Step, 25f);
-        Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
         s.Retry();
         Assert.AreEqual(IndoorArState.Localizing, s.State);
         Assert.AreEqual(0, s.TrustedStartFloor);
