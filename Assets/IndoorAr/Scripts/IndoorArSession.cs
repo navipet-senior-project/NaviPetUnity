@@ -36,6 +36,10 @@ namespace IndoorAr
         // The user's confirmed floor, trusted only with settled unchanged pressure. Weaker than a sign: it lapses when a
         // sign is read, tracked motion or pressure shows another level, or two attempts in a row land on another floor.
         bool _startSuperseded;
+        // The user's confirmed floor and the host's signed settled pressure change since then, kept only when pressure
+        // had already moved at launch (no start-floor veto then). Input to the advisory PressureCandidateFloors.
+        int _confirmedFloor;
+        float _hostDeltaHpa;
         int _lastConflictQueries = -1;
         int _startConflicts;
         const int MaxStartConflicts = 2;
@@ -59,6 +63,11 @@ namespace IndoorAr
                 Barometer = new IndoorFloorBarometer();
                 LaunchedWithFloorEvidence = true;
                 if (pressure.settled && !pressure.moved) StartFloor = floor;
+                else if (pressure.settled && pressure.deltaValid)
+                {
+                    _confirmedFloor = floor;
+                    _hostDeltaHpa = pressure.deltaHpa;
+                }
             }
         }
 
@@ -98,6 +107,27 @@ namespace IndoorAr
         /// Never the destination. Every later request is unhinted, so a wrong or failed hint costs one retry.
         /// </summary>
         public int HintFloor => Queries == 0 ? Math.Max(FloorSign?.Floor ?? TrustedStartFloor, 0) : 0;
+
+        /// <summary>
+        /// Supported floors the user may now be on, as an inclusive range, from the host's settled pressure change since
+        /// the floor they confirmed. An estimate, never a floor: advisory, for the first request's hint only, and null
+        /// when a sign or trusted start floor already decides, there is no valid delta, the change fits no storey count,
+        /// or no supported floor matches. The change fits at most two storey counts, so at most two floors.
+        /// </summary>
+        public (int Min, int Max)? PressureCandidateFloors(IReadOnlyList<(int Floor, float Y)> supported)
+        {
+            if (Queries != 0 || _confirmedFloor <= 0 || FloorSign != null || TrustedStartFloor > 0 || supported == null) return null;
+            if (!IndoorFloorBarometer.TryStoreyOffsets(_hostDeltaHpa, out var minOffset, out var maxOffset)) return null;
+            int min = 0, max = 0, count = 0;
+            foreach (var (floor, _) in supported)
+            {
+                if (floor < _confirmedFloor + minOffset || floor > _confirmedFloor + maxOffset) continue;
+                min = count == 0 ? floor : Math.Min(min, floor);
+                max = count == 0 ? floor : Math.Max(max, floor);
+                count++;
+            }
+            return count > 0 && max - min + 1 == count ? (min, max) : null;
+        }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 

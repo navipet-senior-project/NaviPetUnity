@@ -454,14 +454,21 @@ namespace IndoorAr
             return !_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights);
         }
 
-        // Only a floor with a known surface height is hinted; anything else sends no hint.
+        // Only floors with a known surface height are hinted; anything else sends no hint. A sign or trusted start floor
+        // hints one floor; otherwise the host's pressure change may hint the one or two floors it fits.
         MultiSetHint? FloorHint()
         {
-            var floor = _session?.HintFloor ?? 0;
-            if (floor <= 0 || _floorHeights == null) return null;
+            if (_session == null || _floorHeights == null) return null;
+            var floor = _session.HintFloor;
+            var (min, max) = floor > 0 ? (floor, floor) : _session.PressureCandidateFloors(_floorHeights) ?? (0, 0);
+            if (min <= 0) return null;
+            float? minY = null, maxY = null;
             foreach (var (supported, floorY) in _floorHeights)
-                if (supported == floor) return new MultiSetHint(floor, floorY);
-            return null;
+            {
+                if (supported == min) minY = floorY;
+                if (supported == max) maxY = floorY;
+            }
+            return minY.HasValue && maxY.HasValue ? new MultiSetHint(min, max, minY.Value, maxY.Value) : null;
         }
 
         IndoorWalkGrid Grid(int floor) => _grids.GetValueOrDefault(floor);

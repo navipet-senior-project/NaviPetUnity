@@ -1,5 +1,6 @@
 using IndoorAr;
 using NUnit.Framework;
+using UnityEngine;
 
 // The user's confirmed starting floor, vouched for by the host's pressure summary. It only vetoes a MultiSet pose on
 // another floor while it is trusted, and gives way to a sign, tracked motion, pressure, or repeated disagreement.
@@ -22,6 +23,17 @@ public class IndoorStartFloorTests
         floorEvidenceVersion = version, startFloor = startFloor, startFloorAgeS = ageS,
         pressureSinceStart = summary ? new IndoorArPressureSummary { settled = settled, moved = moved, sampleAgeS = sampleAgeS } : null,
     };
+
+    static readonly (int Floor, float Y)[] ThreeFloors = { (1, -2f), (2, 2.08f), (3, 6.03f) };
+
+    // The host reports pressure that had already moved at launch, with the signed change (as the parser would mark it).
+    static IndoorArRequest Moved(float deltaHpa, string startFloor = "1", bool settled = true, bool valid = true)
+    {
+        var request = Request(startFloor: startFloor, settled: settled, moved: true);
+        request.pressureSinceStart.deltaHpa = deltaHpa;
+        request.pressureSinceStart.deltaValid = valid;
+        return request;
+    }
 
     IndoorArSession Localizing(IndoorArRequest request)
     {
@@ -227,5 +239,73 @@ public class IndoorStartFloorTests
         var s = Localizing(Request());
         s.OnSignConfirmed(new IndoorRoomLandmark("VEC315", "VEC", "floor_3"));
         Assert.AreEqual(3, s.HintFloor);
+    }
+
+    [TestCase("1", -0.47f, 2, 2, TestName = "estimate: one storey up from 1")]
+    [TestCase("2", -0.47f, 3, 3, TestName = "estimate: one storey up from 2")]
+    [TestCase("2", 0.47f, 1, 1, TestName = "estimate: one storey down from 2")]
+    [TestCase("1", -0.95f, 3, 3, TestName = "estimate: two storeys up from 1")]
+    [TestCase("1", -1.15f, 3, 3, TestName = "estimate: only the supported floor of two or three up")]
+    public void PressureChangeSinceConfirmationNamesCandidateFloors(string start, float delta, int min, int max)
+    {
+        var s = Localizing(Moved(delta, start));
+        Assert.AreEqual((min, max), s.PressureCandidateFloors(ThreeFloors));
+        Assert.AreEqual(0, s.HintFloor, "no trusted floor: only the estimate is available");
+    }
+
+    [TestCase("1", -0.67f, TestName = "no estimate: change fits no storey count")]
+    [TestCase("2", -1.15f, TestName = "no estimate: two or three up is above every supported floor")]
+    [TestCase("1", -1.5f, TestName = "no estimate: candidates are all above the supported floors")]
+    [TestCase("1", 0.47f, TestName = "no estimate: below the lowest floor")]
+    [TestCase("3", -0.47f, TestName = "no estimate: above the highest floor")]
+    [TestCase("1", -4f, TestName = "no estimate: implausibly large change")]
+    public void UnmatchedOrOutOfRangePressureGivesNoCandidate(string start, float delta)
+    {
+        Assert.IsNull(Localizing(Moved(delta, start)).PressureCandidateFloors(ThreeFloors));
+    }
+
+    [Test]
+    public void AChangeThatFitsTwoStoreyCountsNamesBothSupportedFloors()
+    {
+        var floors = new[] { (1, -2f), (2, 2.08f), (3, 6.03f), (4, 10f) };
+        Assert.AreEqual((3, 4), Localizing(Moved(-1.15f)).PressureCandidateFloors(floors));
+    }
+
+    [Test]
+    public void PressureCandidatesNeedAValidSettledDeltaAndNoOtherFloorEvidence()
+    {
+        Assert.IsNull(Localizing(Moved(-0.47f, valid: false)).PressureCandidateFloors(ThreeFloors), "delta absent or inconsistent");
+        Assert.IsNull(Localizing(Moved(-0.47f, settled: false)).PressureCandidateFloors(ThreeFloors), "unsettled");
+        Assert.IsNull(Localizing(Request()).PressureCandidateFloors(ThreeFloors), "unmoved: the trusted start floor decides");
+        Assert.IsNull(Localizing(Moved(-0.47f)).PressureCandidateFloors(null));
+        var sign = Localizing(Moved(-0.47f));
+        sign.OnSignConfirmed(Sign215);
+        Assert.IsNull(sign.PressureCandidateFloors(ThreeFloors), "a sign decides");
+        var later = Localizing(Moved(-0.47f));
+        later.OnAttemptStarted();
+        Assert.IsNull(later.PressureCandidateFloors(ThreeFloors), "later requests are unhinted");
+    }
+
+    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":-0.47", true, TestName = "delta accepted when consistent")]
+    [TestCase("\"settled\":true,\"moved\":false,\"deltaHpa\":-0.47", false, TestName = "delta ignored when moved disagrees")]
+    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":-0.1", false, TestName = "delta ignored when small but moved")]
+    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":-9", false, TestName = "delta ignored when implausibly large")]
+    [TestCase("\"settled\":true,\"moved\":true,\"deltaHpa\":\"-0.47\"", false, TestName = "delta ignored when not a number")]
+    [TestCase("\"settled\":false,\"moved\":true,\"deltaHpa\":-0.47", false, TestName = "delta ignored when unsettled")]
+    [TestCase("\"settled\":true,\"moved\":true", false, TestName = "delta absent")]
+    public void HostDeltaIsTrustedOnlyWhenValid(string summary, bool valid)
+    {
+        var json = HostRequest.Replace("\"settled\":true,\"moved\":false", summary);
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.AreEqual(valid, request.pressureSinceStart.deltaValid);
+        Assert.IsFalse(JsonUtility.ToJson(request.pressureSinceStart).Contains("deltaValid"));
+    }
+
+    [Test]
+    public void DeltaValidFlagCannotComeFromTheWire()
+    {
+        var json = HostRequest.Replace("\"settled\":true,\"moved\":false", "\"settled\":true,\"moved\":true,\"deltaValid\":true");
+        Assert.IsTrue(IndoorArContract.TryParseRequest(json, out var request));
+        Assert.IsFalse(request.pressureSinceStart.deltaValid);
     }
 }

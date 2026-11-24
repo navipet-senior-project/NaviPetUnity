@@ -91,6 +91,13 @@ namespace IndoorAr
         public bool settled;
         public bool moved;
         public float sampleAgeS;
+        /// <summary>
+        /// Optional. Signed change of the host's settled level since the confirmation, hPa (negative: pressure fell, so
+        /// the user went up). Relative only. Used only when <see cref="deltaValid"/>.
+        /// </summary>
+        public float deltaHpa;
+        /// <summary>Set by the parser, never read from the wire: deltaHpa was present, finite, bounded and agrees with settled and moved.</summary>
+        [NonSerialized] public bool deltaValid;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
@@ -168,6 +175,8 @@ namespace IndoorAr
             }
             if (parsed.floorEvidenceVersion == FloorEvidenceVersion && !HasCompleteFloorEvidence(json))
                 parsed.pressureSinceStart = null;
+            else if (parsed.pressureSinceStart != null)
+                parsed.pressureSinceStart.deltaValid = HasValidPressureDelta(json);
             request = parsed;
             return true;
         }
@@ -185,6 +194,24 @@ namespace IndoorAr
                     && pressure["settled"]?.Type == JTokenType.Boolean
                     && pressure["moved"]?.Type == JTokenType.Boolean
                     && IsAgeWithin(pressure["sampleAgeS"], IndoorFloorBarometer.MaxSampleGapS);
+            }
+            catch (JsonReaderException)
+            {
+                return false;
+            }
+        }
+
+        // A delta that disagrees with settled/moved is a sender bug, so it is ignored rather than trusted.
+        static bool HasValidPressureDelta(string json)
+        {
+            try
+            {
+                if (JObject.Parse(json)["pressureSinceStart"] is not JObject pressure) return false;
+                var delta = pressure["deltaHpa"];
+                if (delta?.Type is not (JTokenType.Integer or JTokenType.Float)) return false;
+                var change = (double)delta;
+                return pressure["settled"].Value<bool>() && Math.Abs(change) <= IndoorFloorBarometer.MaxDeltaHpa
+                    && (Math.Abs(change) >= IndoorFloorBarometer.MoveHpa) == pressure["moved"].Value<bool>();
             }
             catch (JsonReaderException)
             {

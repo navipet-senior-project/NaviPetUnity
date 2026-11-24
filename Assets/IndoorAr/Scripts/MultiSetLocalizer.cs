@@ -20,14 +20,19 @@ namespace IndoorAr
         public const float BandBelowM = 0.3f;
         public const float BandAboveM = 3.3f;
 
-        public MultiSetHint(int floor, float floorY)
+        public MultiSetHint(int floor, float floorY) : this(floor, floor, floorY, floorY) { }
+
+        /// <summary>Contiguous floors, lowest first, with the surface Y of the lowest and highest.</summary>
+        public MultiSetHint(int minFloor, int maxFloor, float minFloorY, float maxFloorY)
         {
-            Floor = floor;
-            MinY = floorY - BandBelowM;
-            MaxY = floorY + BandAboveM;
+            MinFloor = minFloor;
+            MaxFloor = maxFloor;
+            MinY = minFloorY - BandBelowM;
+            MaxY = maxFloorY + BandAboveM;
         }
 
-        public int Floor { get; }
+        public int MinFloor { get; }
+        public int MaxFloor { get; }
         public float MinY { get; }
         public float MaxY { get; }
     }
@@ -282,12 +287,16 @@ namespace IndoorAr
 
         IndoorArDiagnostics.LocalizationHint ApplyHint(MultiSetHint? hint)
         {
-            string[] codes = null;
-            if (hint is { } floor) HintMapCodesByFloor?.TryGetValue(floor.Floor, out codes);
-            var sendCodes = codes is { Length: > 0 };
+            var codes = new List<string>();
+            if (hint is { } range && HintMapCodesByFloor != null)
+                for (var floor = range.MinFloor; floor <= range.MaxFloor; floor++)
+                    if (HintMapCodesByFloor.TryGetValue(floor, out var floorCodes))
+                        foreach (var code in floorCodes)
+                            if (!codes.Contains(code)) codes.Add(code);
+            var sendCodes = codes.Count > 0;
             var sendHeight = hint.HasValue;
             if (HintMapCodesField?.FieldType == typeof(List<string>))
-                HintMapCodesField.SetValue(manager, sendCodes ? new List<string>(codes) : new List<string>());
+                HintMapCodesField.SetValue(manager, codes);
             else sendCodes = false;
             if (HintFloorHeightField?.FieldType == typeof(string))
                 HintFloorHeightField.SetValue(manager, sendHeight

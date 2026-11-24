@@ -870,6 +870,20 @@ public class MultiSetLocalizerTests
     }
 
     [Test]
+    public void CandidateFloorRangeBecomesOneBandAndTheUnionOfItsMapCodes()
+    {
+        _adapter.HintProvider = () => new MultiSetHint(2, 3, 2.08f, 6.03f);
+        _adapter.HintMapCodesByFloor = new System.Collections.Generic.Dictionary<int, string[]>
+            { [2] = new[] { "CODE_A" }, [3] = new[] { "CODE_A", "CODE_B" }, [1] = new[] { "CODE_X" } };
+        LocalizeWithoutEditorFailure();
+        Assert.AreEqual("CODE_A,CODE_B", ManagerHint(_manager, "hintMapCodes"));
+        Assert.AreEqual("[1.78, 9.33]", ManagerHint(_manager, "hintFloorHeight"));
+        TickWithoutEditorFailure(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=2000 hint=Both");
+        _manager.LocalizationFailure.Invoke();
+    }
+
+    [Test]
     public void FailedSdkRequestLogsGenericFailure()
     {
         LocalizeWithoutEditorFailure();
