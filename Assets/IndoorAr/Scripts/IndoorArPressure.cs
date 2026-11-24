@@ -6,10 +6,9 @@ namespace IndoorAr
 {
     /// <summary>
     /// The player's own barometer, in hPa.
-    /// iOS reads Core Motion's altimeter in IndoorArPressure.mm (the host app already declares NSMotionUsageDescription;
-    /// Motion &amp; Fitness access can still be refused, which just means no readings). Android reads the Input System
-    /// pressure sensor. A device without a barometer, a refusal and the editor give no readings, and every consumer
-    /// treats that as "pressure unknown".
+    /// iOS reads Core Motion's altimeter in IndoorArPressure.mm. The host app must declare NSMotionUsageDescription.
+    /// Android reads the Input System pressure sensor. Consumers treat missing readings as unknown, including
+    /// on devices without a barometer, when access is refused, and in the editor.
     /// </summary>
     public static class IndoorArPressure
     {

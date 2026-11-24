@@ -69,7 +69,7 @@ namespace IndoorAr
 
         public IndoorArRequest Request { get; }
         internal bool PressureSamplingAllowed => Barometer != null;
-        /// <summary>The host sent complete fresh floor evidence, so pressure was collected. Stays true after sampling stops.</summary>
+        /// <summary>Remembers that the launch authorized sampling so retry can return to the host after sampling stops.</summary>
         internal bool LaunchedWithFloorEvidence { get; }
         internal Func<double> PressureClock { private get; set; } = IndoorArPressure.Now;
         public IndoorArState State { get; private set; } = IndoorArState.Init;
@@ -81,11 +81,11 @@ namespace IndoorAr
         public IndoorRoomLandmark SignRoom { get; private set; }
         public bool ArrivedBySign { get; private set; }
         /// <summary>
-        /// SignRoom while it is still evidence of the user's floor: null once continuously tracked motion from an
-        /// accepted pose reached another supported floor, until a sign is confirmed again.
+        /// SignRoom while it is still floor evidence. Tracking or a settled pressure change can supersede it
+        /// until the next confirmation.
         /// </summary>
         public IndoorRoomLandmark FloorSign => _signSupersededByTracking || _signSupersededByPressure ? null : SignRoom;
-        /// <summary>Relative pressure since the last sign. Only ever releases a stale sign, never names a floor.</summary>
+        /// <summary>Relative pressure for releasing a stale start-floor or sign veto.</summary>
         IndoorFloorBarometer Barometer { get; set; }
 
         /// <summary>Confirmed starting floor the host vouched for with settled, unchanged pressure; 0 when absent or distrusted.</summary>
@@ -188,9 +188,8 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// One pressure reading from the host (hPa, any consistent offset). Settled pressure that moved since the sign
-        /// was anchored supersedes the sign's floor like a tracked walk to another floor does. No sensor, a gap,
-        /// unsettled pressure or an old anchor change nothing, so the existing floor policy stays in force.
+        /// One reading from the device barometer (hPa). Compare using current time so a late reading
+        /// cannot make a stale pressure window appear fresh.
         /// </summary>
         public void OnPressure(float hpa, double capturedAtS)
         {
@@ -208,8 +207,8 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// A MultiSet pose landed on a floor other than the trusted start floor. Once two separate attempts do, the start
-        /// floor is dropped and today's behaviour returns, so a wrong confirmation costs two retries, not the session.
+        /// Count one conflict per MultiSet attempt. The second conflicting attempt clears start-floor trust
+        /// so its pose can be reconsidered immediately.
         /// </summary>
         public void NoteStartFloorConflict()
         {

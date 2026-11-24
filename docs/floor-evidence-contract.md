@@ -1,14 +1,14 @@
 # Floor evidence contract (Flutter to Unity), version 1
 
-Unity implements the floor policy. The Flutter confirmation prompt, pressure capture, and request fields are a separate in-progress dispatch. Unity uses its own barometer only for indoor launches that carry completed floor confirmation.
+Unity implements the floor policy. The Flutter confirmation prompt, pressure capture, and request fields are a separate in-progress dispatch.
 Scope limits, stated up front:
 - This is a floor VETO and RELEASE signal only. It does not name a floor from pressure and it does not send any MultiSet hint. **No MultiSet hints are implemented** (`hintFloorHeight`, `hintMapCodes`, `hintPosition` are unused); they are blocked on a server-keyframe height check and portal map codes.
 - No OCR is involved or changed.
-- Calibrated on one iPhone, one building, one afternoon (stairs and elevator, seated and standing). Not validated on other devices, buildings, days or Android.
+- Calibrated on one iPhone 14 Plus in one building over one afternoon (stairs and elevator, seated and standing). Not validated on other devices, buildings, days or Android.
 - Unity-only is not a complete feature: the cold-start benefit needs the Flutter work below.
 
 ## Transport
-No native host change. Flutter `jsonEncode`s the request (`IndoorArLauncher._launch`), `IndoorArChannel.swift` passes the string untouched to `IndoorArHost`, and Android passes it in the `navipet.indoorAr.request` intent extra. Unity parses it with `JsonUtility` (`IndoorArContract.TryParseRequest`). Unknown fields are ignored, so old Unity builds accept the new request.
+Flutter `jsonEncode`s the request (`IndoorArLauncher._launch`), `IndoorArChannel.swift` passes the string untouched to `IndoorArHost`, and Android passes it in the `navipet.indoorAr.request` intent extra. `IndoorArContract.TryParseRequest` uses `JsonUtility` for the request and validates the optional evidence against the original JSON. Older Unity builds ignore the new fields.
 
 ## Optional request fields for schemaVersion 2
 
@@ -31,7 +31,7 @@ Example:
  "floorEvidenceVersion":1,"startFloor":"1","startFloorAgeS":42,
  "pressureSinceStart":{"settled":true,"moved":false,"sampleAgeS":1.5}}
 ```
-Never send absolute or raw pressure, timestamps, coordinates or location. Localize-only requests (`mode: localize`) may carry the same fields.
+Raw pressure stays on the device. Keep absolute or raw pressure, timestamps, coordinates and location out of the floor-evidence fields. Localize-only requests (`mode: localize`) may carry the same fields.
 
 ## Rule the Flutter side must compute (identical to `IndoorFloorBarometer.cs`)
 Samples are `sensors_plus` `barometerEventStream` readings (hPa; only differences are used).
@@ -50,6 +50,7 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 - Permanently drops the start-floor veto after a confirmed room sign, tracked motion from an accepted pose onto another floor, a settled pressure change of at least 0.30 hPa from Unity's first settled baseline after launch, or two separate attempts that return a valid pose on another floor. The second valid conflicting pose can be accepted immediately.
 - Unity anchors the trusted start floor at its first settled window. Moving before that window settles can establish the baseline on a different floor and miss the move.
 - Unity's own barometer (iOS Core Motion plugin, Android pressure sensor) also releases a stale confirmed sign after a settled change of at least 0.30 hPa from the pressure at sign confirmation. A sign confirmed before pressure settles must be confirmed again during a settled window for pressure to release it thereafter. Seeing the same still-valid sign again while pressure is unsettled (for example a posture shift) keeps the earlier baseline.
+- Continuously tracked motion from an accepted pose can supersede a sign when it reaches a supported floor different from the sign's floor. Tracking loss or elapsed time alone leaves the sign veto in place.
 - With no Unity sensor readings, the sign, tracked-motion, and repeated-conflict rules still apply. Floor evidence adds no raw pressure, coordinates, or confirmed start floor to logs.
 - When a session reaches Done, Unity stops collecting pressure and clears its pressure window, anchor, and trusted start floor. This includes opening the localization failure card. **Try again** depends on the launch. A session launched **with** valid floor evidence does not retry in place: Unity delivers the existing `localizationFailed` result to the host, and the host must re-prompt for the starting floor and relaunch Unity with new evidence. Unity does not support in-place re-confirmation, and the host must never reuse launch-time evidence. A session launched **without** floor evidence (skipped, schema 1, stale, partial or invalid) retries in place as before, with no pressure. Signs superseded by tracked motion stay superseded.
 

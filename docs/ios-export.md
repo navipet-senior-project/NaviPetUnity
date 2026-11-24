@@ -56,7 +56,7 @@ For outdoor AR the host app must declare `NSLocationWhenInUseUsageDescription` a
 
 ## Indoor localization and routes
 
-The shared runtime contracts live in [Signs first, MultiSet last](../Assets/IndoorAr/OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified) (authentication, request ownership and transform isolation) and [Hallway route](../Assets/IndoorAr/OCR-POC-prerequisites.md#hallway-route) (floor evidence, clearance and strict step-free policy).
+The shared runtime contracts live in [Signs first, MultiSet last](../Assets/IndoorAr/OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified) (authentication, request ownership and transform isolation), [Hallway route](../Assets/IndoorAr/OCR-POC-prerequisites.md#hallway-route) (clearance and strict step-free policy), and the [floor evidence contract](floor-evidence-contract.md) (consent, pose validation and retry handoff).
 
 ## Host bridge
 
@@ -88,17 +88,13 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 
 ## Floor-change pressure
 
-Unity reads the phone barometer through the Core Motion altimeter in `IndoorArPressure.mm` only if the user confirms a starting floor and the schema 2 launch carries complete version 1 floor evidence. The confirmation age must be within 0–1200 seconds and the newest host sample age within 0–10 seconds. Skipped confirmation or stale evidence leaves the barometer off and preserves the existing pose and sign policy. Raw pressure stays on the device. If Motion & Fitness access is refused or the phone lacks a barometer, the remaining floor evidence rules still apply. A settled change of at least 0.30 hPa can release a stale floor sign or the trusted start-floor veto. Pressure never identifies a floor or directly rejects a pose.
+The iOS reader uses the Core Motion altimeter in `IndoorArPressure.mm`. See the [floor evidence contract](floor-evidence-contract.md#what-unity-does) for sampling consent and the host retry handoff.
 
 Proposed `NSMotionUsageDescription` for the host app’s Info.plist
 
 > NaviPet uses Motion & Fitness data to count your steps and, only if you confirm which floor you are starting on, to detect when you change floors indoors using the barometer. Barometer readings stay on your device and are used only during indoor navigation.
 
-Unity uses its first settled window after launch for the trusted start-floor baseline. A move before that window settles can be missed. A sign confirmed before pressure settles must be confirmed again during a settled window before pressure can release it. The thresholds come from one iPhone in one building. Exported `UnityFramework` linking, permission behavior, and device readings remain unverified. See the [floor evidence contract](floor-evidence-contract.md) and [calibrated constants](../Assets/IndoorAr/Scripts/IndoorFloorBarometer.cs).
-
-Even with a valid pressure anchor, a stale sign can veto poses on the new floor while pressure is still settling after an elevator ride. MultiSet can exhaust its automatic retry in that time, and the user may need to retry localization manually.
-
-EditMode tests cover delayed readings from the reader output onward. Verify on devices that the Android poll throttle preserves the sensor event capture timestamp and that iOS uses the Core Motion measurement timestamp.
+Verify `UnityFramework` linking in an iOS export. On a device, verify Motion & Fitness permission behavior and the Core Motion measurement timestamp. The [native timestamp checks](floor-evidence-contract.md#known-limits-and-disclosed-gaps) identify the Android and iOS boundaries beyond EditMode coverage.
 
 ## Not verified here
 

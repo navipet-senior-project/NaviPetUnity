@@ -5,9 +5,9 @@ namespace IndoorAr
     public enum IndoorBarometerStatus { Unanchored, Unknown, Unchanged, Moved }
 
     /// <summary>
-    /// Detects that the user's level changed since a floor sign was read. It never names a floor: pressure is relative, so
-    /// the only claim is "settled pressure moved at least MoveHpa from the settled pressure at the anchor". Anything else
-    /// (no sensor, a gap, unsettled pressure, an old anchor) is Unknown and callers keep their existing floor policy.
+    /// Compares settled pressure to a launch or sign anchor. Pressure is relative, so
+    /// the only claim is "settled pressure moved at least MoveHpa from the settled pressure at the anchor".
+    /// When evidence is missing or unsettled, callers keep their existing floor policy.
     /// Pure C# so EditMode tests can drive it. Any consistent hPa series works; only differences are used.
     /// Constants come from one iPhone in one building on one afternoon (stairs and elevator, seated and standing,
     /// 5 floors): a storey step was 0.415-0.53 hPa, the worst single same-floor error 0.225 hPa, and revisit drift
