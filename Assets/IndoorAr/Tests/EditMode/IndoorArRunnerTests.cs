@@ -182,6 +182,55 @@ public class IndoorArRunnerTests
         LogAssert.NoUnexpectedReceived();
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public void RetryableFailureStopsPressureAndTryAgainKeepsTheNonBarometerSignPolicy(bool confirmedFloor)
+    {
+        if (confirmedFloor)
+            IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+                ConfirmedFloorEvidence + "}";
+        var runner = Runner();
+        var starts = 0;
+        var stops = 0;
+        runner.StartPressureSampling = () => starts++;
+        runner.StopPressureSampling = () => stops++;
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        var now = 0f;
+        session.PressureClock = () => now;
+        session.OnArSupport(true);
+        localizer.Authenticate();
+        for (var i = 0; i < 21; i++)
+        {
+            now += 1f;
+            session.OnPressure(1000f);
+        }
+        var sign = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+        session.OnSignConfirmed(sign);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        session.Tick(IndoorArSession.LocalizeTimeoutS);
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
+        Assert.AreEqual(confirmedFloor ? 1 : 0, starts);
+        Assert.AreEqual(starts, stops);
+        Assert.AreEqual(2, session.Queries);
+
+        for (var i = 0; i < 25; i++)
+        {
+            now += 1f;
+            session.OnPressure(999.53f);
+        }
+        Assert.AreSame(sign, session.FloorSign);
+
+        Call(runner, "OnHudRetry");
+        Assert.AreEqual(IndoorArState.Localizing, session.State);
+        Assert.AreEqual(3, session.Queries);
+        Assert.AreEqual(confirmedFloor ? 1 : 0, starts);
+        Assert.AreEqual(starts, stops);
+        Assert.AreSame(sign, session.FloorSign);
+    }
+
     [Test]
     public void EditorAvailabilityNeverAuthenticates()
     {

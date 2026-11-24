@@ -8,6 +8,7 @@ public class IndoorStartFloorTests
     const float Step = 0.47f;
     static readonly (int Floor, float Y)[] Floors = { (1, -2f), (2, 2.2f) };
     const float Floor1CameraY = 0f, Floor2CameraY = 4f;
+    float _pressureTime;
     static readonly IndoorRoomLandmark Sign215 = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
     const string HostRequest = "{\"schemaVersion\":2,\"room\":\"215\",\"doorKey\":\"VEC215\",\"floor\":\"2\"," +
         "\"position\":{\"x\":1,\"y\":2,\"z\":3},\"headingDeg\":0,\"mapCode\":\"MSET_X\",\"frame\":\"multiset-mapset\"," +
@@ -22,19 +23,20 @@ public class IndoorStartFloorTests
         pressureSinceStart = summary ? new IndoorArPressureSummary { settled = settled, moved = moved, sampleAgeS = sampleAgeS } : null,
     };
 
-    static IndoorArSession Localizing(IndoorArRequest request)
+    IndoorArSession Localizing(IndoorArRequest request)
     {
-        var s = new IndoorArSession(request, "MSET_X");
+        _pressureTime = 0f;
+        var s = new IndoorArSession(request, "MSET_X") { PressureClock = () => _pressureTime };
         s.OnArSupport(true);
         s.OnAuthenticated();
         return s;
     }
 
-    static void Feed(IndoorArSession s, float level, float seconds)
+    void Feed(IndoorArSession s, float level, float seconds)
     {
         for (var t = 0f; t < seconds; t += 1f)
         {
-            s.Tick(1f);
+            _pressureTime += 1f;
             s.OnPressure(level + (t % 2 == 0 ? 0.01f : -0.01f));
         }
     }
@@ -105,7 +107,7 @@ public class IndoorStartFloorTests
         s.OnLocalized(); // Pinned has no timeout, so the long trace does not end the session
         Feed(s, 0f, 40f);
         Assert.AreEqual(1, s.TrustedStartFloor, "unchanged keeps it");
-        s.Tick(25f);
+        _pressureTime += 25f;
         Feed(s, -Step, 40f);
         Assert.AreEqual(0, s.TrustedStartFloor);
         Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));

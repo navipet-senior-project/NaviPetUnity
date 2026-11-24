@@ -98,6 +98,7 @@ namespace IndoorAr
         /// <summary>Receives each DX line. Unset, the line goes to the console on a device and nowhere in the editor.</summary>
         public Action<string> DiagnosticSink { get; set; }
         internal Action StartPressureSampling { get; set; } = IndoorArPressure.Start;
+        internal Action StopPressureSampling { get; set; } = IndoorArPressure.Stop;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -207,6 +208,7 @@ namespace IndoorAr
             if (!Application.isEditor && ArSessionLifecycle.LoaderActive) ArXrInputProbe.Probe();
             _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
+            _session.PressureSamplingStopped += StopPressureSampling;
             if (_session.PressureSamplingAllowed) StartPressureSampling();
             _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);
             _floorHeights = _grids.Select(entry => (entry.Key, entry.Value.FloorY)).ToArray();
@@ -865,7 +867,7 @@ namespace IndoorAr
 
         void ReleaseSession()
         {
-            IndoorArPressure.Stop();
+            _session?.StopPressureSampling();
             if (_session != null) StopMultiSetFallback();
             Unhook();
             if (_hud != null)
@@ -901,6 +903,7 @@ namespace IndoorAr
             if (_session == null || _localizer == null) return;
             _session.LocalizeRequested -= RequestLocalization;
             _session.FallbackStopped -= StopMultiSetFallback;
+            _session.PressureSamplingStopped -= StopPressureSampling;
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= OnAttemptStarted;
@@ -927,7 +930,7 @@ namespace IndoorAr
             if (_delivered) return;
             EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
-            IndoorArPressure.Stop();
+            _session?.StopPressureSampling();
             _requestJson = null;
             StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();

@@ -21,7 +21,6 @@ namespace IndoorAr
         public const float MaxEyeHeightM = 2.2f;
 
         float _elapsedS;
-        float _pressureElapsedS;
         float _localizingS;
         float _retryAtS = LocalizeTimeoutS;
         float _startupS;
@@ -31,7 +30,8 @@ namespace IndoorAr
         float _arrivalDistance;
         // Supported floor of the accepted pose while tracking stays continuous; 0 until sampled.
         int _trackedFloor;
-        bool _signSuperseded;
+        bool _signSupersededByTracking;
+        bool _signSupersededByPressure;
         readonly bool _allowSignRecovery;
         // The user's confirmed floor, trusted only with settled unchanged pressure. Weaker than a sign: it lapses when a
         // sign is read, tracked motion or pressure shows another level, or two attempts in a row land on another floor.
@@ -54,7 +54,7 @@ namespace IndoorAr
                 && request.floorEvidenceVersion == IndoorArContract.FloorEvidenceVersion && pressure != null
                 && int.TryParse(request.startFloor, out var floor) && floor > 0)
             {
-                PressureSamplingAllowed = true;
+                Barometer = new IndoorFloorBarometer();
                 if (pressure.settled && !pressure.moved
                     && request.startFloorAgeS is >= 0f and <= IndoorFloorBarometer.MaxAnchorAgeS
                     && pressure.sampleAgeS is >= 0f and <= IndoorFloorBarometer.MaxSampleGapS)
@@ -65,9 +65,11 @@ namespace IndoorAr
         /// <summary>Raised when the localizer must start a localization attempt.</summary>
         public event Action LocalizeRequested;
         public event Action FallbackStopped;
+        internal event Action PressureSamplingStopped;
 
         public IndoorArRequest Request { get; }
-        internal bool PressureSamplingAllowed { get; }
+        internal bool PressureSamplingAllowed => Barometer != null;
+        internal Func<float> PressureClock { private get; set; } = () => Time.realtimeSinceStartup;
         public IndoorArState State { get; private set; } = IndoorArState.Init;
         public int Queries { get; private set; }
         public bool WasPinned { get; private set; }
@@ -80,9 +82,9 @@ namespace IndoorAr
         /// SignRoom while it is still evidence of the user's floor: null once continuously tracked motion from an
         /// accepted pose reached another supported floor, until a sign is confirmed again.
         /// </summary>
-        public IndoorRoomLandmark FloorSign => _signSuperseded ? null : SignRoom;
+        public IndoorRoomLandmark FloorSign => _signSupersededByTracking || _signSupersededByPressure ? null : SignRoom;
         /// <summary>Relative pressure since the last sign. Only ever releases a stale sign, never names a floor.</summary>
-        IndoorFloorBarometer Barometer { get; } = new IndoorFloorBarometer();
+        IndoorFloorBarometer Barometer { get; set; }
 
         /// <summary>Confirmed starting floor the host vouched for with settled, unchanged pressure; 0 when absent or distrusted.</summary>
         int StartFloor { get; }
@@ -177,7 +179,7 @@ namespace IndoorAr
             if (floor <= 0) return;
             if (_trackedFloor > 0 && floor != _trackedFloor)
             {
-                if (FloorSign?.Floor != floor) _signSuperseded = true;
+                if (SignRoom?.Floor != floor) _signSupersededByTracking = true;
                 if (StartFloor != floor) _startSuperseded = true;
             }
             _trackedFloor = floor;
@@ -190,16 +192,17 @@ namespace IndoorAr
         /// </summary>
         public void OnPressure(float hpa)
         {
-            if (!PressureSamplingAllowed || State == IndoorArState.Done) return;
-            Barometer.Sample(hpa, _pressureElapsedS);
+            if (Barometer == null) return;
+            var now = PressureClock();
+            Barometer.Sample(hpa, now);
             if (TrustedStartFloor > 0)
             {
                 // Pressure at launch is the baseline for the host's "unchanged" claim; retry until it is settled.
-                if (!Barometer.HasAnchor) Barometer.Anchor(_pressureElapsedS);
-                else if (Barometer.Status(_pressureElapsedS) == IndoorBarometerStatus.Moved) _startSuperseded = true;
+                if (!Barometer.HasAnchor) Barometer.Anchor(now);
+                else if (Barometer.Status(now) == IndoorBarometerStatus.Moved) _startSuperseded = true;
             }
-            if (SignRoom != null && !_signSuperseded
-                && Barometer.Status(_pressureElapsedS) == IndoorBarometerStatus.Moved) _signSuperseded = true;
+            if (FloorSign != null
+                && Barometer.Status(now) == IndoorBarometerStatus.Moved) _signSupersededByPressure = true;
         }
 
         /// <summary>
@@ -227,9 +230,10 @@ namespace IndoorAr
         {
             if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;
             SignRoom = room;
-            _signSuperseded = false;
+            _signSupersededByTracking = false;
+            _signSupersededByPressure = false;
             _startSuperseded = true;
-            if (PressureSamplingAllowed) Barometer.Anchor(_pressureElapsedS);
+            Barometer?.Anchor(PressureClock());
             if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
                 || Request.LocalizeOnly
                 || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
@@ -266,7 +270,6 @@ namespace IndoorAr
 
         public void Tick(float dt)
         {
-            _pressureElapsedS += dt;
             if (State == IndoorArState.Done) return;
             _elapsedS += dt;
             if (State == IndoorArState.Init || State == IndoorArState.Auth)
@@ -323,6 +326,8 @@ namespace IndoorAr
             if (State != IndoorArState.Done || ResultJson == null || !ResultJson.Contains("\"status\":\"localizationFailed\"")) return;
             ResultJson = null;
             FallbackExpired = false;
+            _startSuperseded = true;
+            _signSupersededByPressure = false;
             StartLocalizing();
         }
 
@@ -356,7 +361,15 @@ namespace IndoorAr
         {
             ResultJson = IndoorArContract.WithSignRoom(resultJson, SignRoom?.Id);
             State = IndoorArState.Done;
+            StopPressureSampling();
             FallbackStopped?.Invoke();
+        }
+
+        internal void StopPressureSampling()
+        {
+            if (Barometer == null) return;
+            Barometer = null;
+            PressureSamplingStopped?.Invoke();
         }
     }
 }

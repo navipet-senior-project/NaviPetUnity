@@ -174,9 +174,11 @@ public class IndoorFloorBarometerTests
     static readonly IndoorRoomLandmark Sign120 = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
     static readonly (int Floor, float Y)[] Floors = { (1, -2f), (2, 2.2f) };
     const float Floor1CameraY = 0f, Floor2CameraY = 4f;
+    float _pressureTime;
 
-    static IndoorArSession Pinned(bool confirmedFloor = true)
+    IndoorArSession Pinned(bool confirmedFloor = true)
     {
+        _pressureTime = 0f;
         var session = new IndoorArSession(new IndoorArRequest
         {
             schemaVersion = 2, room = "119", doorKey = "VEC119", floor = "1",
@@ -185,18 +187,24 @@ public class IndoorFloorBarometerTests
             floorEvidenceVersion = confirmedFloor ? IndoorArContract.FloorEvidenceVersion : 0,
             startFloor = confirmedFloor ? "1" : null,
             pressureSinceStart = confirmedFloor ? new IndoorArPressureSummary { settled = true } : null,
-        }, "MSET_XTBY7AM7ZK77");
+        }, "MSET_XTBY7AM7ZK77") { PressureClock = () => _pressureTime };
         session.OnArSupport(true);
         session.OnAuthenticated();
         session.OnLocalized(); // Pinned has no timeout, so long traces do not end the session
         return session;
     }
 
-    static void Feed(IndoorArSession s, float level, float seconds, float noise = 0.01f)
+    void Advance(IndoorArSession s, float seconds)
+    {
+        _pressureTime += seconds;
+        s.Tick(seconds);
+    }
+
+    void Feed(IndoorArSession s, float level, float seconds, float noise = 0.01f)
     {
         for (var t = 0f; t < seconds; t += 1f)
         {
-            s.Tick(1f);
+            Advance(s, 1f);
             s.OnPressure(level + Noise((int)t, noise));
         }
     }
@@ -211,7 +219,7 @@ public class IndoorFloorBarometerTests
         Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors), "stale-sign rejection is the bug being fixed");
         Feed(s, 0f, 60f);
         Assert.AreSame(Sign120, s.FloorSign, "same level keeps the sign");
-        s.Tick(25f); // travel, no samples
+        Advance(s, 25f); // travel, no samples
         Feed(s, -Step, 40f);
         Assert.AreSame(confirmedFloor ? null : Sign120, s.FloorSign);
         Assert.AreSame(Sign120, s.SignRoom);
@@ -243,7 +251,7 @@ public class IndoorFloorBarometerTests
         var s = Pinned();
         for (var t = 0f; t < 20f; t++)
         {
-            s.Tick(1f);
+            Advance(s, 1f);
             s.OnPressure(-0.02f * t);
         }
         s.OnSignConfirmed(Sign120);
@@ -256,7 +264,7 @@ public class IndoorFloorBarometerTests
     {
         var s = Pinned();
         Feed(s, 0f, 21f);
-        s.Tick(8f);
+        _pressureTime += 8f;
         var sign = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
         s.OnSignConfirmed(sign);
         Feed(s, -Step, 40f);
@@ -266,24 +274,77 @@ public class IndoorFloorBarometerTests
     }
 
     [Test]
-    public void RetryAfterChangingFloorsOnTheFailureScreenDoesNotAnchorToThePreviousFloor()
+    public void RetryAfterChangingFloorsOnTheFailureScreenDropsTheStartFloorAndPressureAnchor()
     {
         var s = Pinned();
         s.OnTrackingLost();
-        s.Tick(IndoorArSession.LocalizeTimeoutS);
+        Advance(s, IndoorArSession.LocalizeTimeoutS);
         Feed(s, 0f, IndoorArSession.LocalizeTimeoutS - 1f);
-        s.Tick(1f);
+        Advance(s, 1f);
         Assert.IsTrue(LiveDoorHud.LocalizationFailed(s));
+        Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors));
 
         Feed(s, -Step, 25f);
+        Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors));
         s.Retry();
         Assert.AreEqual(IndoorArState.Localizing, s.State);
+        Assert.AreEqual(0, s.TrustedStartFloor);
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
         var sign = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
         s.OnSignConfirmed(sign);
         s.OnLocalized();
         Feed(s, -Step, 40f);
+        Feed(s, 0f, 40f);
 
         Assert.AreSame(sign, s.FloorSign);
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+    }
+
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public void RetryKeepsSignPolicyAndDiscardsOnlyPressureBasedSignRelease(bool confirmedFloor, bool trackedMove)
+    {
+        var s = Pinned(confirmedFloor);
+        Feed(s, 0f, 30f);
+        s.OnSignConfirmed(Sign120);
+        if (confirmedFloor)
+        {
+            Feed(s, -Step, 40f);
+            Assert.IsNull(s.FloorSign);
+            if (trackedMove)
+            {
+                s.OnTrackedPose(Floor1CameraY, Floors);
+                s.OnTrackedPose(Floor2CameraY, Floors);
+            }
+        }
+        s.OnTrackingLost();
+        Advance(s, IndoorArSession.LocalizeTimeoutS);
+        Advance(s, IndoorArSession.LocalizeTimeoutS);
+        Assert.IsTrue(LiveDoorHud.LocalizationFailed(s));
+        Feed(s, -Step, 25f);
+        Assert.AreSame(confirmedFloor ? null : Sign120, s.FloorSign);
+
+        s.Retry();
+        Assert.AreSame(trackedMove ? null : Sign120, s.FloorSign);
+        Assert.AreEqual(!trackedMove, s.PoseConflictsWithSign(Floor2CameraY, Floors));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ReadingBeforeTheNextTickUsesTheCurrentTimeAfterAFrameGap(bool confirmSign)
+    {
+        var s = Pinned();
+        Feed(s, 0f, 30f);
+        if (confirmSign) s.OnSignConfirmed(Sign120);
+        Advance(s, 25f);
+        Feed(s, -Step, 18f);
+        s.Tick(1f);
+
+        _pressureTime += 16f;
+        s.OnPressure(-Step);
+        Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+        Feed(s, -Step, 20f);
         Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
 
