@@ -119,7 +119,8 @@ public class IndoorArRunnerTests
     public void InvalidLaunchDeliversExactlyOnce(string code)
     {
         IndoorArBridge.EditorRequestJson = code == "BAD_REQUEST" ? "bad json"
-            : _request.Replace("multiset-mapset", "unity-world").TrimEnd('}') + ConfirmedFloorEvidence + "}";
+            : _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2")
+                .Replace("multiset-mapset", "unity-world").TrimEnd('}') + ConfirmedFloorEvidence + "}";
         var runner = Runner();
         var sensorStarts = 0;
         runner.StartPressureSampling = () => sensorStarts++;
@@ -131,17 +132,19 @@ public class IndoorArRunnerTests
         LogAssert.NoUnexpectedReceived();
     }
 
-    [TestCase("", "", false, 0, TestName = "SkippedFloorConfirmationDoesNotStartPressure")]
-    [TestCase("\"floorEvidenceVersion\":1", "\"floorEvidenceVersion\":2", false, 0)]
-    [TestCase("\"startFloor\":\"1\"", "\"startFloor\":\"unknown\"", false, 0)]
-    [TestCase(",\"moved\":false", "", false, 0)]
-    [TestCase(null, null, true, 1, TestName = "CompleteFloorConfirmationStartsPressure")]
-    [TestCase("\"moved\":false", "\"moved\":true", true, 0, TestName = "MovedPressureAllowsSamplingWithoutTrustingTheStartFloor")]
-    public void LaunchPressureRequiresCompleteFloorConfirmation(string field, string replacement, bool starts, int trustedFloor)
+    [TestCase(2, "", "", false, 0, TestName = "SkippedFloorConfirmationDoesNotStartPressure")]
+    [TestCase(2, "\"floorEvidenceVersion\":1", "\"floorEvidenceVersion\":2", false, 0)]
+    [TestCase(2, "\"startFloor\":\"1\"", "\"startFloor\":\"unknown\"", false, 0)]
+    [TestCase(2, ",\"moved\":false", "", false, 0)]
+    [TestCase(1, null, null, false, 0, TestName = "SchemaOneIgnoresCompleteFloorEvidence")]
+    [TestCase(2, null, null, true, 1, TestName = "CompleteFloorConfirmationStartsPressure")]
+    [TestCase(2, "\"moved\":false", "\"moved\":true", true, 0, TestName = "MovedPressureAllowsSamplingWithoutTrustingTheStartFloor")]
+    public void LaunchPressureRequiresCompleteFloorConfirmation(int schemaVersion, string field, string replacement,
+        bool starts, int trustedFloor)
     {
         var evidence = field == null ? ConfirmedFloorEvidence
             : field.Length == 0 ? "" : ConfirmedFloorEvidence.Replace(field, replacement);
-        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", $"\"schemaVersion\":{schemaVersion}").TrimEnd('}') +
             evidence + "}";
         var runner = Runner();
         var sensorStarts = 0;

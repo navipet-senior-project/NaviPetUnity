@@ -10,7 +10,9 @@ Scope limits, stated up front:
 ## Transport
 No native host change. Flutter `jsonEncode`s the request (`IndoorArLauncher._launch`), `IndoorArChannel.swift` passes the string untouched to `IndoorArHost`, and Android passes it in the `navipet.indoorAr.request` intent extra. Unity parses it with `JsonUtility` (`IndoorArContract.TryParseRequest`). Unknown fields are ignored, so old Unity builds accept the new request.
 
-## Request fields (additive to schemaVersion 2; all optional, send all together or none)
+## Optional request fields for schemaVersion 2
+
+Send all floor-evidence fields together or omit them. Unity ignores these fields in schema 1 requests, which retain their usual pose and sign policy without native pressure sampling or a start-floor veto.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -42,7 +44,7 @@ Samples are `sensors_plus` `barometerEventStream` readings (hPa; only difference
 Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for 60 s is settled and unchanged. A 0.47 step then a 40 s hold is settled and moved. A 0.12 posture shift plus 0.10 drift is unchanged. A 25 s gap then a 40 s hold at a level 0.47 lower is settled and moved. A hold with a range of 0.2 is unsettled. After 11 s of silence the status is unsettled, and the next sample starts a new window.
 
 ## What Unity does
-- **Sampling consent.** After map validation, Unity starts its native barometer on iOS and Android only with complete, well-typed version 1 evidence from the user's confirmation of a positive, parseable starting floor. Skipping confirmation sends no evidence and disables collection and pressure-based release.
+- **Sampling consent.** After map validation, Unity starts its native barometer on iOS and Android only for a schema 2 request with complete, well-typed version 1 floor evidence from the user's confirmation of a positive, parseable starting floor. Skipping confirmation sends no evidence and disables collection and pressure-based release.
 - **Start-floor trust.** A veto additionally requires `startFloorAgeS` in `0..1200`, `settled:true`, `moved:false`, and `sampleAgeS` in `0..10`. For example, complete evidence with `startFloorAgeS:1201` can authorize sampling, including a later pressure-based sign release, while the start-floor veto stays inactive.
 - While trusted and no confirmed sign: a MultiSet pose on a different supported floor is rejected as a floor conflict and localization retries (the existing sign-conflict path). The pose floor must also be unambiguous (unknown or outside heights is rejected as before).
 - Permanently drops the start-floor veto after a confirmed room sign, tracked motion from an accepted pose onto another floor, a settled pressure change of at least 0.30 hPa from Unity's first settled baseline after launch, or two separate attempts that return a valid pose on another floor. The second valid conflicting pose can be accepted immediately.

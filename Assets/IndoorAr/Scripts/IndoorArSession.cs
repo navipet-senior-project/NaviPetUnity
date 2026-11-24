@@ -50,7 +50,8 @@ namespace IndoorAr
                 return;
             }
             var pressure = request.pressureSinceStart;
-            if (request.floorEvidenceVersion == IndoorArContract.FloorEvidenceVersion && pressure != null
+            if (request.schemaVersion == IndoorArContract.SchemaVersionV2
+                && request.floorEvidenceVersion == IndoorArContract.FloorEvidenceVersion && pressure != null
                 && int.TryParse(request.startFloor, out var floor) && floor > 0)
             {
                 PressureSamplingAllowed = true;
