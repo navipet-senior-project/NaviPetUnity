@@ -52,13 +52,12 @@ namespace IndoorAr
             var pressure = request.pressureSinceStart;
             if (request.schemaVersion == IndoorArContract.SchemaVersionV2
                 && request.floorEvidenceVersion == IndoorArContract.FloorEvidenceVersion && pressure != null
-                && int.TryParse(request.startFloor, out var floor) && floor > 0)
+                && int.TryParse(request.startFloor, out var floor) && floor > 0
+                && request.startFloorAgeS is >= 0f and <= IndoorFloorBarometer.MaxAnchorAgeS
+                && pressure.sampleAgeS is >= 0f and <= IndoorFloorBarometer.MaxSampleGapS)
             {
                 Barometer = new IndoorFloorBarometer();
-                if (pressure.settled && !pressure.moved
-                    && request.startFloorAgeS is >= 0f and <= IndoorFloorBarometer.MaxAnchorAgeS
-                    && pressure.sampleAgeS is >= 0f and <= IndoorFloorBarometer.MaxSampleGapS)
-                    StartFloor = floor;
+                if (pressure.settled && !pressure.moved) StartFloor = floor;
             }
         }
 
@@ -69,7 +68,7 @@ namespace IndoorAr
 
         public IndoorArRequest Request { get; }
         internal bool PressureSamplingAllowed => Barometer != null;
-        internal Func<float> PressureClock { private get; set; } = () => Time.realtimeSinceStartup;
+        internal Func<double> PressureClock { private get; set; } = IndoorArPressure.Now;
         public IndoorArState State { get; private set; } = IndoorArState.Init;
         public int Queries { get; private set; }
         public bool WasPinned { get; private set; }
@@ -190,11 +189,11 @@ namespace IndoorAr
         /// was anchored supersedes the sign's floor like a tracked walk to another floor does. No sensor, a gap,
         /// unsettled pressure or an old anchor change nothing, so the existing floor policy stays in force.
         /// </summary>
-        public void OnPressure(float hpa)
+        public void OnPressure(float hpa, double capturedAtS)
         {
             if (Barometer == null) return;
             var now = PressureClock();
-            Barometer.Sample(hpa, now);
+            Barometer.Sample(hpa, capturedAtS);
             if (TrustedStartFloor > 0)
             {
                 // Pressure at launch is the baseline for the host's "unchanged" claim; retry until it is settled.

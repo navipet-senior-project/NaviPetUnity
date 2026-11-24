@@ -88,7 +88,7 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 
 ## Floor-change pressure
 
-Unity reads the phone barometer through the Core Motion altimeter in `IndoorArPressure.mm` only if the user confirms a starting floor and the launch carries complete version 1 floor evidence. Skipping confirmation means Unity neither starts nor reads the barometer. Raw pressure stays on the device. If Motion & Fitness access is refused or the phone lacks a barometer, the remaining floor evidence rules still apply. A settled change of at least 0.30 hPa can release a stale floor sign or the trusted start-floor veto. Pressure never identifies a floor or directly rejects a pose.
+Unity reads the phone barometer through the Core Motion altimeter in `IndoorArPressure.mm` only if the user confirms a starting floor and the schema 2 launch carries complete version 1 floor evidence. The confirmation age must be within 0–1200 seconds and the newest host sample age within 0–10 seconds. Skipped confirmation or stale evidence leaves the barometer off and preserves the existing pose and sign policy. Raw pressure stays on the device. If Motion & Fitness access is refused or the phone lacks a barometer, the remaining floor evidence rules still apply. A settled change of at least 0.30 hPa can release a stale floor sign or the trusted start-floor veto. Pressure never identifies a floor or directly rejects a pose.
 
 Proposed `NSMotionUsageDescription` for the host app’s Info.plist
 

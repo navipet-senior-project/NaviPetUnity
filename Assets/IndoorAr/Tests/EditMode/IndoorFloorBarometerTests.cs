@@ -174,9 +174,9 @@ public class IndoorFloorBarometerTests
     static readonly IndoorRoomLandmark Sign120 = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
     static readonly (int Floor, float Y)[] Floors = { (1, -2f), (2, 2.2f) };
     const float Floor1CameraY = 0f, Floor2CameraY = 4f;
-    float _pressureTime;
+    double _pressureTime;
 
-    IndoorArSession Pinned(bool confirmedFloor = true)
+    IndoorArSession Pinned(bool confirmedFloor = true, float startFloorAgeS = 0f, float sampleAgeS = 0f)
     {
         _pressureTime = 0f;
         var session = new IndoorArSession(new IndoorArRequest
@@ -186,7 +186,8 @@ public class IndoorFloorBarometerTests
             headingDeg = 185.36f, mapCode = "MSET_XTBY7AM7ZK77", frame = "multiset-mapset",
             floorEvidenceVersion = confirmedFloor ? IndoorArContract.FloorEvidenceVersion : 0,
             startFloor = confirmedFloor ? "1" : null,
-            pressureSinceStart = confirmedFloor ? new IndoorArPressureSummary { settled = true } : null,
+            startFloorAgeS = startFloorAgeS,
+            pressureSinceStart = confirmedFloor ? new IndoorArPressureSummary { settled = true, sampleAgeS = sampleAgeS } : null,
         }, "MSET_XTBY7AM7ZK77") { PressureClock = () => _pressureTime };
         session.OnArSupport(true);
         session.OnAuthenticated();
@@ -205,15 +206,18 @@ public class IndoorFloorBarometerTests
         for (var t = 0f; t < seconds; t += 1f)
         {
             Advance(s, 1f);
-            s.OnPressure(level + Noise((int)t, noise));
+            s.OnPressure(level + Noise((int)t, noise), _pressureTime);
         }
     }
 
-    [TestCase(true)]
-    [TestCase(false)]
-    public void SettledMoveReleasesTheStaleSignOnlyWithStartFloorConfirmation(bool confirmedFloor)
+    [TestCase(true, 0f, 0f, true)]
+    [TestCase(false, 0f, 0f, false)]
+    [TestCase(true, 1201f, 0f, false)]
+    [TestCase(true, 0f, 11f, false)]
+    public void SettledMoveReleasesTheStaleSignOnlyWithFreshStartFloorConfirmation(
+        bool confirmedFloor, float startFloorAgeS, float sampleAgeS, bool releaseSign)
     {
-        var s = Pinned(confirmedFloor);
+        var s = Pinned(confirmedFloor, startFloorAgeS, sampleAgeS);
         Feed(s, 0f, 30f);
         s.OnSignConfirmed(Sign120);
         Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors), "stale-sign rejection is the bug being fixed");
@@ -221,9 +225,9 @@ public class IndoorFloorBarometerTests
         Assert.AreSame(Sign120, s.FloorSign, "same level keeps the sign");
         Advance(s, 25f); // travel, no samples
         Feed(s, -Step, 40f);
-        Assert.AreSame(confirmedFloor ? null : Sign120, s.FloorSign);
+        Assert.AreSame(releaseSign ? null : Sign120, s.FloorSign);
         Assert.AreSame(Sign120, s.SignRoom);
-        Assert.AreEqual(!confirmedFloor, s.PoseConflictsWithSign(Floor2CameraY, Floors));
+        Assert.AreEqual(!releaseSign, s.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
 
     [Test]
@@ -252,7 +256,7 @@ public class IndoorFloorBarometerTests
         for (var t = 0f; t < 20f; t++)
         {
             Advance(s, 1f);
-            s.OnPressure(-0.02f * t);
+            s.OnPressure(-0.02f * t, _pressureTime);
         }
         s.OnSignConfirmed(Sign120);
         Feed(s, -Step, 60f);
@@ -342,8 +346,28 @@ public class IndoorFloorBarometerTests
         s.Tick(1f);
 
         _pressureTime += 16f;
-        s.OnPressure(-Step);
+        s.OnPressure(-Step, _pressureTime);
         Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+        Feed(s, -Step, 20f);
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void DelayedDeliveryCannotHideACaptureGap(bool confirmSign)
+    {
+        var s = Pinned();
+        Feed(s, 0f, 30f);
+        if (confirmSign) s.OnSignConfirmed(Sign120);
+        for (_pressureTime = 92.5; _pressureTime <= 99.5; _pressureTime++)
+            s.OnPressure(-Step, _pressureTime);
+
+        _pressureTime = 101;
+        s.OnPressure(-Step, 100.1);
+        _pressureTime = 110.5;
+        s.OnPressure(-Step, 110.5);
+        Assert.IsTrue(s.PoseConflictsWithSign(Floor2CameraY, Floors));
+
         Feed(s, -Step, 20f);
         Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
@@ -367,7 +391,7 @@ public class IndoorFloorBarometerTests
     {
         var s = Pinned();
         s.Cancel();
-        s.OnPressure(0f);
+        s.OnPressure(0f, _pressureTime);
         Assert.AreEqual(IndoorArState.Done, s.State);
     }
 }

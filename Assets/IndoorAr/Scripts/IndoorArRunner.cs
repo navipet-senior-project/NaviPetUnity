@@ -260,7 +260,8 @@ namespace IndoorAr
             }
             UpdateSignOcr();
             if (_session == null || _delivered) return;
-            if (_session.PressureSamplingAllowed && IndoorArPressure.TryRead(out var hpa)) _session.OnPressure(hpa);
+            if (_session.PressureSamplingAllowed && IndoorArPressure.TryRead(out var hpa, out var capturedAtS))
+                _session.OnPressure(hpa, capturedAtS);
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
             if (_localizeWhenTracking && _session.State == IndoorArState.Localizing
@@ -930,7 +931,6 @@ namespace IndoorAr
             if (_delivered) return;
             EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
-            _session?.StopPressureSampling();
             _requestJson = null;
             StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();

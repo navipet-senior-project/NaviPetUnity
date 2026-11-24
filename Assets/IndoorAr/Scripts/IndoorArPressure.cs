@@ -16,7 +16,8 @@ namespace IndoorAr
 #if UNITY_IOS && !UNITY_EDITOR
         [DllImport("__Internal")] static extern void IndoorArPressureStart();
         [DllImport("__Internal")] static extern void IndoorArPressureStop();
-        [DllImport("__Internal")] static extern int IndoorArReadPressure(out float hpa);
+        [DllImport("__Internal")] static extern int IndoorArReadPressure(out float hpa, out double capturedAtS);
+        [DllImport("__Internal")] static extern double IndoorArPressureNow();
         static int s_seq;
 #elif UNITY_ANDROID && !UNITY_EDITOR
         static PressureSensor s_sensor;
@@ -48,12 +49,22 @@ namespace IndoorAr
 #endif
         }
 
+        internal static double Now()
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            return IndoorArPressureNow();
+#else
+            return Time.realtimeSinceStartupAsDouble;
+#endif
+        }
+
         /// <summary>True when there is a reading newer than the last call (about once a second).</summary>
-        public static bool TryRead(out float hpa)
+        public static bool TryRead(out float hpa, out double capturedAtS)
         {
             hpa = 0f;
+            capturedAtS = 0;
 #if UNITY_IOS && !UNITY_EDITOR
-            var seq = IndoorArReadPressure(out hpa);
+            var seq = IndoorArReadPressure(out hpa, out capturedAtS);
             if (seq == 0 || seq == s_seq) return false;
             s_seq = seq;
             return true;
@@ -64,6 +75,7 @@ namespace IndoorAr
             s_lastEventTime = eventTime;
             s_lastReadS = Time.unscaledTime;
             hpa = s_sensor.atmosphericPressure.ReadValue();
+            capturedAtS = eventTime;
             return hpa > 0f;
 #else
             return false;

@@ -32,36 +32,36 @@ namespace IndoorAr
         public const float MinSpacingS = 0.5f;
         public const int MinSamples = 8;
 
-        readonly List<(float T, float Hpa)> _window = new List<(float, float)>();
+        readonly List<(double T, float Hpa)> _window = new List<(double, float)>();
         float? _baseline;
-        float _anchoredAtS;
+        double _anchoredAtS;
 
         public bool HasAnchor => _baseline != null;
 
-        public void Sample(float hpa, float nowS)
+        public void Sample(float hpa, double capturedAtS)
         {
-            if (!float.IsFinite(hpa) || !float.IsFinite(nowS)) return;
+            if (!float.IsFinite(hpa) || !double.IsFinite(capturedAtS)) return;
             if (_window.Count > 0)
             {
                 var last = _window[_window.Count - 1].T;
-                if (nowS < last || nowS - last > MaxSampleGapS) _window.Clear();
-                else if (nowS - last < MinSpacingS) return;
+                if (capturedAtS < last || capturedAtS - last > MaxSampleGapS) _window.Clear();
+                else if (capturedAtS - last < MinSpacingS) return;
             }
-            _window.Add((nowS, hpa));
-            _window.RemoveAll(s => s.T < nowS - SettleWindowS);
+            _window.Add((capturedAtS, hpa));
+            _window.RemoveAll(s => s.T < capturedAtS - SettleWindowS);
         }
 
         /// <summary>
         /// Starts a new comparison from the current settled level, dropping any older one. If pressure is not settled
         /// there is no anchor: a level taken mid-travel would be wrong.
         /// </summary>
-        public void Anchor(float nowS)
+        public void Anchor(double nowS)
         {
             _baseline = SettledLevel(nowS);
             _anchoredAtS = nowS;
         }
 
-        public IndoorBarometerStatus Status(float nowS)
+        public IndoorBarometerStatus Status(double nowS)
         {
             if (_baseline == null) return IndoorBarometerStatus.Unanchored;
             if (nowS - _anchoredAtS > MaxAnchorAgeS) return IndoorBarometerStatus.Unknown;
@@ -72,13 +72,13 @@ namespace IndoorAr
                 : IndoorBarometerStatus.Unchanged;
         }
 
-        float? SettledLevel(float nowS)
+        float? SettledLevel(double nowS)
         {
             var cutoff = nowS - SettleWindowS;
             var first = _window.FindIndex(sample => sample.T >= cutoff);
             if (first < 0 || _window.Count - first < MinSamples) return null;
             var last = _window[_window.Count - 1].T;
-            if (last - _window[first].T < SettleWindowS - 2f) return null;
+            if (last > nowS || last - _window[first].T < SettleWindowS - 2f) return null;
             var values = new List<float>(_window.Count - first);
             for (var i = first; i < _window.Count; i++) values.Add(_window[i].Hpa);
             values.Sort();

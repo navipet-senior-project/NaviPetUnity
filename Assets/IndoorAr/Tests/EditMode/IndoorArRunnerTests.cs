@@ -136,6 +136,8 @@ public class IndoorArRunnerTests
     [TestCase(2, "\"floorEvidenceVersion\":1", "\"floorEvidenceVersion\":2", false, 0)]
     [TestCase(2, "\"startFloor\":\"1\"", "\"startFloor\":\"unknown\"", false, 0)]
     [TestCase(2, ",\"moved\":false", "", false, 0)]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":1201", false, 0)]
+    [TestCase(2, "\"sampleAgeS\":0", "\"sampleAgeS\":11", false, 0)]
     [TestCase(1, null, null, false, 0, TestName = "SchemaOneIgnoresCompleteFloorEvidence")]
     [TestCase(2, null, null, true, 1, TestName = "CompleteFloorConfirmationStartsPressure")]
     [TestCase(2, "\"moved\":false", "\"moved\":true", true, 0, TestName = "MovedPressureAllowsSamplingWithoutTrustingTheStartFloor")]
@@ -169,16 +171,25 @@ public class IndoorArRunnerTests
     [Test]
     public void ExitDuringAvailabilityDeliversCancelledAndPreventsLaterAuth()
     {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+            ConfirmedFloorEvidence + "}";
         var runner = Runner();
+        var starts = 0;
+        var stops = 0;
+        runner.StartPressureSampling = () => starts++;
+        runner.StopPressureSampling = () => stops++;
         var start = (IEnumerator)Call(runner, "Start");
         Assert.IsTrue(start.MoveNext()); // availability is still pending
+        Assert.AreEqual(1, starts);
         var session = Field<IndoorArSession>(runner, "_session");
         session.Cancel();
+        Assert.AreEqual(1, stops);
         LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*cancelled"));
         Call(runner, "Update");
         Assert.IsFalse(start.MoveNext());
         Assert.AreEqual(IndoorArState.Done, session.State);
         Call(runner, "Update");
+        Assert.AreEqual(1, stops);
         LogAssert.NoUnexpectedReceived();
     }
 
@@ -205,7 +216,7 @@ public class IndoorArRunnerTests
         for (var i = 0; i < 21; i++)
         {
             now += 1f;
-            session.OnPressure(1000f);
+            session.OnPressure(1000f, now);
         }
         var sign = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
         session.OnSignConfirmed(sign);
@@ -219,7 +230,7 @@ public class IndoorArRunnerTests
         for (var i = 0; i < 25; i++)
         {
             now += 1f;
-            session.OnPressure(999.53f);
+            session.OnPressure(999.53f, now);
         }
         Assert.AreSame(sign, session.FloorSign);
 

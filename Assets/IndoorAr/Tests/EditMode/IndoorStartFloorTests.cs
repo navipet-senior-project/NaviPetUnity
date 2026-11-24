@@ -37,7 +37,7 @@ public class IndoorStartFloorTests
         for (var t = 0f; t < seconds; t += 1f)
         {
             _pressureTime += 1f;
-            s.OnPressure(level + (t % 2 == 0 ? 0.01f : -0.01f));
+            s.OnPressure(level + (t % 2 == 0 ? 0.01f : -0.01f), _pressureTime);
         }
     }
 
