@@ -99,6 +99,8 @@ namespace IndoorAr
         public Action<string> DiagnosticSink { get; set; }
         internal Action StartPressureSampling { get; set; } = IndoorArPressure.Start;
         internal Action StopPressureSampling { get; set; } = IndoorArPressure.Stop;
+        internal delegate bool PressureRead(out float hpa, out double capturedAtS);
+        internal PressureRead ReadPressure { get; set; } = IndoorArPressure.TryRead;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -260,7 +262,7 @@ namespace IndoorAr
             }
             UpdateSignOcr();
             if (_session == null || _delivered) return;
-            if (_session.PressureSamplingAllowed && IndoorArPressure.TryRead(out var hpa, out var capturedAtS))
+            if (_session.PressureSamplingAllowed && ReadPressure(out var hpa, out var capturedAtS))
                 _session.OnPressure(hpa, capturedAtS);
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
@@ -299,11 +301,11 @@ namespace IndoorAr
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
             if ((LiveDoorHud.AuthFailed(_session) || LiveDoorHud.StepFreeUnavailable(_session)) && _failureLeft < 0f)
                 _failureLeft = Application.isEditor ? 0f : 4f;
-            var holdingFailure = LiveDoorHud.LocalizationFailed(_session) || (_failureLeft > 0f && !_failureRelease);
+            var holdingFailure = (LiveDoorHud.LocalizationFailed(_session) && !_failureRelease) || (_failureLeft > 0f && !_failureRelease);
             if (holdingFailure) _failureLeft -= Time.unscaledDeltaTime;
             UpdateHud();
             PostStatus();
-            var keepFailure = LiveDoorHud.LocalizationFailed(_session) || (_failureLeft > 0f && !_failureRelease);
+            var keepFailure = (LiveDoorHud.LocalizationFailed(_session) && !_failureRelease) || (_failureLeft > 0f && !_failureRelease);
             if (_session.State == IndoorArState.Done && !keepFailure) Deliver(_session.ResultJson);
         }
 
@@ -529,6 +531,14 @@ namespace IndoorAr
         void OnHudRetry()
         {
             if (_session == null || !LiveDoorHud.LocalizationFailed(_session)) return;
+            if (_session.LaunchedWithFloorEvidence)
+            {
+                // Unity cannot ask for a fresh floor confirmation and the failure card must not read pressure, so the host
+                // gets the localizationFailed result, re-prompts for the floor and relaunches with new evidence.
+                _failureRelease = true;
+                DropQueuedMultiSetFallback();
+                return;
+            }
             _signFirst?.Reset();
             if (localizerBehaviour is MultiSetLocalizer multiSet) multiSet.AbandonPending();
             _session.Retry();

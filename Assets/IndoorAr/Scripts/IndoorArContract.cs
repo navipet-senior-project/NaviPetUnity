@@ -180,11 +180,11 @@ namespace IndoorAr
                 var version = fields["floorEvidenceVersion"];
                 return version?.Type == JTokenType.Integer && (double)version == FloorEvidenceVersion
                     && fields["startFloor"]?.Type == JTokenType.String
-                    && IsFiniteAge(fields["startFloorAgeS"])
+                    && IsAgeWithin(fields["startFloorAgeS"], IndoorFloorBarometer.MaxAnchorAgeS)
                     && fields["pressureSinceStart"] is JObject pressure
                     && pressure["settled"]?.Type == JTokenType.Boolean
                     && pressure["moved"]?.Type == JTokenType.Boolean
-                    && IsFiniteAge(pressure["sampleAgeS"]);
+                    && IsAgeWithin(pressure["sampleAgeS"], IndoorFloorBarometer.MaxSampleGapS);
             }
             catch (JsonReaderException)
             {
@@ -192,8 +192,9 @@ namespace IndoorAr
             }
         }
 
-        static bool IsFiniteAge(JToken age) =>
-            age?.Type is JTokenType.Integer or JTokenType.Float && Math.Abs((double)age) <= float.MaxValue;
+        // Checked on the wire value: JsonUtility has already rounded it to float, so 1200.000001 would read as 1200.
+        static bool IsAgeWithin(JToken age, double maxS) =>
+            age?.Type is JTokenType.Integer or JTokenType.Float && (double)age >= 0 && (double)age <= maxS;
 
         public const int MaxRouteWaypoints = 1000;
 

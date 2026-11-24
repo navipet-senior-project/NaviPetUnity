@@ -231,6 +231,41 @@ public class IndoorFloorBarometerTests
     }
 
     [Test]
+    public void ReReadingTheSameSignDuringAPostureShiftKeepsTheSettledBaseline()
+    {
+        var s = Pinned();
+        Feed(s, 0f, 30f);
+        s.OnSignConfirmed(Sign120);
+        for (var t = 0; t < 12; t++) // raising the phone: 0.12 hPa swing, never settled
+        {
+            Advance(s, 1f);
+            s.OnPressure(t % 2 == 0 ? 0f : 0.12f, _pressureTime);
+        }
+        s.OnSignConfirmed(new IndoorRoomLandmark("VEC120", "VEC", "floor_1")); // same sign, still in view
+        Feed(s, 0.12f, 30f);
+        Advance(s, 25f); // elevator trip, no samples
+        Feed(s, -Step, 40f);
+        Assert.IsNull(s.FloorSign, "the original settled baseline still detects the move");
+    }
+
+    [Test]
+    public void ADifferentSignReadWhileUnsettledStillDropsTheOldBaseline()
+    {
+        var s = Pinned();
+        Feed(s, 0f, 30f);
+        s.OnSignConfirmed(Sign120);
+        for (var t = 0; t < 12; t++)
+        {
+            Advance(s, 1f);
+            s.OnPressure(-Step * t / 12f, _pressureTime); // travelling to another floor
+        }
+        var floor2Sign = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
+        s.OnSignConfirmed(floor2Sign);
+        Feed(s, -Step, 60f);
+        Assert.AreSame(floor2Sign, s.FloorSign, "a baseline from the old floor must not release the new sign");
+    }
+
+    [Test]
     public void PressureNeverNamesAFloorSoAWrongSignStillWinsOverAPoseAtSameLevel()
     {
         var s = Pinned();

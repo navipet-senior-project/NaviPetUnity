@@ -53,11 +53,14 @@ namespace IndoorAr
 
         /// <summary>
         /// Starts a new comparison from the current settled level, dropping any older one. If pressure is not settled
-        /// there is no anchor: a level taken mid-travel would be wrong.
+        /// there is no anchor: a level taken mid-travel would be wrong. With keepIfUnsettled, an unsettled reading leaves
+        /// a good baseline alone, for a re-read of the sign the baseline already belongs to.
         /// </summary>
-        public void Anchor(double nowS)
+        public void Anchor(double nowS, bool keepIfUnsettled = false)
         {
-            _baseline = SettledLevel(nowS);
+            var level = SettledLevel(nowS);
+            if (level == null && keepIfUnsettled && _baseline != null) return;
+            _baseline = level;
             _anchoredAtS = nowS;
         }
 

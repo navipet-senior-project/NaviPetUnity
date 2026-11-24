@@ -138,6 +138,11 @@ public class IndoorArRunnerTests
     [TestCase(2, ",\"moved\":false", "", false, 0)]
     [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":1201", false, 0)]
     [TestCase(2, "\"sampleAgeS\":0", "\"sampleAgeS\":11", false, 0)]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":1200.000001", false, 0, TestName = "AStartAgeRoundingDownToTheLimitIsStillStale")]
+    [TestCase(2, "\"sampleAgeS\":0", "\"sampleAgeS\":10.0000001", false, 0, TestName = "ASampleAgeRoundingDownToTheLimitIsStillStale")]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":-1", false, 0)]
+    [TestCase(2, "\"startFloorAgeS\":0", "\"startFloorAgeS\":1200", true, 1, TestName = "AStartAgeAtTheLimitIsFresh")]
+    [TestCase(2, "\"sampleAgeS\":0", "\"sampleAgeS\":10", true, 1, TestName = "ASampleAgeAtTheLimitIsFresh")]
     [TestCase(1, null, null, false, 0, TestName = "SchemaOneIgnoresCompleteFloorEvidence")]
     [TestCase(2, null, null, true, 1, TestName = "CompleteFloorConfirmationStartsPressure")]
     [TestCase(2, "\"moved\":false", "\"moved\":true", true, 0, TestName = "MovedPressureAllowsSamplingWithoutTrustingTheStartFloor")]
@@ -193,18 +198,16 @@ public class IndoorArRunnerTests
         LogAssert.NoUnexpectedReceived();
     }
 
-    [TestCase(true)]
-    [TestCase(false)]
-    public void RetryableFailureStopsPressureAndTryAgainKeepsTheNonBarometerSignPolicy(bool confirmedFloor)
+    // Fails the first attempt pair so the retryable failure card is up; returns the pieces the retry tests share.
+    (IndoorArRunner Runner, IndoorArSession Session, RunnerFakeLocalizer Localizer, IndoorRoomLandmark Sign, Func<float> Now)
+        RunnerAtFailureCard(bool confirmedFloor, Action onStart = null, Action onStop = null)
     {
         if (confirmedFloor)
             IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
                 ConfirmedFloorEvidence + "}";
         var runner = Runner();
-        var starts = 0;
-        var stops = 0;
-        runner.StartPressureSampling = () => starts++;
-        runner.StopPressureSampling = () => stops++;
+        runner.StartPressureSampling = onStart ?? (() => { });
+        runner.StopPressureSampling = onStop ?? (() => { });
         var localizer = _host.GetComponent<RunnerFakeLocalizer>();
         localizer.DeferAnswer = true;
         Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
@@ -223,23 +226,93 @@ public class IndoorArRunnerTests
         session.Tick(IndoorArSession.LocalizeTimeoutS);
         session.Tick(IndoorArSession.LocalizeTimeoutS);
         Assert.IsTrue(LiveDoorHud.LocalizationFailed(session));
-        Assert.AreEqual(confirmedFloor ? 1 : 0, starts);
-        Assert.AreEqual(starts, stops);
-        Assert.AreEqual(2, session.Queries);
+        return (runner, session, localizer, sign, () => now);
+    }
 
-        for (var i = 0; i < 25; i++)
-        {
-            now += 1f;
-            session.OnPressure(999.53f, now);
-        }
-        Assert.AreSame(sign, session.FloorSign);
+    [Test]
+    public void TryAgainWithoutFloorEvidenceRetriesInPlaceWithoutPressure()
+    {
+        var starts = 0;
+        var stops = 0;
+        var (runner, session, _, sign, _) = RunnerAtFailureCard(false, () => starts++, () => stops++);
+        Assert.AreEqual(0, starts);
+        Assert.AreEqual(2, session.Queries);
 
         Call(runner, "OnHudRetry");
         Assert.AreEqual(IndoorArState.Localizing, session.State);
         Assert.AreEqual(3, session.Queries);
-        Assert.AreEqual(confirmedFloor ? 1 : 0, starts);
-        Assert.AreEqual(starts, stops);
+        Assert.AreEqual(0, starts);
+        Assert.AreEqual(0, stops);
         Assert.AreSame(sign, session.FloorSign);
+    }
+
+    [Test]
+    public void TryAgainWithFloorEvidenceReturnsLocalizationFailedToTheHostWithoutPressureOrRetry()
+    {
+        var starts = 0;
+        var stops = 0;
+        var (runner, session, _, sign, now) = RunnerAtFailureCard(true, () => starts++, () => stops++);
+        Assert.AreEqual(1, starts);
+        Assert.AreEqual(1, stops, "the failure card already stopped sampling");
+        runner.ReadPressure = (out float _, out double _) => throw new AssertionException("the failure card must not read pressure");
+        for (var i = 0; i < 25; i++) session.OnPressure(999.53f, now() + i); // late readings reach nothing
+
+        Call(runner, "OnHudRetry");
+        Assert.AreEqual(IndoorArState.Done, session.State, "no in-place retry with launch-time evidence");
+        Assert.AreEqual(2, session.Queries);
+        LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] result .*localizationFailed"));
+        Call(runner, "Update");
+        Call(runner, "Update");
+        Call(runner, "OnHudRetry");
+        Assert.AreEqual(1, starts);
+        Assert.AreEqual(1, stops);
+        Assert.AreSame(sign, session.FloorSign, "pressure never released it");
+        LogAssert.NoUnexpectedReceived();
+    }
+
+    [Test]
+    public void PressureCaptureTimestampsSurviveDelayedDeliveryAndASilenceOverTheGapLimitClearsTheWindow()
+    {
+        IndoorArBridge.EditorRequestJson = _request.Replace("\"schemaVersion\":1", "\"schemaVersion\":2").TrimEnd('}') +
+            ConfirmedFloorEvidence + "}";
+        var runner = Runner();
+        var localizer = _host.GetComponent<RunnerFakeLocalizer>();
+        localizer.DeferAnswer = true;
+        Assert.IsTrue(((IEnumerator)Call(runner, "Start")).MoveNext());
+        var session = Field<IndoorArSession>(runner, "_session");
+        var sign = new IndoorRoomLandmark("VEC120", "VEC", "floor_1");
+        double clock = 0;
+        session.PressureClock = () => clock;
+        session.OnArSupport(true);
+        localizer.Authenticate();
+        for (var i = 1; i <= 21; i++)
+        {
+            clock = i;
+            session.OnPressure(1000f, i);
+        }
+        session.OnSignConfirmed(sign);
+
+        var next = (Hpa: 0f, CapturedAtS: 0d);
+        runner.ReadPressure = (out float hpa, out double capturedAtS) =>
+        {
+            (hpa, capturedAtS) = next;
+            return true;
+        };
+        void Deliver(double capturedAtS, double deliveredAtS)
+        {
+            next = (999.53f, capturedAtS);
+            clock = deliveredAtS;
+            Call(runner, "Update");
+        }
+
+        for (var t = 22; t <= 32; t++) Deliver(t, t);
+        Deliver(32.1, 33); // held by the poll throttle: delivered 0.9 s after capture
+        Deliver(42.5, 42.5); // 10.4 s after the capture at 32.1, but 9.5 s after that delivery
+        for (var t = 43.5; t <= 53; t += 1) Deliver(t, t);
+        Assert.AreSame(sign, session.FloorSign, "the real gap cleared the window, so 10.5 s of readings are not settled");
+
+        for (var t = 54.0; t <= 62; t += 1) Deliver(t, t);
+        Assert.IsNull(session.FloorSign, "the same readings without that gap would have released the sign");
     }
 
     [Test]

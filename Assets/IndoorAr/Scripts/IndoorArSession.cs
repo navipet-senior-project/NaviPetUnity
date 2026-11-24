@@ -57,6 +57,7 @@ namespace IndoorAr
                 && pressure.sampleAgeS is >= 0f and <= IndoorFloorBarometer.MaxSampleGapS)
             {
                 Barometer = new IndoorFloorBarometer();
+                LaunchedWithFloorEvidence = true;
                 if (pressure.settled && !pressure.moved) StartFloor = floor;
             }
         }
@@ -68,6 +69,8 @@ namespace IndoorAr
 
         public IndoorArRequest Request { get; }
         internal bool PressureSamplingAllowed => Barometer != null;
+        /// <summary>The host sent complete fresh floor evidence, so pressure was collected. Stays true after sampling stops.</summary>
+        internal bool LaunchedWithFloorEvidence { get; }
         internal Func<double> PressureClock { private get; set; } = IndoorArPressure.Now;
         public IndoorArState State { get; private set; } = IndoorArState.Init;
         public int Queries { get; private set; }
@@ -228,11 +231,12 @@ namespace IndoorAr
         public void OnSignConfirmed(IndoorRoomLandmark room)
         {
             if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;
+            var sameValidSign = FloorSign != null && FloorSign.Id == room.Id && FloorSign.Floor == room.Floor;
             SignRoom = room;
             _signSupersededByTracking = false;
             _signSupersededByPressure = false;
             _startSuperseded = true;
-            Barometer?.Anchor(PressureClock());
+            Barometer?.Anchor(PressureClock(), keepIfUnsettled: sameValidSign);
             if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
                 || Request.LocalizeOnly
                 || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
