@@ -36,6 +36,8 @@ namespace IndoorAr
         float? _baseline;
         float _anchoredAtS;
 
+        public bool HasAnchor => _baseline != null;
+
         public void Sample(float hpa, float nowS)
         {
             if (!float.IsFinite(hpa) || !float.IsFinite(nowS)) return;

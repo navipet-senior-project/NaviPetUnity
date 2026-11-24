@@ -442,6 +442,11 @@ namespace IndoorAr
             var poseFloor = _session.PoseFloor(cameraInMap.y, _floorHeights);
             var pose = poseFloor == -1 ? "unsupported" : poseFloor == 0 ? "unknown" : poseFloor.ToString();
             Debug.Log($"[IndoorAr] floor conflict sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose={pose}");
+            if (poseFloor > 0 && _session.TrustedStartFloor > 0)
+            {
+                Debug.Log($"[IndoorAr] floor conflict with start floor={_session.TrustedStartFloor} pose={pose}");
+                _session.NoteStartFloorConflict();
+            }
             if (_session.State == IndoorArState.Localizing) _session.OnNotLocalized();
             return true;
         }

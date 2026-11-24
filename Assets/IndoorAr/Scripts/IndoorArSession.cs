@@ -32,11 +32,19 @@ namespace IndoorAr
         int _trackedFloor;
         bool _signSuperseded;
         readonly bool _allowSignRecovery;
+        // The user's confirmed floor, trusted only with settled unchanged pressure. Weaker than a sign: it lapses when a
+        // sign is read, tracked motion or pressure shows another level, or two attempts in a row land on another floor.
+        bool _startSuperseded;
+        bool _startAnchored;
+        int _lastConflictQueries = -1;
+        int _startConflicts;
+        public const int MaxStartConflicts = 2;
 
         public IndoorArSession(IndoorArRequest request, string buildMapCode, bool allowSignRecovery = false)
         {
             Request = request;
             _allowSignRecovery = allowSignRecovery;
+            StartFloor = TrustStartFloor(request);
             if (!IndoorArContract.CheckMap(request, buildMapCode))
                 Finish(IndoorArContract.Error(IndoorArContract.MapMismatch, 0, 0));
         }
@@ -61,6 +69,21 @@ namespace IndoorAr
         public IndoorRoomLandmark FloorSign => _signSuperseded ? null : SignRoom;
         /// <summary>Relative pressure since the last sign. Only ever releases a stale sign, never names a floor.</summary>
         public IndoorFloorBarometer Barometer { get; } = new IndoorFloorBarometer();
+
+        /// <summary>Confirmed starting floor the host vouched for with settled, unchanged pressure; 0 when absent or distrusted.</summary>
+        public int StartFloor { get; }
+        /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
+        public int TrustedStartFloor => _startSuperseded || FloorSign != null ? 0 : StartFloor;
+
+        static int TrustStartFloor(IndoorArRequest request)
+        {
+            var summary = request?.pressureSinceStart;
+            if (request == null || !int.TryParse(request.startFloor, out var floor) || floor <= 0
+                || request.startFloorAgeS < 0f || request.startFloorAgeS > IndoorFloorBarometer.MaxAnchorAgeS
+                || summary == null || !summary.settled || summary.moved
+                || summary.sampleAgeS < 0f || summary.sampleAgeS > IndoorFloorBarometer.MaxSampleGapS) return 0;
+            return floor;
+        }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 
@@ -113,7 +136,8 @@ namespace IndoorAr
         public bool PoseConflictsWithSign(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
             var poseFloor = PoseFloor(cameraY, floors);
-            return poseFloor <= 0 || FloorSign != null && FloorSign.Floor > 0 && poseFloor != FloorSign.Floor;
+            return poseFloor <= 0 || FloorSign != null && FloorSign.Floor > 0 && poseFloor != FloorSign.Floor
+                || FloorSign == null && TrustedStartFloor > 0 && poseFloor != TrustedStartFloor;
         }
 
         /// <summary>The unique floor in the camera's eye-height band. Gaps and overlaps give 0, outside gives -1.</summary>
@@ -147,7 +171,11 @@ namespace IndoorAr
             if (State != IndoorArState.Pinned) return;
             var floor = PoseFloor(cameraY, floors);
             if (floor <= 0) return;
-            if (_trackedFloor > 0 && floor != _trackedFloor && FloorSign?.Floor != floor) _signSuperseded = true;
+            if (_trackedFloor > 0 && floor != _trackedFloor)
+            {
+                if (FloorSign?.Floor != floor) _signSuperseded = true;
+                if (StartFloor != floor) _startSuperseded = true;
+            }
             _trackedFloor = floor;
         }
 
@@ -160,8 +188,29 @@ namespace IndoorAr
         {
             if (State == IndoorArState.Done) return;
             Barometer.Sample(hpa, _elapsedS);
+            if (StartFloor > 0 && !_startSuperseded && SignRoom == null)
+            {
+                // Pressure at launch is the baseline for the host's "unchanged" claim; retry until it is settled.
+                if (!_startAnchored)
+                {
+                    Barometer.Anchor(_elapsedS);
+                    _startAnchored = Barometer.HasAnchor;
+                }
+                else if (Barometer.Status(_elapsedS) == IndoorBarometerStatus.Moved) _startSuperseded = true;
+            }
             if (SignRoom != null && !_signSuperseded
                 && Barometer.Status(_elapsedS) == IndoorBarometerStatus.Moved) _signSuperseded = true;
+        }
+
+        /// <summary>
+        /// A MultiSet pose landed on a floor other than the trusted start floor. Once two separate attempts do, the start
+        /// floor is dropped and today's behaviour returns, so a wrong confirmation costs two retries, not the session.
+        /// </summary>
+        public void NoteStartFloorConflict()
+        {
+            if (TrustedStartFloor == 0 || Queries == _lastConflictQueries) return;
+            _lastConflictQueries = Queries;
+            if (++_startConflicts >= MaxStartConflicts) _startSuperseded = true;
         }
 
         public void OnStepFreeUnverified() =>
@@ -179,6 +228,7 @@ namespace IndoorAr
             if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;
             SignRoom = room;
             _signSuperseded = false;
+            _startSuperseded = true;
             Barometer.Anchor(_elapsedS);
             if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
                 || Request.LocalizeOnly

@@ -67,10 +67,26 @@ namespace IndoorAr
         /// step-free segments, so a true navigation request returns unavailable; localize-only requests need no route.
         /// </summary>
         public bool stepFree;
+        /// <summary>
+        /// Optional. The floor the user confirmed they stand on (never the destination floor), how long ago, and what the
+        /// barometer did since. Trusted only when the pressure summary says the level is settled and unchanged.
+        /// </summary>
+        public string startFloor;
+        public float startFloorAgeS;
+        public IndoorArPressureSummary pressureSinceStart;
         /// <summary>Optional host features. Absent from legacy hosts, which still require checkDistanceM on every arrival.</summary>
         public string[] capabilities;
         /// <summary>The host accepts an arrived result without checkDistanceM when it carries the destination signRoom.</summary>
         public bool SupportsSignArrival => capabilities != null && Array.IndexOf(capabilities, IndoorArContract.SignArrivalCapability) >= 0;
+    }
+
+    /// <summary>Host barometer summary since the user confirmed their floor. No raw or absolute pressure.</summary>
+    [Serializable]
+    public class IndoorArPressureSummary
+    {
+        public bool settled;
+        public bool moved;
+        public float sampleAgeS;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
