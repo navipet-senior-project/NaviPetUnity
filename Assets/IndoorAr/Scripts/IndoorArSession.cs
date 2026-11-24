@@ -35,7 +35,6 @@ namespace IndoorAr
         // The user's confirmed floor, trusted only with settled unchanged pressure. Weaker than a sign: it lapses when a
         // sign is read, tracked motion or pressure shows another level, or two attempts in a row land on another floor.
         bool _startSuperseded;
-        bool _startAnchored;
         int _lastConflictQueries = -1;
         int _startConflicts;
         const int MaxStartConflicts = 2;
@@ -192,11 +191,7 @@ namespace IndoorAr
             if (StartFloor > 0 && !_startSuperseded && SignRoom == null)
             {
                 // Pressure at launch is the baseline for the host's "unchanged" claim; retry until it is settled.
-                if (!_startAnchored)
-                {
-                    Barometer.Anchor(_elapsedS);
-                    _startAnchored = Barometer.HasAnchor;
-                }
+                if (!Barometer.HasAnchor) Barometer.Anchor(_elapsedS);
                 else if (Barometer.Status(_elapsedS) == IndoorBarometerStatus.Moved) _startSuperseded = true;
             }
             if (SignRoom != null && !_signSuperseded

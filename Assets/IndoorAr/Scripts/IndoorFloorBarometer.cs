@@ -74,12 +74,13 @@ namespace IndoorAr
 
         float? SettledLevel(float nowS)
         {
-            if (_window.Count < MinSamples) return null;
-            var first = _window[0].T;
+            var cutoff = nowS - SettleWindowS;
+            var first = _window.FindIndex(sample => sample.T >= cutoff);
+            if (first < 0 || _window.Count - first < MinSamples) return null;
             var last = _window[_window.Count - 1].T;
-            if (nowS - last > MaxSampleGapS || last - first < SettleWindowS - 2f) return null;
-            var values = new List<float>(_window.Count);
-            foreach (var (_, hpa) in _window) values.Add(hpa);
+            if (nowS - last > MaxSampleGapS || last - _window[first].T < SettleWindowS - 2f) return null;
+            var values = new List<float>(_window.Count - first);
+            for (var i = first; i < _window.Count; i++) values.Add(_window[i].Hpa);
             values.Sort();
             if (values[values.Count - 1] - values[0] > SettleRangeHpa) return null;
             var mid = values.Count / 2;

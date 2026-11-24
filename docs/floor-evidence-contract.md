@@ -34,7 +34,7 @@ Never send absolute or raw pressure, timestamps, coordinates or location. Locali
 ## Rule the Flutter side must compute (identical to `IndoorFloorBarometer.cs`)
 Samples are `sensors_plus` `barometerEventStream` readings (hPa; only differences are used).
 - Drop a reading closer than 0.5 s to the previous one. A gap over 10 s, or time going backward, clears the window.
-- Keep the last 20 s. A level is settled when the window has at least 8 samples, spans at least 18 s, its newest sample is at most 10 s old, and its peak-to-peak range is at most 0.06 hPa. The level is the median.
+- At confirmation and at each comparison, evaluate only the samples from the last 20 s. A level is settled when the window has at least 8 samples, spans at least 18 s, its newest sample is at most 10 s old, and its peak-to-peak range is at most 0.06 hPa. The level is the median.
 - Capture the settled level when the user confirms the floor. If pressure is unsettled, omit all floor-evidence fields and ask for a fresh confirmation once pressure settles.
 - `moved` = current settled level differs from the anchor by at least 0.30 hPa. After 1200 s since confirmation, or any sensor loss or denial, send `settled:false` (or omit the object): never `moved:false` on missing data.
 - Permission or sensor missing: omit all fields. Unity then behaves as today.
@@ -59,5 +59,6 @@ Test vectors (1 s samples, pressure in hPa). Noise of 0.01 around a constant for
 ## Known limits and disclosed gaps
 - Missed on purpose: a real one-storey step hidden by opposing posture plus drift error above about 0.115 hPa.
 - Drift only observed to 20 minutes; confirmation older than 20 minutes is ignored.
+- Even with a valid pressure anchor, tracking loss during an elevator ride can leave a stale sign vetoing poses on the new floor until pressure settles. MultiSet can exhaust its automatic retry first. The user may need to retry localization manually.
 - Cold starts without valid host evidence have no start-floor veto. A wrong confirmation can cost one retry when both attempts return valid conflicting poses.
 - Device behavior, iOS export linking CoreMotion, Android hardware, privacy and Motion & Fitness permission behavior, and the Flutter integration remain unverified.

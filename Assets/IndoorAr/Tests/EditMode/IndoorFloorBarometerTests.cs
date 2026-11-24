@@ -139,6 +139,17 @@ public class IndoorFloorBarometerTests
     }
 
     [Test]
+    public void SettlementExpiresWhenRecentSamplesNoLongerSpanTheRequiredTime()
+    {
+        var barometer = new IndoorFloorBarometer();
+        for (var t = 1; t <= 21; t++) barometer.Sample(0f, t);
+        barometer.Anchor(21f);
+
+        Assert.AreEqual(IndoorBarometerStatus.Unchanged, barometer.Status(23f));
+        Assert.AreEqual(IndoorBarometerStatus.Unknown, barometer.Status(29f));
+    }
+
+    [Test]
     public void AnOldAnchorIsNotComparedBecauseDriftWasNeverMeasuredBeyondTwentyMinutes()
     {
         var r = AnchoredAt(0f);
@@ -234,6 +245,20 @@ public class IndoorFloorBarometerTests
         s.OnSignConfirmed(Sign120);
         Feed(s, -Step, 60f);
         Assert.AreSame(Sign120, s.FloorSign);
+    }
+
+    [Test]
+    public void SignConfirmedDuringBriefSensorSilenceDoesNotAnchorToThePreviousFloor()
+    {
+        var s = Pinned();
+        Feed(s, 0f, 21f);
+        s.Tick(8f);
+        var sign = new IndoorRoomLandmark("VEC215", "VEC", "floor_2");
+        s.OnSignConfirmed(sign);
+        Feed(s, -Step, 40f);
+
+        Assert.AreSame(sign, s.FloorSign);
+        Assert.IsFalse(s.PoseConflictsWithSign(Floor2CameraY, Floors));
     }
 
     [Test]

@@ -92,6 +92,8 @@ Unity reads the phone barometer through the Core Motion altimeter in `IndoorArPr
 
 Unity uses its first settled window after launch for the trusted start-floor baseline. A move before that window settles can be missed. A sign confirmed before pressure settles must be confirmed again during a settled window before pressure can release it. The thresholds come from one iPhone in one building. Exported `UnityFramework` linking, permission behavior, and device readings remain unverified. See the [floor evidence contract](floor-evidence-contract.md) and [calibrated constants](../Assets/IndoorAr/Scripts/IndoorFloorBarometer.cs).
 
+Even with a valid pressure anchor, a stale sign can veto poses on the new floor while pressure is still settling after an elevator ride. MultiSet can exhaust its automatic retry in that time, and the user may need to retry localization manually.
+
 ## Not verified here
 
 The final indoor OCR change still requires a native player build and device validation. Prior framework linking does not verify the final change. EditMode tests cover the shared contract, the editor bridge stand-in, and the saved iOS player and XR settings.
