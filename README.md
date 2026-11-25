@@ -16,17 +16,44 @@ This repository contains the Unity AR runtime embedded by NaviPet Flutter and th
 
 Unity does not call the backend or Supabase. It also has no door database of its own for navigation targets: the destination door pose arrives in the request. Outdoor AR (`Assets/OutdoorAr`) shares the host bridge but is a separate flow and is not described here.
 
+```mermaid
+flowchart LR
+  subgraph Flutter["Flutter app + native host (NaviPetFlutter)"]
+    F1["Room search, camera permission"]
+    F2["Build launch request (+ relative pressure summary)"]
+    F3["Show result"]
+  end
+  subgraph Backend["Backend (NavipetBackend)"]
+    B1["GET /places/:id<br/>door pose"]
+    B2["POST /indoor/ar-token<br/>holds MultiSet credentials"]
+  end
+  subgraph MultiSet["MultiSet (external)"]
+    M1["Token service"]
+    M2["VPS on hosted map"]
+  end
+  subgraph Unity["Unity (this repo), on device"]
+    U0["AR camera session"]
+    U1["MultiSet SDK request<br/>one at a time"]
+    U2["Pose gate: one supported floor,<br/>sign / start-floor evidence"]
+    U3["Walk grid + A* route"]
+    U4["AR HUD: ribbon, arrow, pin"]
+    S1["Sensors: barometer, OCR of room signs (ML Kit)"]
+  end
+  F1 --> B1
+  F1 --> B2
+  B2 -- "token only" --> M1
+  B1 -- "door pose" --> F2
+  B2 -- "short-lived token" --> F2
+  F2 == "request JSON via native channel" ==> U0
+  U0 --> U1
+  U1 -- "camera frames + token" --> M2
+  M2 -- "pose in MapSet frame" --> U2
+  S1 -. "advisory floor evidence" .-> U2
+  U2 --> U3 --> U4
+  U4 == "one final result JSON (+ optional status)" ==> F3
 ```
-Flutter ──GET /places/:id──▶ Backend          Flutter ──POST /indoor/ar-token──▶ Backend ──▶ MultiSet (token only)
-   │  request JSON (door pose, floor, optional short-lived token)
-   ▼
-Unity: AR camera → MultiSet VPS request (Unity ↔ MultiSet, camera frame) → pose in MapSet frame
-       → floor check → AR HUD (walk-grid guidance after the hold, with a usable route)
-   ├── optional progress status ──▶ native host status handler
-   │  one final result JSON
-   ▼
-Flutter
-```
+
+Unity sends camera frames only to MultiSet and makes no backend calls. OCR and absolute pressure readings stay on the device, and the launch request carries only a relative pressure summary.
 
 ### Interfaces
 
