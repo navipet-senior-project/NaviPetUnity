@@ -9,7 +9,7 @@ This repository contains the Unity AR runtime embedded by NaviPet Flutter and th
 
 | Part | Repository | Owns |
 | --- | --- | --- |
-| Flutter app | NaviPetFlutter | Search and room selection, camera permission, fetching the MultiSet launch token, building the launch request, launching Unity, showing the result. |
+| Flutter app | NaviPetFlutter | Search and room selection, camera permission, fetching the MultiSet launch token, sampling pressure for floor evidence, building the launch request, launching Unity, showing the result. |
 | Backend | NavipetBackend | Campus and room data, the saved door pose for each indoor destination, and the authenticated token endpoint. Holds the client credentials for token issuance. Unity's SDK fallback can also use credentials from its local build config. |
 | MultiSet | External service | Visual positioning (VPS) against the hosted VEC scan map. |
 | Unity (this repo) | NaviPetUnity | The AR camera session, localization, floor decision, hallway routing and the AR display. Editor tools export scene markers and generate the walk grid. |
@@ -20,6 +20,7 @@ Unity does not call the backend or Supabase. It also has no door database of its
 flowchart LR
   subgraph Flutter["Flutter app + native host (NaviPetFlutter)"]
     F1["Room search, camera permission"]
+    F5["Pressure sensor<br/>start-floor anchor"]
     F2["Build launch request (+ relative pressure summary)"]
     F3["Show result"]
     F4["Native host status handler<br/>none registered in shipped hosts"]
@@ -41,6 +42,7 @@ flowchart LR
     U5["IndoorArRunner / session<br/>owns result and status"]
     S1["Sensors: barometer, OCR of room signs (ML Kit)"]
   end
+  F5 -.-> F2
   F1 --> B1
   F1 --> B2
   B2 -- "token only" --> M1
@@ -48,7 +50,7 @@ flowchart LR
   B2 -- "short-lived token" --> F2
   F2 == "request JSON via native channel" ==> U0
   U0 --> U1
-  U1 -- "camera frames + token" --> M2
+  U1 -- "camera frames + token<br/>(+ floor-height band when hinted)" --> M2
   U1 -. "no supplied token: SDK configuration fallback" .-> M1
   M2 -- "pose in MapSet frame" --> U2
   S1 -. "advisory floor evidence" .-> U2
@@ -101,7 +103,7 @@ Without valid launch evidence Unity leaves pressure sampling, the start-floor ve
 
 ### Privacy
 
-- Unity sends selected camera frames to MultiSet through its SDK for VPS. ML Kit processes OCR images and text on the device and reports usage metrics to Google.
+- Unity sends selected camera frames to MultiSet through its SDK for VPS. When a height hint applies, the SDK request also carries a floor-height band set from the barometer. ML Kit processes OCR images and text on the device and reports usage metrics to Google.
 - When Unity uses the supplied token, it stores the token and expiry in the SDK's `PlayerPrefs` entry and keeps them out of logs. When built with local MultiSet client credentials, Android AARs and iOS frameworks can embed them. Share those artifacts privately and keep them out of source control. See [Android AAR build](tools/build-indoor-ar-aar.sh) and [iOS export](docs/ios-export.md).
 - Unity diagnostics (`[IndoorAr]`, `[IndoorArBaseline]`, `[ArDiag]`) keep full camera poses, raw map codes, images, raw OCR text and credentials out of logs. Map identity uses a short hash. A VPS candidate on a supported floor can log its floor and height above that floor rounded to 0.01 m. Floor transitions can log the floors and a 0.5 m eye-height bucket. Sign diagnostics can include normalized room IDs, and Unity's logged final result can include `signRoom`. Host status JSON is a separate payload carrying the raw map code and, when localized, the camera pose. Keep it out of host logs.
 - The Flutter launch request carries only a relative pressure summary. Absolute readings from Unity's own iOS and Android sensors stay on the device. The iOS host must supply a Motion & Fitness usage description. See the proposed wording in [the iOS export notes](docs/ios-export.md#floor-change-pressure).
