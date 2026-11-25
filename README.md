@@ -40,7 +40,8 @@ flowchart LR
     U3["Walk grid + A* route"]
     U4["AR HUD: ribbon, arrow, pin"]
     U5["IndoorArRunner / session<br/>owns result and status"]
-    S1["Sensors: barometer, OCR of room signs (ML Kit)"]
+    S1["Barometer<br/>(Core Motion / Android pressure sensor)"]
+    S2["Room-sign OCR (ML Kit, on device)"]
   end
   F5 -.-> F2
   F1 --> B1
@@ -54,6 +55,9 @@ flowchart LR
   U1 -. "no supplied token: SDK configuration fallback" .-> M1
   M2 -- "pose in MapSet frame" --> U2
   S1 -. "advisory floor evidence" .-> U2
+  S2 -- "pose must agree with a confirmed sign" --> U2
+  S2 -- "confirmed destination sign" --> U5
+  F2 -. "start-floor evidence from the request" .-> U2
   U2 --> U3 --> U4
   U2 -.-> U5
   U4 -.-> U5
