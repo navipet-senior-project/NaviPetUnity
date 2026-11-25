@@ -17,7 +17,7 @@ This repository contains the Unity AR runtime embedded by NaviPet Flutter and th
 Unity does not call the backend or Supabase. It also has no door database of its own for navigation targets: the destination door pose arrives in the request. Outdoor AR (`Assets/OutdoorAr`) shares the host bridge but is a separate flow and is not described here.
 
 ```
-Flutter ──GET door pose──▶ Backend            Flutter ──POST /indoor/ar-token──▶ Backend ──▶ MultiSet (token only)
+Flutter ──GET /places/:id──▶ Backend          Flutter ──POST /indoor/ar-token──▶ Backend ──▶ MultiSet (token only)
    │  request JSON (door pose, floor, optional short-lived token)
    ▼
 Unity: AR camera → MultiSet VPS request (Unity ↔ MultiSet, camera frame) → pose in MapSet frame
