@@ -22,6 +22,7 @@ flowchart LR
     F1["Room search, camera permission"]
     F2["Build launch request (+ relative pressure summary)"]
     F3["Show result"]
+    F4["Native host status handler<br/>none registered in shipped hosts"]
   end
   subgraph Backend["Backend (NavipetBackend)"]
     B1["GET /places/:id<br/>door pose"]
@@ -37,6 +38,7 @@ flowchart LR
     U2["Pose gate: one supported floor,<br/>sign / start-floor evidence"]
     U3["Walk grid + A* route"]
     U4["AR HUD: ribbon, arrow, pin"]
+    U5["IndoorArRunner / session<br/>owns result and status"]
     S1["Sensors: barometer, OCR of room signs (ML Kit)"]
   end
   F1 --> B1
@@ -47,10 +49,14 @@ flowchart LR
   F2 == "request JSON via native channel" ==> U0
   U0 --> U1
   U1 -- "camera frames + token" --> M2
+  U1 -. "no supplied token: SDK configuration fallback" .-> M1
   M2 -- "pose in MapSet frame" --> U2
   S1 -. "advisory floor evidence" .-> U2
   U2 --> U3 --> U4
-  U4 == "one final result JSON (+ optional status)" ==> F3
+  U2 -.-> U5
+  U4 -.-> U5
+  U5 == "one final result JSON" ==> F3
+  U5 -. "optional status, dropped without a handler" .-> F4
 ```
 
 Unity sends camera frames only to MultiSet and makes no backend calls. OCR and absolute pressure readings stay on the device, and the launch request carries only a relative pressure summary.
@@ -61,7 +67,7 @@ Unity sends camera frames only to MultiSet and makes no backend calls. OCR and a
 - **Unity → Flutter result.** `IndoorArBridge.Deliver` sends one result per session: `arrived`, `cancelled`, `localizationFailed`, `unavailable` or `error`, with counts and duration, and optional distance, confidence and `signRoom`. A localize-only pose updates optional native status and normally shows **Location found**. Closing returns `cancelled`. Manual arrival reports horizontal `checkDistanceM`, even across floors. Sign arrival includes `signRoom` without confidence or measured distance. Hosts declaring `signArrival` get no `checkDistanceM`, while legacy hosts get `0`. Error codes include `BAD_REQUEST`, `MAP_MISMATCH`, `ARCORE_UNSUPPORTED`, `MULTISET_AUTH`, `NETWORK` and `STEP_FREE_UNVERIFIED`.
 - **Unity → native host status.** Optional progress goes to Android's `postStatus(String)` or a registered iOS `IndoorArHost` status handler. Without the handler, progress is dropped and the final result is still delivered. The shipped Flutter hosts register no status handler on either platform, so progress is currently dropped. Messages include state, tracking, recognized room and floor when available, localization and fallback availability, and the raw `mapCode` and frame. Localized status includes the camera position, quaternion rotation and pose source in the MapSet frame. Keep status JSON out of logs.
 - **Backend token.** `POST /indoor/ar-token` uses the app's signed-in session. The backend uses its client credentials to obtain and cache a short-lived MultiSet token, and Flutter fetches it with its expiry per launch. After device AR support and connectivity checks pass, a nonempty token pair seeds the SDK cache and signals startup success without validation or an authentication exchange. If either field is missing or empty, Unity loads SDK configuration, which can use the gitignored `MultiSetConfig.asset`. Normal Editor entry skips authentication. Offline startup returns `NETWORK` before token handling. Never commit or print the asset. See **Privacy** for Android and iOS exports built with it.
-- **Door poses and bundled markers.** The backend owns the MapSet door pose that Flutter forwards as the route target. Without a door pose, the app can request localization only. Unity's editor exports scene markers relative to `IndoorMapOrigin`. The bundled directory (`vec_floors123.json`) uses that exporter frame. `IndoorMapFrame` converts marker positions and door headings into MapSet coordinates for room landmarks and floor connectors.
+- **Door poses and bundled markers.** The backend owns the MapSet door pose that Flutter forwards as the route target. Without a door pose, the app can request localization only. Unity's editor exports scene markers relative to `IndoorMapOrigin`. The exporter input `Assets/IndoorNavigation/Data/vec_floors123.json` uses that frame. `IndoorMapFrame` converts marker positions and door headings into MapSet coordinates for room landmarks and floor connectors.
 
 Detailed field tables: [floor evidence contract](docs/floor-evidence-contract.md), [host bridge](docs/ios-export.md#host-bridge).
 
