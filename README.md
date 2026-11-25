@@ -45,11 +45,12 @@ flowchart LR
   end
   F5 -.-> F2
   F1 --> B1
-  F1 --> B2
+  F2 --> B2
   B2 -- "token only" --> M1
   B1 -- "door pose" --> F2
   B2 -- "short-lived token" --> F2
-  F2 == "request JSON via native channel" ==> U0
+  F2 == "request JSON via native channel" ==> U5
+  U5 --> U0
   U0 --> U1
   U1 -- "camera frames + token<br/>(+ floor-height band when hinted)" --> M2
   U1 -. "no supplied token: SDK configuration fallback" .-> M1
