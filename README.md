@@ -26,7 +26,7 @@ flowchart LR
     F4["Native host status handler<br/>none registered in shipped hosts"]
   end
   subgraph Backend["Backend (NavipetBackend)"]
-    B1["GET /places/:id<br/>door pose"]
+    B1["GET /places/:placeId<br/>door pose"]
     B2["POST /indoor/ar-token<br/>holds MultiSet credentials"]
   end
   subgraph MultiSet["MultiSet (external)"]
@@ -90,7 +90,7 @@ Room-sign OCR runs alongside, on the AR camera's own frames, using the bundled M
 
 The barometer is advisory evidence for which floor the user is on. It never produces a position.
 
-- **Host evidence (schema 2).** After the user confirms their starting floor, the host may send `floorEvidenceVersion: 1`, a positive floor number as a `startFloor` string, `startFloorAgeS` (0–1200 s), and `pressureSinceStart` with booleans `settled` and `moved` and `sampleAgeS` (0–10 s). The Flutter launch request carries only a relative pressure summary.
+- **Host evidence (schema 2).** After the user confirms their starting floor, the host may send `floorEvidenceVersion: 1`, a positive floor number as a `startFloor` string, `startFloorAgeS` (0–1200 s), and `pressureSinceStart` with booleans `settled` and `moved` and `sampleAgeS` (0–10 s). The Flutter launch request carries the confirmed start floor, evidence ages, a relative pressure summary and a device boot-clock stamp used to age the hint, and no absolute pressure.
 - **Unity's own barometer.** With valid launch evidence, Unity reads absolute pressure on-device (Core Motion on iOS, pressure sensor on Android). A settled change of at least 0.30 hPa releases the sign or start-floor veto only against a settled anchor at most 20 minutes old. Unity stops sampling and clears its window at session end.
 - **Start-floor veto.** Valid launch evidence with `settled: true` and `moved: false` makes the confirmed start floor trusted. Unity rejects the first otherwise valid MultiSet pose on another supported floor and retries if it can. A second conflict on a separate attempt clears the veto before Unity rechecks that pose. A confirmed sign, tracked motion onto another floor, or pressure meeting the anchor rule above also clears it.
 - **First-request height hint.** Height hinting additionally requires a valid `requestSentAtBootS` from the device's boot clock and a valid signed `pressureSinceStart.deltaHpa`. At SDK dispatch Unity adds the elapsed time since the host sent the request to both supplied ages, including time spent waiting for tracking or the SDK lock. If the ages are still within bounds and the evidence identifies a supported floor, Unity may narrow the first MultiSet request to a height band for floors 1 to 3 (the candidate floor's surface Y minus 0.3 m to plus 3.3 m). The band is advisory and the retry is unhinted. Missing or invalid hint fields still allow sampling and the veto when their launch requirements are met.
@@ -107,7 +107,7 @@ Without valid launch evidence Unity leaves pressure sampling, the start-floor ve
 
 ### Privacy
 
-- Unity sends selected camera frames to MultiSet through its SDK for VPS. When a height hint applies, the SDK request also carries a floor-height band set from the barometer. ML Kit processes OCR images and text on the device and reports usage metrics to Google.
+- Unity sends selected camera frames to MultiSet through its SDK for VPS. When a height hint applies, the SDK request also carries a floor-height band derived from the host's evidence (the confirmed start floor or its relative pressure change). ML Kit processes OCR images and text on the device and reports usage metrics to Google.
 - When Unity uses the supplied token, it stores the token and expiry in the SDK's `PlayerPrefs` entry and keeps them out of logs. When built with local MultiSet client credentials, Android AARs and iOS frameworks can embed them. Share those artifacts privately and keep them out of source control. See [Android AAR build](tools/build-indoor-ar-aar.sh) and [iOS export](docs/ios-export.md).
 - Unity diagnostics (`[IndoorAr]`, `[IndoorArBaseline]`, `[ArDiag]`) keep full camera poses, raw map codes, images, raw OCR text and credentials out of logs. Map identity uses a short hash. A VPS candidate on a supported floor can log its floor and height above that floor rounded to 0.01 m. Floor transitions can log the floors and a 0.5 m eye-height bucket. Sign diagnostics can include normalized room IDs, and Unity's logged final result can include `signRoom`. Host status JSON is a separate payload carrying the raw map code and, when localized, the camera pose. Keep it out of host logs.
 - The Flutter launch request carries only a relative pressure summary. Absolute readings from Unity's own iOS and Android sensors stay on the device. The iOS host must supply a Motion & Fitness usage description. See the proposed wording in [the iOS export notes](docs/ios-export.md#floor-change-pressure).
