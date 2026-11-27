@@ -25,7 +25,7 @@ namespace IndoorAr.Editor
         const float FloorToleranceM = .35f;
         const float BodyLowM = .4f;
         const float BodyHighM = 1.4f;
-        // shortcut: floor heights read off the door rows (vec_destination_points), re-check if a floor is added.
+        // shortcut: calibrated offsets keep the bands tied to scan elevation, re-check if scan geometry changes.
         static readonly (int floor, float offsetY)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
         static readonly (int floor, float offsetY)[] UpperFloors = { (3, 2.5916f), (4, 6.6916f) };
         static readonly (int floor, float offsetY)[] TopFloors = { (5, 2.9716f) };
