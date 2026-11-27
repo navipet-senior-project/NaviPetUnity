@@ -11,7 +11,7 @@ using UnityEngine.XR.ARFoundation;
 namespace IndoorAr
 {
     /// <summary>
-    /// Floor the first MultiSet request may be narrowed to, from a trusted source only (floors 1-5 have walk grids).
+    /// Height band the first MultiSet request may be narrowed to, from trusted evidence for floors 1-3 only.
     /// The Y band is in the MapSet frame: <see cref="BandBelowM"/> under the floor surface to <see cref="BandAboveM"/>
     /// above it. Measured on this building's mesh (portal, one pass): floor-to-floor slab spacing 3.91-4.32 m, so the
     /// top sits at least 0.6 m below the next slab. That is NOT a measured ceiling: the mesh has none, and the 3.3 m

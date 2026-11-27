@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using IndoorAr;
 using IndoorAr.Editor;
 using NUnit.Framework;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -11,6 +13,52 @@ public class IndoorWalkGridTests
     static readonly string Directory = File.ReadAllText(
         Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"));
     static readonly string Scan = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+
+    [Test]
+    public void RegeneratedGridMatchesBakedGrid()
+    {
+        var expected = JsonUtility.FromJson<IndoorWalkGridData>(Scan).floors;
+        var regenerated = IndoorWalkGridExport.Build();
+        Assert.IsNotNull(regenerated);
+        Assert.AreEqual(expected.Length, regenerated.floors.Length);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var floor = expected[i];
+            var actual = regenerated.floors[i];
+            Assert.AreEqual((floor.floor, floor.cell, floor.originX, floor.originZ, floor.width, floor.height),
+                (actual.floor, actual.cell, actual.originX, actual.originZ, actual.width, actual.height));
+            Assert.AreEqual(floor.floorY, actual.floorY, .001f, $"Floor {floor.floor} surface height");
+            CollectionAssert.AreEqual(floor.rows, actual.rows, $"Floor {floor.floor} walkable cells");
+        }
+    }
+
+    [Test]
+    public void RegeneratedGridFollowsBothUpperSceneScans()
+    {
+        var scene = EditorSceneManager.OpenPreviewScene("Assets/Scenes/SampleScene.unity");
+        try
+        {
+            var building = scene.GetRootGameObjects().Single(root => root.name == "VEC_Building").transform;
+            var shift = Quaternion.Euler(0f, -IndoorMapFrame.YawDeg, 0f) * Vector3.right;
+            building.Find("floor 3 + 4 (1)").position += shift;
+            building.Find("floor 2 + 5 (1)").position -= shift;
+
+            var regenerated = IndoorWalkGridExport.Build(scene);
+            Assert.IsNotNull(regenerated);
+            var expected = JsonUtility.FromJson<IndoorWalkGridData>(Scan).floors;
+            foreach (var floor in regenerated.floors)
+            {
+                var before = expected.Single(entry => entry.floor == floor.floor);
+                var offset = floor.floor == 5 ? -1f : floor.floor >= 3 ? 1f : 0f;
+                Assert.AreEqual(before.originX + offset, floor.originX, $"Floor {floor.floor} origin X");
+                Assert.AreEqual(before.originZ, floor.originZ, $"Floor {floor.floor} origin Z");
+            }
+        }
+        finally
+        {
+            EditorSceneManager.ClosePreviewScene(scene);
+        }
+    }
 
     // 1 m cells, north is the last row. An L-shaped hallway with a wall between its two ends.
     static IndoorWalkGrid Corner(params string[] rows) => IndoorWalkGrid.ForFloor(JsonUtility.ToJson(new IndoorWalkGridData

@@ -1,7 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace IndoorAr.Editor
 {
@@ -63,17 +66,48 @@ namespace IndoorAr.Editor
 
         public static IndoorWalkGridData Build()
         {
+            var scene = EditorSceneManager.OpenPreviewScene("Assets/Scenes/SampleScene.unity");
+            try
+            {
+                return Build(scene);
+            }
+            finally
+            {
+                EditorSceneManager.ClosePreviewScene(scene);
+            }
+        }
+
+        public static IndoorWalkGridData Build(Scene scene)
+        {
+            var roots = scene.GetRootGameObjects();
+            var origin = roots.SingleOrDefault(root => root.name == "BuildingOrigin")?.transform;
+            var building = roots.SingleOrDefault(root => root.name == "VEC_Building")?.transform;
+            if (origin == null || building == null)
+            {
+                Debug.LogError($"[WalkGrid] Missing BuildingOrigin or VEC_Building in {scene.path}.");
+                return null;
+            }
+
             var floors = new List<IndoorWalkFloor>();
-            // SampleScene places this scan relative to BuildingOrigin, in the same frame as the catalog.
-            // Composing the floor 1 + 2 instance's scene pose with IndoorMapFrame gives identity.
-            var upperPosition = IndoorMapFrame.ToMapSet(new Vector3(23.693075f, 5.62f, 21.074951f));
-            var upperRotation = Quaternion.Euler(0f, IndoorMapFrame.HeadingToMapSet(2.671f), 0f);
-            var topPosition = IndoorMapFrame.ToMapSet(new Vector3(24.884573f, 13.74f, 21.59459f));
-            var topRotation = Quaternion.Euler(0f, IndoorMapFrame.HeadingToMapSet(-2.593f), 0f);
             if (!AddFloors(floors, ScanPath, Vector3.zero, Quaternion.identity, LowerFloors)
-                || !AddFloors(floors, UpperScanPath, upperPosition, upperRotation, UpperFloors)
-                || !AddFloors(floors, TopScanPath, topPosition, topRotation, TopFloors)) return null;
+                || !AddSceneFloors(floors, UpperScanPath, building.Find("floor 3 + 4 (1)"), origin, UpperFloors)
+                || !AddSceneFloors(floors, TopScanPath, building.Find("floor 2 + 5 (1)"), origin, TopFloors)) return null;
             return new IndoorWalkGridData { floors = floors.ToArray() };
+        }
+
+        static bool AddSceneFloors(List<IndoorWalkFloor> output, string path, Transform scan, Transform origin,
+            (int floor, float y)[] floors)
+        {
+            if (scan == null || PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(scan.gameObject) != path)
+            {
+                Debug.LogError($"[WalkGrid] Missing the scene instance of {path}.");
+                return false;
+            }
+            var position = IndoorMapFrame.ToMapSet(origin.InverseTransformPoint(scan.position));
+            var angles = (Quaternion.Inverse(origin.rotation) * scan.rotation).eulerAngles;
+            var yaw = Mathf.Round(Mathf.DeltaAngle(0f, angles.y) * 1000f) / 1000f;
+            angles.y = IndoorMapFrame.HeadingToMapSet(yaw);
+            return AddFloors(output, path, position, Quaternion.Euler(angles), floors);
         }
 
         static bool AddFloors(List<IndoorWalkFloor> output, string path, Vector3 position, Quaternion rotation,
