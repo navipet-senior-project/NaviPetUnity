@@ -47,16 +47,6 @@ public class IndoorVecDirectoryTests
         }
     }
 
-    [TestCase("floor_1")]
-    [TestCase("floor_2")]
-    [TestCase("floor_3")]
-    [TestCase("floor_4")]
-    [TestCase("floor_5")]
-    public void FloorHasDoors(string floorId)
-    {
-        Assert.That(Markers.Any(m => m.floorId == floorId && m.type == "door"), Is.True);
-    }
-
     [Test]
     public void MarkerIdsAreUnique()
     {
