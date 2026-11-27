@@ -3013,7 +3013,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -885005532786185467, guid: 57b6a0b6ffe17644583fe53d6a40bad5, type: 3}
       propertyPath: floorId
-      value: floor_4
+      value: floor_5
       objectReference: {fileID: 0}
     - target: {fileID: -885005532786185467, guid: 57b6a0b6ffe17644583fe53d6a40bad5, type: 3}
       propertyPath: objectId
@@ -4174,7 +4174,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -885005532786185467, guid: 57b6a0b6ffe17644583fe53d6a40bad5, type: 3}
       propertyPath: floorId
-      value: floor_4
+      value: floor_5
       objectReference: {fileID: 0}
     - target: {fileID: -885005532786185467, guid: 57b6a0b6ffe17644583fe53d6a40bad5, type: 3}
       propertyPath: objectId

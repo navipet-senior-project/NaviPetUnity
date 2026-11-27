@@ -6,7 +6,7 @@ using UnityEngine;
 public class IndoorMapFrameTests
 {
     static readonly string VecDirectory = File.ReadAllText(
-        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
+        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"));
 
     // vec_destination_points, active doors, map_version 1: the same rows IndoorArDoorMeshTests copies.
     static readonly object[] BackendDoors =

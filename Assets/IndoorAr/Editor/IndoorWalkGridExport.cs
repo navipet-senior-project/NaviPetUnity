@@ -15,7 +15,7 @@ namespace IndoorAr.Editor
         public const string ScanPath = "Assets/building scans/floor 1 + 2.glb";
         public const string GridPath = "Assets/IndoorAr/Resources/IndoorWalkGrid.json";
         const string UpperScanPath = "Assets/building scans/floor 3 + 4.glb";
-        const string DirectoryPath = "Assets/IndoorNavigation/Data/vec_floors123.json";
+        const string DirectoryPath = "Assets/IndoorNavigation/Data/vec_floors12345.json";
         const float Cell = .25f;
         const float FloorToleranceM = .35f;
         const float BodyLowM = .4f;

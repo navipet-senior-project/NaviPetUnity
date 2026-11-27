@@ -83,7 +83,7 @@ The device log prints `[IndoorAr] sign pose room= status= solveUs=` when the sta
 
 ## Room identity and door poses (reuse, no second database)
 
-`Assets/IndoorNavigation/Data/vec_floors123.json` is the single directory. It holds the doors and other markers for floors 1–3. `IndoorMapExporter` exports them relative to `IndoorMapOrigin`. The walk grid aligns the floor 3 scan using its placement in `SampleScene` and the same `IndoorMapFrame` conversion as its room markers. `IndoorRoomIdentityMatcher` already turns sign text into a room ID from it; each `IndoorRoomLandmark` now also carries `DoorPositionInMap` and `DoorHeadingInMapDeg`.
+`Assets/IndoorNavigation/Data/vec_floors12345.json` is the single directory. It holds the doors and other markers for floors 1–5. `IndoorMapExporter` exports them relative to `IndoorMapOrigin`. The walk grid aligns the floor 3 scan using its placement in `SampleScene` and the same `IndoorMapFrame` conversion as its room markers. `IndoorRoomIdentityMatcher` already turns sign text into a room ID from it; each `IndoorRoomLandmark` now also carries `DoorPositionInMap` and `DoorHeadingInMapDeg`.
 
 The JSON frame is not the MapSet frame, but it differs by one rigid transform: yaw 5.356 degrees, offset (0.279, -2.212, 0.838) m (`IndoorMapFrame`). That was fitted on the 17 door rows copied from `vec_destination_points` (`IndoorArDoorMeshTests`) and holds to 0.0001 m, with the heading in the real VEC119 request (185.36) matching. `IndoorMapFrameTests` fails if the JSON or the transform drifts; re-derive the transform when the MapSet is re-aligned. The backend table stays authoritative for doors; the transform only reaches rooms or markers the request does not carry.
 

@@ -92,7 +92,7 @@ public class IndoorOcrFrameTests
         {
             var ocr = host.AddComponent<IndoorRoomMlKitOcr>();
             ocr.Configure(null, new TextAsset(File.ReadAllText(Path.Combine(
-                Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"))));
+                Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"))));
             IndoorRoomMatch match = null;
             var sighting = new IndoorSignObservation();
             ocr.Result += (_, roomMatch, _, observation) => { match = roomMatch; sighting = observation; };

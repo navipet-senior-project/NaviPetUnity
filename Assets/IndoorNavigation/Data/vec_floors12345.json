@@ -180,7 +180,7 @@
         {
             "id": "VECelev5B",
             "type": "elevator",
-            "floorId": "floor_4",
+            "floorId": "floor_5",
             "position": {
                 "x": -2.140000104904175,
                 "y": 16.753999710083009,
@@ -191,7 +191,7 @@
         {
             "id": "VECelev5A",
             "type": "elevator",
-            "floorId": "floor_4",
+            "floorId": "floor_5",
             "position": {
                 "x": -2.125,
                 "y": 16.729000091552736,
