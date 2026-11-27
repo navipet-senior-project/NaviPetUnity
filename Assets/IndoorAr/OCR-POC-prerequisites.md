@@ -8,7 +8,10 @@ For Android device validation, build and install the exported Unity AAR in the h
 
 The iOS adapter reads AR Foundation's existing CPU image stream, downsizes frames to at most 1920x1440, and submits a frame at most every 0.3 s while idle. Recognition runs on a background queue with Google ML Kit's bundled Latin text recognizer (linked into `UnityFramework` by the export; see [iOS dependencies and linking](../../docs/ios-export.md#arcore-api-key-for-outdoor-ar)). The plugin turns the frame upright itself and returns each word's four corner points in that upright image. If ML Kit or its model bundle is unavailable, or the frame cannot be read, the adapter reports `RecognizerUnavailable`; a valid frame with no text reports `NoText`. It does not switch OCR engines. ML Kit has linked but has not run on a phone. It does not restart the camera session, upload images, log OCR text, call MultiSet, or produce a pose by itself. Device recognition has not been validated, and neither has the time or heat cost of the larger frame; the `ocrMs=` value in each `[IndoorAr] sign read` log line is the capture-to-result time to tune it from.
 
-On both Android and iOS, scan at least one VEC room sign on each of floors 1–5. For each floor, record the returned text, match status, matched room, and matched floor. Verify the match against the sign and the floor where you scanned it. Repeat scans in portrait and landscape, in low light, and with soft focus. Check repeated scans for memory growth or rendering stalls. This repository has no device result yet.
+- **Android.** Scan one VEC room sign on each of floors 1–5. Record the printed sign text, the logged match status and room ID, and the floor shown in the HUD.
+- **iOS.** Scan one VEC room sign on each of floors 1–5. Record the printed sign text, the logged match status and room ID, and the floor shown in the HUD.
+
+Verify each match against the sign and the floor where you scanned it. Repeat scans in portrait and landscape, in low light, and with soft focus. Check repeated scans for memory growth or rendering stalls. This repository has no device result yet.
 
 ## Sign-assisted localization
 
