@@ -32,26 +32,33 @@ public class IndoorWalkGridTests
         }
     }
 
-    [Test]
-    public void RegeneratedGridFollowsBothUpperSceneScans()
+    [TestCase(1f, 0f)]
+    [TestCase(0f, -.25f)]
+    [TestCase(0f, .25f)]
+    public void RegeneratedGridFollowsBothUpperSceneScans(float shiftX, float shiftY)
     {
         var scene = EditorSceneManager.OpenPreviewScene("Assets/Scenes/SampleScene.unity");
         try
         {
             var building = scene.GetRootGameObjects().Single(root => root.name == "VEC_Building").transform;
-            var shift = Quaternion.Euler(0f, -IndoorMapFrame.YawDeg, 0f) * Vector3.right;
-            building.Find("floor 3 + 4 (1)").position += shift;
-            building.Find("floor 2 + 5 (1)").position -= shift;
+            var horizontalShift = Quaternion.Euler(0f, -IndoorMapFrame.YawDeg, 0f) * (Vector3.right * shiftX);
+            var verticalShift = Vector3.up * shiftY;
+            building.Find("floor 3 + 4 (1)").position += horizontalShift + verticalShift;
+            building.Find("floor 2 + 5 (1)").position += -horizontalShift + verticalShift;
 
             var regenerated = IndoorWalkGridExport.Build(scene);
             Assert.IsNotNull(regenerated);
             var expected = JsonUtility.FromJson<IndoorWalkGridData>(Scan).floors;
+            Assert.AreEqual(expected.Length, regenerated.floors.Length);
             foreach (var floor in regenerated.floors)
             {
                 var before = expected.Single(entry => entry.floor == floor.floor);
-                var offset = floor.floor == 5 ? -1f : floor.floor >= 3 ? 1f : 0f;
-                Assert.AreEqual(before.originX + offset, floor.originX, $"Floor {floor.floor} origin X");
+                var offsetX = floor.floor == 5 ? -shiftX : floor.floor >= 3 ? shiftX : 0f;
+                var offsetY = floor.floor >= 3 ? shiftY : 0f;
+                Assert.AreEqual(before.originX + offsetX, floor.originX, $"Floor {floor.floor} origin X");
                 Assert.AreEqual(before.originZ, floor.originZ, $"Floor {floor.floor} origin Z");
+                Assert.AreEqual(before.floorY + offsetY, floor.floorY, .001f, $"Floor {floor.floor} surface height");
+                CollectionAssert.AreEqual(before.rows, floor.rows, $"Floor {floor.floor} walkable cells");
             }
         }
         finally

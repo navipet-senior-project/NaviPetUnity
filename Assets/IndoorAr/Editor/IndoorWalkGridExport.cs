@@ -25,9 +25,9 @@ namespace IndoorAr.Editor
         const float BodyLowM = .4f;
         const float BodyHighM = 1.4f;
         // shortcut: floor heights read off the door rows (vec_destination_points), re-check if a floor is added.
-        static readonly (int floor, float y)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
-        static readonly (int floor, float y)[] UpperFloors = { (3, 6f), (4, 10.1f) };
-        static readonly (int floor, float y)[] TopFloors = { (5, 14.5f) };
+        static readonly (int floor, float offsetY)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
+        static readonly (int floor, float offsetY)[] UpperFloors = { (3, 2.5916f), (4, 6.6916f) };
+        static readonly (int floor, float offsetY)[] TopFloors = { (5, 2.9716f) };
 
         /// <summary>
         /// A reviewed doorway the body-band raycast blocks: cells whose centre is inside the rectangle (MapSet metres)
@@ -96,7 +96,7 @@ namespace IndoorAr.Editor
         }
 
         static bool AddSceneFloors(List<IndoorWalkFloor> output, string path, Transform scan, Transform origin,
-            (int floor, float y)[] floors)
+            (int floor, float offsetY)[] floors)
         {
             if (scan == null || PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(scan.gameObject) != path)
             {
@@ -111,7 +111,7 @@ namespace IndoorAr.Editor
         }
 
         static bool AddFloors(List<IndoorWalkFloor> output, string path, Vector3 position, Quaternion rotation,
-            (int floor, float y)[] floors)
+            (int floor, float offsetY)[] floors)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (prefab == null)
@@ -133,9 +133,9 @@ namespace IndoorAr.Editor
                     any = true;
                 }
                 Physics.SyncTransforms();
-                foreach (var (floor, y) in floors)
+                foreach (var (floor, offsetY) in floors)
                 {
-                    var grid = Rasterize(floor, y, bounds);
+                    var grid = Rasterize(floor, position.y + offsetY, bounds);
                     if (grid == null)
                     {
                         Debug.LogError($"[WalkGrid] No walkable cells on floor {floor} of {path}.");
