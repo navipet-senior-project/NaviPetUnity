@@ -17,6 +17,7 @@ namespace IndoorAr.Editor
     {
         public const string ScanPath = "Assets/building scans/floor 1 + 2.glb";
         public const string GridPath = "Assets/IndoorAr/Resources/IndoorWalkGrid.json";
+        const string SampleScenePath = "Assets/Scenes/SampleScene.unity";
         const string UpperScanPath = "Assets/building scans/floor 3 + 4.glb";
         const string TopScanPath = "Assets/building scans/floor 2 + 5.glb";
         const string DirectoryPath = "Assets/IndoorNavigation/Data/vec_floors12345.json";
@@ -66,7 +67,14 @@ namespace IndoorAr.Editor
 
         public static IndoorWalkGridData Build()
         {
-            var scene = EditorSceneManager.OpenPreviewScene("Assets/Scenes/SampleScene.unity");
+            var loaded = SceneManager.GetSceneByPath(SampleScenePath);
+            if (loaded.IsValid() && loaded.isLoaded && loaded.isDirty)
+            {
+                Debug.LogError("[WalkGrid] Save SampleScene before rebuilding the walk grid.");
+                return null;
+            }
+
+            var scene = EditorSceneManager.OpenPreviewScene(SampleScenePath);
             try
             {
                 return Build(scene);

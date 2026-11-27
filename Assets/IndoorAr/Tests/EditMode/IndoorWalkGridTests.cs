@@ -15,6 +15,26 @@ public class IndoorWalkGridTests
     static readonly string Scan = Resources.Load<TextAsset>("IndoorWalkGrid").text;
 
     [Test]
+    public void RegeneratedGridRejectsUnsavedSampleSceneChanges()
+    {
+        var scene = EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity", OpenSceneMode.Additive);
+        try
+        {
+            var building = scene.GetRootGameObjects().Single(root => root.name == "VEC_Building").transform;
+            building.Find("floor 2 + 5 (1)").position += Vector3.right;
+            Assert.IsTrue(EditorSceneManager.MarkSceneDirty(scene));
+
+            LogAssert.Expect(LogType.Error, "[WalkGrid] Save SampleScene before rebuilding the walk grid.");
+            Assert.IsNull(IndoorWalkGridExport.Build());
+            Assert.IsTrue(scene.isDirty);
+        }
+        finally
+        {
+            EditorSceneManager.CloseScene(scene, true);
+        }
+    }
+
+    [Test]
     public void RegeneratedGridMatchesBakedGrid()
     {
         var expected = JsonUtility.FromJson<IndoorWalkGridData>(Scan).floors;
