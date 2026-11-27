@@ -9,7 +9,7 @@ using UnityEngine.TestTools;
 public class IndoorWalkGridTests
 {
     static readonly string Directory = File.ReadAllText(
-        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
+        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"));
     static readonly string Scan = Resources.Load<TextAsset>("IndoorWalkGrid").text;
 
     // 1 m cells, north is the last row. An L-shaped hallway with a wall between its two ends.

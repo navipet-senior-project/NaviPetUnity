@@ -988,7 +988,7 @@ public class IndoorArRunnerTests
     public void RoomSignShowsFloorThenMultiSetPoseShowsArrowInTheSameSession()
     {
         var directory = System.IO.File.ReadAllText(
-            System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
+            System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"));
         var ocr = _host.AddComponent<IndoorRoomMlKitOcr>();
         ocr.Configure(null, new TextAsset(directory));
         var localizer = _host.AddComponent<RunnerFakeLocalizer>();
@@ -1053,7 +1053,7 @@ public class IndoorArRunnerTests
     public void SameSignRecoversAfterVpsDeadlineWithoutRestartingCamera(bool delayedAuth)
     {
         var directory = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath,
-            "IndoorNavigation/Data/vec_floors123.json"));
+            "IndoorNavigation/Data/vec_floors12345.json"));
         var ocr = _host.AddComponent<IndoorRoomMlKitOcr>();
         ocr.Configure(null, new TextAsset(directory));
         var androidOcr = _host.AddComponent<IndoorRoomOcrDemo>();
@@ -1429,7 +1429,7 @@ public class IndoorArRunnerTests
     {
         var grid = IndoorWalkGrid.ForFloor(Resources.Load<TextAsset>("IndoorWalkGrid").text, 1);
         var directory = System.IO.File.ReadAllText(System.IO.Path.Combine(Application.dataPath,
-            "IndoorNavigation/Data/vec_floors123.json"));
+            "IndoorNavigation/Data/vec_floors12345.json"));
         var door = IndoorRoomIdentityMatcher.MatchSign("VEC136", directory).Landmark.DoorPositionInMap;
         Assert.IsTrue(IndoorArContract.TryParseRequest(_request, out var request));
         request.room = "136";
@@ -1640,7 +1640,7 @@ public class IndoorArRunnerTests
         int fromFloor, string startId, int toFloor, string room, string connectorType)
     {
         var directory = System.IO.File.ReadAllText(
-            System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
+            System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"));
         var ocr = _host.AddComponent<IndoorRoomMlKitOcr>();
         ocr.Configure(null, new TextAsset(directory));
         var runner = Runner();
@@ -1727,7 +1727,7 @@ public class IndoorArRunnerTests
         session.OnArSupport(true);
         session.OnAuthenticated();
         var directory = System.IO.File.ReadAllText(
-            System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
+            System.IO.Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"));
         var started = Field<float>(runner, "_sessionStarted");
         const string occupancy = "MAXIMUM OCCUPANCY FOR THIS\nROOM\n119\nPERSONS";
         foreach (var text in new[] { occupancy, occupancy, "119", "119" })

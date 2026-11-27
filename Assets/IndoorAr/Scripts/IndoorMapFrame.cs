@@ -3,7 +3,7 @@ using UnityEngine;
 namespace IndoorAr
 {
     /// <summary>
-    /// Carries a pose from the Unity exporter frame (vec_floors123.json, relative to IndoorMapOrigin) into the
+    /// Carries a pose from the Unity exporter frame (vec_floors12345.json, relative to IndoorMapOrigin) into the
     /// MultiSet MapSet frame that vec_destination_points and the Flutter request use. The 17 door rows in the
     /// backend match the 17 exported doors under this one rigid transform with 0.0001 m residual, so every marker
     /// in the JSON (entrances, stairs and so on) maps the same way. Re-derive these numbers if the MapSet is
