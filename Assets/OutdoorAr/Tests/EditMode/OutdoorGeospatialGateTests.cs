@@ -138,6 +138,20 @@ namespace OutdoorAr.Tests
             Assert.AreEqual(expected, OutdoorGeospatialGate.CanGuide(state));
         }
 
+        [TestCase(TrackingState.Tracking, 11, 5, true)]
+        [TestCase(TrackingState.Tracking, 2, 21, true)]
+        [TestCase(TrackingState.Limited, 2, 5, false)]
+        [TestCase(TrackingState.None, 2, 5, false)]
+        public void RetainsAnchorsOnlyDuringAccuracyDipsWhenTrackingIsUncertain(
+            TrackingState tracking, double horizontal, double heading, bool retain)
+        {
+            var state = EvaluateReady(tracking: tracking, horizontal: horizontal, heading: heading);
+            Assert.AreEqual(OutdoorArState.TrackingUncertain, state);
+            Assert.AreEqual(retain, OutdoorGeospatialGate.CanKeepGuidanceAnchor(state, tracking));
+            Assert.IsFalse(OutdoorGeospatialGate.CanGuide(state));
+            Assert.IsFalse(OutdoorGeospatialGate.CanArrive(OutdoorGeospatialGate.CanPlaceGuidanceAnchor(state), 1));
+        }
+
         [TestCase(true, 0, true)]
         [TestCase(true, 10, true)]
         [TestCase(true, 10.01, false)]

@@ -6,7 +6,7 @@ using UnityEngine;
 public class IndoorRoomIdentityMatcherTests
 {
     static readonly string VecDirectory = File.ReadAllText(
-        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
 
     [TestCase(" VEC 119 ")]
     [TestCase("Room 119")]
@@ -60,7 +60,11 @@ public class IndoorRoomIdentityMatcherTests
 
     [TestCase("VEC 215", "VEC215", "floor_2")]
     [TestCase("ROOM\nVEC 120\nCLASSROOM", "VEC120", "floor_1")]
-    [TestCase("120\n120", "VEC120", "floor_1")]
+    [TestCase("ROOM\r\n120", "VEC120", "floor_1")]
+    [TestCase("VEC 119\nMAXIMUM OCCUPANCY 215", "VEC119", "floor_1")]
+    [TestCase("VEC 215\nMAXIMUM OCCUPANCY\nROOM 119\nPERSONS", "VEC215", "floor_2")]
+    [TestCase("VEC 301\nMAXIMUM OCCUPANCY 119", "VEC301", "floor_3")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS\nROOM\n119\nPERSONS\nVEC\n301", "VEC301", "floor_3")]
     public void SignMatchesAnyFloorFromAnyLine(string text, string id, string floor)
     {
         var result = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
@@ -82,7 +86,7 @@ public class IndoorRoomIdentityMatcherTests
         Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber,
             IndoorRoomIdentityMatcher.MatchSign("  ", VecDirectory).Status);
         Assert.AreEqual(IndoorRoomMatchStatus.MissingBuilding,
-            IndoorRoomIdentityMatcher.MatchSign("119", "{}").Status);
+            IndoorRoomIdentityMatcher.MatchSign("VEC 119", "{}").Status);
     }
 
     [Test]
@@ -101,7 +105,7 @@ public class IndoorRoomIdentityMatcherTests
     }
 
     [TestCase("VEC 119 VEC 120")]
-    [TestCase("119 120")]
+    [TestCase("VEC 119 ROOM 120")]
     public void SignWithTwoRoomsOnOneLineIsAmbiguous(string text)
     {
         Assert.AreEqual(IndoorRoomMatchStatus.Ambiguous,
@@ -129,5 +133,39 @@ public class IndoorRoomIdentityMatcherTests
         var result = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
         Assert.AreEqual(IndoorRoomMatchStatus.Matched, result.Status);
         Assert.AreEqual("VEC119", result.Landmark.Id);
+    }
+
+    [TestCase("FIRE CODE LIMIT FOR THIS\nROOM\n119")]
+    [TestCase("119")]
+    [TestCase("119 120")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS ROOM\n119")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS ROOM\n119 PERSONS")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS\nROOM\n119\nPERSONS")]
+    [TestCase("MAXIMUM OCCUPANCY FOR THIS\nROOM 119\nPERSONS")]
+    [TestCase("ROOM\n119\nPERSONS")]
+    [TestCase("THIS ROOM 119")]
+    [TestCase("ROOM 119 PERSONS")]
+    public void TextWithoutACompleteRoomLabelCannotIdentifyAFloor(string text)
+    {
+        var match = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
+        Assert.AreEqual(IndoorRoomMatchStatus.InvalidRoomNumber, match.Status);
+        Assert.IsNull(match.Landmark);
+    }
+
+    [TestCase("ROOM 119\nMAXIMUM OCCUPANCY 40 PERSONS")]
+    [TestCase("MAXIMUM OCCUPANCY 40 PERSONS\nROOM 119")]
+    [TestCase("ROOM\n119\nMAXIMUM OCCUPANCY 40 PERSONS")]
+    public void RoomLabelBesideASeparateOccupancyNoticeStillMatches(string text)
+    {
+        var match = IndoorRoomIdentityMatcher.MatchSign(text, VecDirectory);
+        Assert.AreEqual(IndoorRoomMatchStatus.Matched, match.Status);
+        Assert.AreEqual("VEC119", match.Landmark.Id);
+    }
+
+    [Test]
+    public void RoomLabelAndAnotherRoomLabelBesideOccupancyNoticeAreAmbiguous()
+    {
+        Assert.AreEqual(IndoorRoomMatchStatus.Ambiguous,
+            IndoorRoomIdentityMatcher.MatchSign("ROOM 119\nMAXIMUM OCCUPANCY 40 PERSONS\nVEC 120", VecDirectory).Status);
     }
 }

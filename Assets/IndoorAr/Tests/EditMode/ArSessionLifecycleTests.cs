@@ -31,6 +31,26 @@ public class ArSessionLifecycleTests
         Assert.IsFalse(toreDown);
     }
 
+    [TestCase(true, false, true)]  // outdoor exit: the loader goes down
+    [TestCase(true, true, false)]  // indoor exit keeps the loader, so the next entry reuses its XR input device
+    [TestCase(false, false, false)]
+    [TestCase(false, true, false)]
+    public void OnlyAnOutdoorExitTearsTheLoaderDown(bool loaderActive, bool keepLoader, bool expected)
+    {
+        Assert.AreEqual(expected, ArSessionLifecycle.ShouldTearDownOnExit(loaderActive, keepLoader));
+        var toreDown = false;
+        ArSessionLifecycle.ApplyExit(ArSessionLifecycle.ShouldTearDownOnExit(loaderActive, keepLoader), () => { }, () => toreDown = true);
+        Assert.AreEqual(expected, toreDown);
+    }
+
+    [Test]
+    public void ReEntryOfAKeptLoaderNeedsNoInitializeAndNoXrCameraFallback()
+    {
+        Assert.IsFalse(ArSessionLifecycle.ShouldInitialize(true), "the kept loader is already active");
+        Assert.IsFalse(ArSessionLifecycle.StartNeedsLoader(false, true, false), "a reloaded scene finds it running");
+        Assert.IsFalse(ArSessionLifecycle.LoaderRestarted, "no restart means XrCameraPose is never attached");
+    }
+
     [Test]
     public void NextEntryInitializesOnlyWhenTheLoaderIsDown()
     {

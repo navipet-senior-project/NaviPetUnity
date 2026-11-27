@@ -1,6 +1,8 @@
 using System;
 using System.Globalization;
 using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 namespace IndoorAr
@@ -67,6 +69,36 @@ namespace IndoorAr
         /// step-free segments, so a true navigation request returns unavailable; localize-only requests need no route.
         /// </summary>
         public bool stepFree;
+        /// <summary>
+        /// Optional, versioned by floorEvidenceVersion (only 1 is understood; absent or any other value means none).
+        /// The floor the user confirmed they stand on (never the destination floor), how long ago, and what the
+        /// barometer did since. Trusted only when the pressure summary says the level is settled and unchanged.
+        /// </summary>
+        public int floorEvidenceVersion;
+        public string startFloor;
+        public double startFloorAgeS;
+        public IndoorArPressureSummary pressureSinceStart;
+        internal double? RequestSentAtBootS { get; set; }
+        /// <summary>Optional host features. Absent from legacy hosts, which still require checkDistanceM on every arrival.</summary>
+        public string[] capabilities;
+        /// <summary>The host accepts an arrived result without checkDistanceM when it carries the destination signRoom.</summary>
+        public bool SupportsSignArrival => capabilities != null && Array.IndexOf(capabilities, IndoorArContract.SignArrivalCapability) >= 0;
+    }
+
+    /// <summary>Host barometer summary since the user confirmed their floor. No raw or absolute pressure.</summary>
+    [Serializable]
+    public class IndoorArPressureSummary
+    {
+        public bool settled;
+        public bool moved;
+        public double sampleAgeS;
+        /// <summary>
+        /// Optional. Signed change of the host's settled level since the confirmation, hPa (negative: pressure fell, so
+        /// the user went up). Relative only. Used only when <see cref="deltaValid"/>.
+        /// </summary>
+        [NonSerialized] public double deltaHpa;
+        /// <summary>Set by the parser, never read from the wire: deltaHpa was present, finite, bounded and agrees with settled and moved.</summary>
+        [NonSerialized] public bool deltaValid;
     }
 
     /// <summary>Flutter sends arToken as an object. JsonUtility cannot put that object in a string.</summary>
@@ -81,6 +113,8 @@ namespace IndoorAr
     {
         public const int SchemaVersion = 1;
         public const int SchemaVersionV2 = 2;
+        public const string SignArrivalCapability = "signArrival";
+        public const int FloorEvidenceVersion = 1;
         public const string RequestExtra = "navipet.indoorAr.request";
         public const string BadRequest = "BAD_REQUEST";
         public const string Frame = "multiset-mapset";
@@ -140,9 +174,52 @@ namespace IndoorAr
             {
                 return false;
             }
+            if (parsed.schemaVersion != SchemaVersionV2 || parsed.floorEvidenceVersion != FloorEvidenceVersion
+                || parsed.pressureSinceStart == null || !ValidateFloorEvidence(json, parsed))
+                parsed.pressureSinceStart = null;
             request = parsed;
             return true;
         }
+
+        static bool ValidateFloorEvidence(string json, IndoorArRequest request)
+        {
+            try
+            {
+                var fields = JObject.Parse(json);
+                var version = fields["floorEvidenceVersion"];
+                if (version?.Type != JTokenType.Integer || (double)version != FloorEvidenceVersion
+                    || fields["startFloor"]?.Type != JTokenType.String
+                    || !IsAgeWithin(fields["startFloorAgeS"], IndoorFloorBarometer.MaxAnchorAgeS)
+                    || fields["pressureSinceStart"] is not JObject pressure
+                    || pressure["settled"]?.Type != JTokenType.Boolean
+                    || pressure["moved"]?.Type != JTokenType.Boolean
+                    || !IsAgeWithin(pressure["sampleAgeS"], IndoorFloorBarometer.MaxSampleGapS))
+                    return false;
+                var summary = request.pressureSinceStart;
+                var delta = pressure["deltaHpa"];
+                if (summary.settled && delta?.Type is (JTokenType.Integer or JTokenType.Float))
+                {
+                    var change = (double)delta;
+                    var magnitude = Math.Abs(change);
+                    if (magnitude <= IndoorFloorBarometer.MaxDeltaHpa
+                        && (magnitude >= IndoorFloorBarometer.WireMoveHpa) == summary.moved)
+                    {
+                        summary.deltaHpa = change;
+                        summary.deltaValid = true;
+                    }
+                }
+                var sentAt = fields["requestSentAtBootS"];
+                if (IsAgeWithin(sentAt, double.MaxValue)) request.RequestSentAtBootS = (double)sentAt;
+                return true;
+            }
+            catch (JsonReaderException)
+            {
+                return false;
+            }
+        }
+
+        static bool IsAgeWithin(JToken age, double maxS) =>
+            age?.Type is JTokenType.Integer or JTokenType.Float && (double)age >= 0 && (double)age <= maxS;
 
         public const int MaxRouteWaypoints = 1000;
 
@@ -186,6 +263,13 @@ namespace IndoorAr
                 || (confidence.HasValue && (float.IsNaN(confidence.Value) || float.IsInfinity(confidence.Value)))
                 ? Error(BadRequest, localizationQueries, durationMs)
                 : Build("arrived", checkDistanceM, null, localizationQueries, durationMs, confidence);
+
+        /// <summary>
+        /// A sign-confirmed arrival with no measured distance, for hosts that sent the signArrival capability.
+        /// Never send it to a legacy host: that host rejects an arrival without checkDistanceM.
+        /// </summary>
+        public static string ArrivedBySign(int localizationQueries, long durationMs) =>
+            Build("arrived", null, null, localizationQueries, durationMs);
 
         public static string Cancelled(int localizationQueries, long durationMs) =>
             Build("cancelled", null, null, localizationQueries, durationMs);

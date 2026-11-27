@@ -8,8 +8,9 @@ using UnityEngine.XR.Management;
 namespace IndoorAr
 {
     /// <summary>
-    /// User exit stops the XR loader and does not start another one in that entry.
-    /// The camera-failure restart is a different path. The next entry initializes a loader only when none is running.
+    /// Outdoor exit stops the XR loader and does not start another one in that entry. Indoor exit only disables the
+    /// AR components and keeps the loader (see <see cref="StopSessionsAndTearDown"/>). The camera-failure restart is a
+    /// different path. The next entry initializes a loader only when none is running.
     /// </summary>
     public static class ArSessionLifecycle
     {
@@ -33,13 +34,22 @@ namespace IndoorAr
             if (loaderActive) tearDownLoader();
         }
 
-        public static void StopSessionsAndTearDown()
+        /// <summary>Only a loader that is up and not being kept is torn down.</summary>
+        public static bool ShouldTearDownOnExit(bool loaderActive, bool keepLoader) => loaderActive && !keepLoader;
+
+        /// <summary>
+        /// keepLoader is the indoor exit. A second loader in the same process never got its XR input device back on
+        /// device (every in-process re-entry froze the camera pose in the 2026-11-19 and 2026-11-20 runs, no first entry did), so the first one
+        /// stays up and only the AR components stop. Not device-verified: the black camera feed that the exit
+        /// teardown was added for (before #23) may return, and then the loader must be torn down again.
+        /// </summary>
+        public static void StopSessionsAndTearDown(bool keepLoader = false)
         {
             if (Application.platform != RuntimePlatform.IPhonePlayer) return;
-            ApplyExit(LoaderActive, DisableArComponents, TearDownActiveLoader);
+            ApplyExit(ShouldTearDownOnExit(LoaderActive, keepLoader), DisableArComponents, TearDownActiveLoader);
         }
 
-        public static IEnumerator InitializeOnEntry()
+        public static IEnumerator InitializeOnEntry(bool probeInput = false)
         {
             if (Application.platform != RuntimePlatform.IPhonePlayer || !ShouldInitialize(LoaderActive)) yield break;
             var manager = Manager;
@@ -65,6 +75,7 @@ namespace IndoorAr
                 yield break;
             }
             manager.StartSubsystems();
+            if (probeInput) ArXrInputProbe.Probe();
             LoaderRestarted = true;
             DriveCameraFromXrInput();
             Debug.Log("[ArSession] entry loader started");

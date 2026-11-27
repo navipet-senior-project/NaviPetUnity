@@ -1,12 +1,15 @@
+using System.Collections.Generic;
 using System.IO;
 using IndoorAr;
+using IndoorAr.Editor;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 public class IndoorWalkGridTests
 {
     static readonly string Directory = File.ReadAllText(
-        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors1and2.json"));
+        Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors123.json"));
     static readonly string Scan = Resources.Load<TextAsset>("IndoorWalkGrid").text;
 
     // 1 m cells, north is the last row. An L-shaped hallway with a wall between its two ends.
@@ -101,7 +104,7 @@ public class IndoorWalkGridTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void MissingOrUncheckedRouteHidesArrowAndKeepsRoomDirections(bool uncheckedRoute)
+    public void MissingOrUncheckedRouteHidesArrow(bool uncheckedRoute)
     {
         var grid = Hall();
         var camera = new Vector3(.5f, 0f, 2.5f);
@@ -116,13 +119,11 @@ public class IndoorWalkGridTests
         session.OnAuthenticated();
         session.OnLocalized();
         if (uncheckedRoute) route = new[] { camera, door };
-        const string directions = "From the room sign, follow the hallway toward VEC 119.";
-        var view = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route,
-            roomDirections: directions);
+        var view = LiveDoorHud.Compose(session, camera, Vector3.forward, 10f, route);
         Assert.IsTrue(view.RouteBlocked);
         Assert.IsFalse(view.FollowingRoute);
         Assert.AreEqual("Route unavailable", view.TitleOverride);
-        Assert.AreEqual(directions, view.DetailOverride);
+        Assert.AreEqual("No clear hallway route from your position.", view.DetailOverride);
         var host = new GameObject("Unreachable route HUD");
         try
         {
@@ -258,8 +259,12 @@ public class IndoorWalkGridTests
             Assert.IsTrue(crossesBlockedCell);
             Assert.IsFalse(grid.IsWalkable(178, 84));
         }
+        if (floor == 1)
+        {
+            Assert.IsFalse(grid.TryNextWaypoint(route, camera, 1f, out _));
+            return;
+        }
         Assert.IsTrue(grid.TryNextWaypoint(route, camera, 1f, out var target));
-        if (floor == 1) Assert.AreEqual(grid.CenterOf(x, z), target);
         for (var i = 0; i <= 1000; i++)
         {
             var point = Vector3.Lerp(camera, target, i / 1000f);
@@ -299,6 +304,36 @@ public class IndoorWalkGridTests
         Assert.IsFalse(view.FollowingRoute);
     }
 
+    [Test]
+    public void BlockedWaypointAheadNeverFallsBackToOneBehindTheUser()
+    {
+        var grid = Corner(
+            "11111",
+            "00001",
+            "00001",
+            "00000",
+            "00001");
+        var route = new[] { new Vector3(.5f, 0f, .5f), new Vector3(4.5f, 0f, .5f), new Vector3(4.5f, 0f, 4.5f) };
+        // Past the corner on the way to the goal, which a blocked cell cuts off: the corner is clear but behind.
+        Assert.IsFalse(grid.TryNextWaypoint(route, new Vector3(4.5f, 1.5f, 2.5f), 1f, out _));
+        Assert.IsFalse(grid.TryNextWaypoint(route, new Vector3(4.5f, 1.5f, 1.5f), 1f, out _));
+        // Still on the first leg, the corner is ahead and is chosen.
+        Assert.IsTrue(grid.TryNextWaypoint(route, new Vector3(2.5f, 1.5f, .5f), 1f, out var target));
+        Assert.AreEqual(route[1], target);
+    }
+
+    [Test]
+    public void CameraInABlockedCellSteersFromTheNearestWalkableCell()
+    {
+        var hall = Hall();
+        hall.TryRoute(new Vector3(.5f, 0f, .5f), new Vector3(4.5f, 0f, 4.5f), out var route);
+        var camera = new Vector3(1.5f, 1.5f, 1.2f);
+        Assert.IsFalse(hall.IsWalkable(hall.ColumnOf(camera.x), hall.RowOf(camera.z)));
+        Assert.IsTrue(hall.TryNextWaypoint(route, camera, 1f, out var target));
+        Assert.AreEqual(route[1], target);
+        Assert.IsFalse(hall.TryNextWaypoint(route, new Vector3(-9f, 1.5f, .5f), 1f, out _), "off the scan stays unrouted");
+    }
+
     // Every mapped door on a floor reaches stairs or an elevator on the scan, so a wrong-floor user gets a route.
     [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
     [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
@@ -308,13 +343,13 @@ public class IndoorWalkGridTests
         var connectors = IndoorRoomIdentityMatcher.FloorConnectors(Directory, floor);
         Assert.AreEqual(4, connectors.Count, "two stairs and two elevators per floor");
         var reachable = "";
-        foreach (var (type, at) in connectors)
+        foreach (var (_, type, at) in connectors)
             reachable += grid.TryRoute(Door(rooms[0]), at, out _) ? type + " " : "- ";
         TestContext.WriteLine($"floor {floor} from {rooms[0]}: {reachable}");
         foreach (var room in rooms)
         {
             var any = false;
-            foreach (var (_, at) in connectors) any |= grid.TryRoute(Door(room), at, out _);
+            foreach (var (_, _, at) in connectors) any |= grid.TryRoute(Door(room), at, out _);
             Assert.IsTrue(any, room);
         }
     }
@@ -352,5 +387,184 @@ public class IndoorWalkGridTests
             }
         }
         Assert.IsFalse(grid.TryRoute(new Vector3(-30f, 0f, 5f), to, out _), "a point outside the scanned hallway has no route");
+    }
+
+    // 1 m cells, origin 0, floor 1. Two walkable blocks split by a blocked column at x = 3; the left block is bigger.
+    static IndoorWalkFloor Split() => new IndoorWalkFloor
+    {
+        floor = 1, cell = 1f, width = 6, height = 3,
+        rows = new[] { "111011", "111011", "111011" }
+    };
+
+    // Directory JSON with one marker per MapSet point, written in the exporter frame the file really uses.
+    static string Markers(params (string id, float x, float z)[] markers)
+    {
+        var objects = "";
+        foreach (var (id, x, z) in markers)
+        {
+            var p = Quaternion.Inverse(Quaternion.Euler(0f, IndoorMapFrame.YawDeg, 0f)) * (new Vector3(x, 0f, z) - IndoorMapFrame.Offset);
+            objects += (objects == "" ? "" : ",") + "{\"id\":\"" + id + "\",\"type\":\"door\",\"floorId\":\"floor_1\"," +
+                "\"position\":{\"x\":" + p.x.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                ",\"y\":0,\"z\":" + p.z.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "},\"rotationY\":0}";
+        }
+        return "{\"buildingId\":\"T\",\"objects\":[" + objects + "]}";
+    }
+
+    [Test]
+    public void ExportGateFlagsAMarkerThatSnapsOntoAnIslandOrOffTheFloor()
+    {
+        var data = new IndoorWalkGridData { floors = new[] { Split() } };
+        var directory = Markers(("MAIN", .5f, 1.5f), ("ISLAND", 5.5f, 1.5f), ("OFF", 40f, 40f));
+        var flagged = IndoorWalkGridExport.OffRegionMarkers(data, directory);
+        CollectionAssert.AreEquivalent(new[] { "ISLAND", "OFF" }, flagged);
+        LogAssert.Expect(LogType.Warning, "[WalkGrid] Markers off their floor's main walk region: ISLAND, OFF.");
+        IndoorWalkGridExport.WarnOffRegionMarkers(data, directory);
+    }
+
+    [Test]
+    public void DiagonalOnlyContactDoesNotJoinARegionBecauseRoutingCannotCutCorners()
+    {
+        var floor = Split();
+        floor.width = 4;
+        floor.rows = new[] { "1100", "1100", "0011" };
+        var data = new IndoorWalkGridData { floors = new[] { floor } };
+        CollectionAssert.AreEquivalent(new[] { "SMALL" },
+            IndoorWalkGridExport.OffRegionMarkers(data, Markers(("BIG", .5f, 1.5f), ("SMALL", 3.5f, 2.5f))));
+        Assert.IsFalse(IndoorWalkGrid.ForFloor(JsonUtility.ToJson(data), 1).TryRoute(
+            new Vector3(.5f, 0f, 1.5f), new Vector3(3.5f, 0f, 2.5f), out _));
+    }
+
+    [Test]
+    public void DoorwayOverrideJoinsTheIslandAndTheGateClears()
+    {
+        var floor = Split();
+        var data = new IndoorWalkGridData { floors = new[] { floor } };
+        var directory = Markers(("MAIN", .5f, 1.5f), ("ISLAND", 5.5f, 1.5f));
+        Assert.IsFalse(IndoorWalkGrid.ForFloor(JsonUtility.ToJson(data), 1).TryRoute(
+            new Vector3(.5f, 0f, 1.5f), new Vector3(5.5f, 0f, 1.5f), out _), "blocked doorway");
+        // A doorway one cell wide at row z = 1, and an override for another floor that must not touch this one.
+        IndoorWalkGridExport.ApplyOverrides(floor, new[]
+        {
+            new IndoorWalkGridExport.DoorwayOverride(1, 3.4f, 1.4f, 3.6f, 1.6f, "test doorway"),
+            new IndoorWalkGridExport.DoorwayOverride(2, 0f, 0f, 9f, 9f, "other floor"),
+        });
+        CollectionAssert.AreEqual(new[] { "111011", "111111", "111011" }, floor.rows, "only the doorway cell changed");
+        Assert.IsEmpty(IndoorWalkGridExport.OffRegionMarkers(data, directory));
+        Assert.IsTrue(IndoorWalkGrid.ForFloor(JsonUtility.ToJson(data), 1).TryRoute(
+            new Vector3(.5f, 0f, 1.5f), new Vector3(5.5f, 0f, 1.5f), out _));
+    }
+
+    [Test]
+    public void ShippedGridFlagsStairsAAndEntranceCMarkers()
+    {
+        var data = JsonUtility.FromJson<IndoorWalkGridData>(Scan);
+        CollectionAssert.AreEquivalent(new[] { "VECstairsF2A", "VECentr1C" },
+            IndoorWalkGridExport.OffRegionMarkers(data, Directory));
+    }
+
+    // ---- Hint walk simulation: REAL floor-2 directory, walk grid and floor heights; MOCKED barometer evidence and server.
+    // It shows how the Y band relates to a walk on the scanned floor. It is not proof of MultiSet server or device
+    // behavior: the stand-in server below is a pure Y filter, which is the documented hintFloorHeight rule, nothing more.
+    const float StandingEyeM = 1.5f, SeatedEyeM = 1.0f, WalkStepM = 0.7f;
+
+    static IndoorArRequest HostMoved(float deltaHpa) => new IndoorArRequest
+    {
+        schemaVersion = 2, room = "215", doorKey = "VEC215", floor = "2", mapCode = "MSET_X", frame = "multiset-mapset",
+        floorEvidenceVersion = 1, startFloor = "1", startFloorAgeS = 60f,
+        pressureSinceStart = new IndoorArPressureSummary { settled = true, moved = true, sampleAgeS = 1f, deltaHpa = deltaHpa, deltaValid = true },
+    };
+
+    static List<Vector3> Walk(Vector3[] route)
+    {
+        var points = new List<Vector3> { route[0] };
+        var carry = 0f;
+        for (var i = 1; i < route.Length; i++)
+        {
+            var leg = Vector3.Distance(route[i - 1], route[i]);
+            for (var at = WalkStepM - carry; at <= leg; at += WalkStepM)
+                points.Add(Vector3.Lerp(route[i - 1], route[i], at / leg));
+            carry = (carry + leg) % WalkStepM;
+        }
+        points.Add(route[route.Length - 1]);
+        return points;
+    }
+
+    // 1 m squares, north up. S start, G pin, * walked, . scanned walkable.
+    static string Sketch(IndoorWalkGrid grid, List<Vector3> walk)
+    {
+        float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+        foreach (var p in walk)
+        {
+            minX = Mathf.Min(minX, p.x); maxX = Mathf.Max(maxX, p.x); minZ = Mathf.Min(minZ, p.z); maxZ = Mathf.Max(maxZ, p.z);
+        }
+        minX = Mathf.Floor(minX) - 2; minZ = Mathf.Floor(minZ) - 2; maxX = Mathf.Ceil(maxX) + 2; maxZ = Mathf.Ceil(maxZ) + 2;
+        var sb = new System.Text.StringBuilder();
+        for (var z = maxZ; z >= minZ; z--)
+        {
+            for (var x = minX; x <= maxX; x++)
+            {
+                var c = new Vector3(x + .5f, grid.FloorY, z + .5f);
+                bool Within(Vector3 p) => Mathf.Abs(p.x - c.x) <= .5f && Mathf.Abs(p.z - c.z) <= .5f;
+                sb.Append(Within(walk[0]) ? 'S' : Within(walk[walk.Count - 1]) ? 'G' : walk.Exists(Within) ? '*' : grid.IsWalkableAt(c) ? '.' : ' ');
+            }
+            sb.Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    [Test]
+    public void WalkFromTheFloor2ArrivalToRoom215StaysInsideThePressureHintBand()
+    {
+        var grids = IndoorWalkGrid.LoadFloors(Scan);
+        var heights = new List<(int Floor, float Y)>();
+        foreach (var entry in grids) heights.Add((entry.Key, entry.Value.FloorY));
+        var floor2 = grids[2];
+
+        // Start: the first floor-2 stairs or elevator that reaches the room. A real directory point, not an invented one.
+        var goal = Door("VEC215");
+        Vector3[] route = null;
+        foreach (var (_, _, at) in IndoorRoomIdentityMatcher.FloorConnectors(Directory, 2))
+            if (floor2.TryRoute(at, goal, out route)) break;
+        Assert.IsNotNull(route, "a floor-2 connector reaches VEC215 on the scan");
+        var walk = Walk(route);
+        TestContext.WriteLine($"walk {IndoorWalkGrid.LengthM(route):0.0} m, {walk.Count} steps of {WalkStepM} m, floor 2 Y {floor2.FloorY}\n{Sketch(floor2, walk)}");
+
+        // Mocked barometer: confirmed floor 1, then one storey of pressure drop before launch.
+        var session = new IndoorArSession(HostMoved(-0.47f), "MSET_X");
+        session.OnArSupport(true);
+        session.OnAuthenticated();
+        var hintedFloor = session.HintFloor(0);
+        Assert.AreEqual(2, hintedFloor);
+        var hint = new MultiSetHint(grids[hintedFloor].FloorY);
+        TestContext.WriteLine($"hint band Y [{hint.MinY:0.00}, {hint.MaxY:0.00}]");
+
+        // Stand-in server: keeps frames whose Y is in the band. Camera or floor height, standing or seated, all pass.
+        bool Passes(float y) => y >= hint.MinY && y <= hint.MaxY;
+        var surface = floor2.FloorY; // every step is on this floor, so its Y is the same along the walk
+        Assert.IsTrue(Passes(surface), "floor surface");
+        Assert.IsTrue(Passes(surface + StandingEyeM), "standing camera");
+        Assert.IsTrue(Passes(surface + SeatedEyeM), "seated camera");
+
+        // The same band keeps the neighbouring floors out, so a cross-floor look-alike is not searched.
+        foreach (var (floor, y) in heights)
+        {
+            if (floor == 2) continue;
+            Assert.IsFalse(Passes(y) || Passes(y + StandingEyeM) || Passes(y + SeatedEyeM), $"floor {floor} is outside the band");
+        }
+
+        session.OnAttemptStarted();
+        Assert.AreEqual(0, session.HintFloor(0), "later attempts carry no height hint");
+    }
+
+    [Test]
+    public void WithoutAUsableDeltaTheWalkIsLocalizedUnhinted()
+    {
+        foreach (var delta in new[] { 0f, -0.2f, -0.67f, -3.5f })
+        {
+            var session = new IndoorArSession(HostMoved(delta), "MSET_X");
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            Assert.AreEqual(0, session.HintFloor(0), $"delta {delta}");
+        }
     }
 }

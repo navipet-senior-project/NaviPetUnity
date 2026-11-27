@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace IndoorAr
@@ -14,11 +15,14 @@ namespace IndoorAr
     {
         public const float StartupTimeoutS = 20f;
         public const float LocalizeTimeoutS = 30f;
+        // Retry after this delay or at the existing timeout, whichever comes first.
+        public const float NoPoseRetryS = 3f;
         public const float MinEyeHeightM = 1f;
         public const float MaxEyeHeightM = 2.2f;
 
         float _elapsedS;
         float _localizingS;
+        float _retryAtS = LocalizeTimeoutS;
         float _startupS;
         bool _retried;
         bool _noPose;
@@ -26,22 +30,57 @@ namespace IndoorAr
         float _arrivalDistance;
         // Supported floor of the accepted pose while tracking stays continuous; 0 until sampled.
         int _trackedFloor;
-        bool _signSuperseded;
+        bool _signSupersededByTracking;
+        bool _signSupersededByPressure;
         readonly bool _allowSignRecovery;
+        // The user's confirmed floor, trusted only with settled unchanged pressure. Weaker than a sign: it lapses when a
+        // sign is read, tracked motion or pressure shows another level, or two attempts in a row land on another floor.
+        bool _startSuperseded;
+        // The user's confirmed floor and the host's signed settled pressure change since then, kept only when pressure
+        // had already moved at launch (no start-floor veto then).
+        int _confirmedFloor;
+        double _hostDeltaHpa;
+        int _lastConflictQueries = -1;
+        int _startConflicts;
+        const int MaxStartConflicts = 2;
 
         public IndoorArSession(IndoorArRequest request, string buildMapCode, bool allowSignRecovery = false)
         {
             Request = request;
             _allowSignRecovery = allowSignRecovery;
             if (!IndoorArContract.CheckMap(request, buildMapCode))
+            {
                 Finish(IndoorArContract.Error(IndoorArContract.MapMismatch, 0, 0));
+                return;
+            }
+            var pressure = request.pressureSinceStart;
+            if (request.schemaVersion == IndoorArContract.SchemaVersionV2
+                && request.floorEvidenceVersion == IndoorArContract.FloorEvidenceVersion && pressure != null
+                && int.TryParse(request.startFloor, out var floor) && floor > 0
+                && request.startFloorAgeS is >= 0f and <= IndoorFloorBarometer.MaxAnchorAgeS
+                && pressure.sampleAgeS is >= 0f and <= IndoorFloorBarometer.MaxSampleGapS)
+            {
+                Barometer = new IndoorFloorBarometer();
+                LaunchedWithFloorEvidence = true;
+                if (pressure.settled && !pressure.moved) StartFloor = floor;
+                else if (pressure.settled && pressure.moved && pressure.deltaValid)
+                {
+                    _confirmedFloor = floor;
+                    _hostDeltaHpa = pressure.deltaHpa;
+                }
+            }
         }
 
         /// <summary>Raised when the localizer must start a localization attempt.</summary>
         public event Action LocalizeRequested;
         public event Action FallbackStopped;
+        internal event Action PressureSamplingStopped;
 
         public IndoorArRequest Request { get; }
+        internal bool PressureSamplingAllowed => Barometer != null;
+        /// <summary>Remembers that the launch authorized sampling so retry can return to the host after sampling stops.</summary>
+        internal bool LaunchedWithFloorEvidence { get; }
+        internal Func<double> PressureClock { private get; set; } = IndoorArPressure.Now;
         public IndoorArState State { get; private set; } = IndoorArState.Init;
         public int Queries { get; private set; }
         public bool WasPinned { get; private set; }
@@ -49,11 +88,33 @@ namespace IndoorAr
         public string ResultJson { get; private set; }
         /// <summary>Last room sign confirmed by OCR. Room identity only; never a camera pose.</summary>
         public IndoorRoomLandmark SignRoom { get; private set; }
+        public bool ArrivedBySign { get; private set; }
         /// <summary>
-        /// SignRoom while it is still evidence of the user's floor: null once continuously tracked motion from an
-        /// accepted pose reached another supported floor, until a sign is confirmed again.
+        /// SignRoom while it is still floor evidence. Tracking or a settled pressure change can supersede it
+        /// until the next confirmation.
         /// </summary>
-        public IndoorRoomLandmark FloorSign => _signSuperseded ? null : SignRoom;
+        public IndoorRoomLandmark FloorSign => _signSupersededByTracking || _signSupersededByPressure ? null : SignRoom;
+        /// <summary>Relative pressure for releasing a stale start-floor or sign veto.</summary>
+        IndoorFloorBarometer Barometer { get; set; }
+
+        /// <summary>Confirmed starting floor the host vouched for with settled, unchanged pressure; 0 when absent or distrusted.</summary>
+        int StartFloor { get; set; }
+        /// <summary>StartFloor while it is still evidence of the user's floor, else 0. A sign takes precedence.</summary>
+        public int TrustedStartFloor => _startSuperseded ? 0 : StartFloor;
+
+        internal int HintFloor(double secondsSinceLaunch)
+        {
+            if (State != IndoorArState.Localizing || Queries != 0 || _retried || _startSuperseded
+                || Request.pressureSinceStart is not { deltaValid: true } pressure
+                || Request.startFloorAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxAnchorAgeS
+                || pressure.sampleAgeS + secondsSinceLaunch > IndoorFloorBarometer.MaxSampleGapS)
+                return 0;
+            if (TrustedStartFloor > 0) return TrustedStartFloor;
+            if (_confirmedFloor <= 0
+                || !IndoorFloorBarometer.TryStoreyOffset(_hostDeltaHpa, out var offset))
+                return 0;
+            return Math.Max(0, _confirmedFloor + offset);
+        }
 
         long ElapsedMs => (long)(_elapsedS * 1000f);
 
@@ -94,69 +155,123 @@ namespace IndoorAr
             WasPinned = true;
         }
 
-        public int CurrentFloor(float cameraY, float floor1Y, float floor2Y)
+        public int CurrentFloor(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
-            if (FloorSign != null) return FloorSign.Floor is 1 or 2 ? FloorSign.Floor : 0;
-            if (!ValidFloorHeights(floor1Y, floor2Y)) return 0;
-            var floor1 = cameraY - floor1Y;
-            var floor2 = cameraY - floor2Y;
-            var on1 = floor1 >= MinEyeHeightM && floor1 <= MaxEyeHeightM;
-            var on2 = floor2 >= MinEyeHeightM && floor2 <= MaxEyeHeightM;
-            return on1 == on2 ? 0 : on1 ? 1 : 2;
+            if (FloorSign == null) return Mathf.Max(0, PoseFloor(cameraY, floors));
+            var signFloor = FloorSign.Floor;
+            foreach (var (floor, _) in floors)
+                if (floor == signFloor) return floor;
+            return 0;
         }
 
-        public bool PoseConflictsWithSign(float cameraY, float floor1Y, float floor2Y)
+        public bool PoseConflictsWithSign(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
-            var poseFloor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
-            if (poseFloor <= 0) return true;
-            return FloorSign != null && FloorSign.Floor > 0
-                && poseFloor != FloorSign.Floor;
+            var poseFloor = PoseFloor(cameraY, floors);
+            return poseFloor <= 0 || FloorSign != null && FloorSign.Floor > 0 && poseFloor != FloorSign.Floor
+                || TrustedStartFloor > 0 && poseFloor != TrustedStartFloor;
         }
 
-        public int PoseFloor(float cameraY, float floor1Y, float floor2Y) =>
-            CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+        /// <summary>The unique floor in the camera's eye-height band. Gaps and overlaps give 0, outside gives -1.</summary>
+        public int PoseFloor(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
+        {
+            var match = 0;
+            var low = float.PositiveInfinity;
+            var high = float.NegativeInfinity;
+            foreach (var (floor, floorY) in floors)
+            {
+                low = Mathf.Min(low, floorY);
+                high = Mathf.Max(high, floorY);
+                var eyeHeight = cameraY - floorY;
+                if (eyeHeight >= MinEyeHeightM && eyeHeight <= MaxEyeHeightM)
+                {
+                    if (match != 0) return 0;
+                    match = floor;
+                }
+            }
+            if (match == 0 && floors.Count > 0 && (cameraY < low + MinEyeHeightM || cameraY > high + MaxEyeHeightM))
+                return -1;
+            return match;
+        }
 
         /// <summary>
         /// Camera height under the accepted pose while tracking holds. Walking it to another supported floor supersedes
         /// the last sign's floor; between floors, outside them or across a tracking gap nothing changes.
         /// </summary>
-        public void OnTrackedPose(float cameraY, float floor1Y, float floor2Y)
+        public void OnTrackedPose(float cameraY, IReadOnlyList<(int Floor, float Y)> floors)
         {
             if (State != IndoorArState.Pinned) return;
-            var floor = CurrentPoseFloor(cameraY, floor1Y, floor2Y);
+            var floor = PoseFloor(cameraY, floors);
             if (floor <= 0) return;
-            if (_trackedFloor > 0 && floor != _trackedFloor && FloorSign?.Floor != floor) _signSuperseded = true;
+            if (_trackedFloor > 0 && floor != _trackedFloor)
+            {
+                if (SignRoom?.Floor != floor) _signSupersededByTracking = true;
+                if (StartFloor != floor) _startSuperseded = true;
+            }
             _trackedFloor = floor;
         }
 
-        int CurrentPoseFloor(float cameraY, float floor1Y, float floor2Y)
+        /// <summary>
+        /// One reading from the device barometer (hPa). Compare using current time so a late reading
+        /// cannot make a stale pressure window appear fresh.
+        /// </summary>
+        public void OnPressure(float hpa, double capturedAtS)
         {
-            if (!ValidFloorHeights(floor1Y, floor2Y)) return 0;
-            var floor1 = cameraY - floor1Y;
-            var floor2 = cameraY - floor2Y;
-            var on1 = floor1 >= MinEyeHeightM && floor1 <= MaxEyeHeightM;
-            var on2 = floor2 >= MinEyeHeightM && floor2 <= MaxEyeHeightM;
-            if (on1 != on2) return on1 ? 1 : 2;
-            return cameraY < floor1Y + MinEyeHeightM || cameraY > floor2Y + MaxEyeHeightM ? -1 : 0;
+            if (Barometer == null) return;
+            var now = PressureClock();
+            Barometer.Sample(hpa, capturedAtS);
+            if (TrustedStartFloor > 0)
+            {
+                // Pressure at launch is the baseline for the host's "unchanged" claim; retry until it is settled.
+                if (!Barometer.HasAnchor) Barometer.Anchor(now);
+                else if (Barometer.Status(now) == IndoorBarometerStatus.Moved) _startSuperseded = true;
+            }
+            if (FloorSign != null
+                && Barometer.Status(now) == IndoorBarometerStatus.Moved) _signSupersededByPressure = true;
         }
 
-        static bool ValidFloorHeights(float floor1Y, float floor2Y) =>
-            !float.IsNaN(floor1Y) && !float.IsInfinity(floor1Y)
-            && !float.IsNaN(floor2Y) && !float.IsInfinity(floor2Y);
+        /// <summary>
+        /// Count one conflict per MultiSet attempt. The second conflicting attempt clears start-floor trust
+        /// so its pose can be reconsidered immediately.
+        /// </summary>
+        public void NoteStartFloorConflict()
+        {
+            if (TrustedStartFloor == 0 || Queries == _lastConflictQueries) return;
+            _lastConflictQueries = Queries;
+            if (++_startConflicts >= MaxStartConflicts) _startSuperseded = true;
+        }
 
         public void OnStepFreeUnverified() =>
             Finish(IndoorArContract.Unavailable(Queries, ElapsedMs, IndoorArContract.StepFreeUnverified));
 
         public void OnNotLocalized()
         {
-            if (State == IndoorArState.Localizing) _noPose = true;
+            if (State != IndoorArState.Localizing) return;
+            _noPose = true;
+            if (!_retried) _retryAtS = Math.Min(_retryAtS, _localizingS + NoPoseRetryS);
         }
 
         public void OnSignConfirmed(IndoorRoomLandmark room)
         {
-            if (State == IndoorArState.Done || room == null) return;
+            if (State is IndoorArState.Done or IndoorArState.Arrived || room == null) return;
+            var sameValidSign = FloorSign != null && FloorSign.Id == room.Id && FloorSign.Floor == room.Floor;
             SignRoom = room;
-            _signSuperseded = false;
+            _signSupersededByTracking = false;
+            _signSupersededByPressure = false;
+            _startSuperseded = true;
+            Barometer?.Anchor(PressureClock(), keepIfUnsettled: sameValidSign);
+            if (State is not (IndoorArState.Auth or IndoorArState.Localizing or IndoorArState.Pinned)
+                || Request.LocalizeOnly
+                || !int.TryParse(Request.floor, out var floor) || room.Floor != floor
+                || !string.Equals(LiveDoorHud.RoomLabel(Request.doorKey), LiveDoorHud.RoomLabel(room.Id),
+                    StringComparison.OrdinalIgnoreCase)) return;
+            // The sign identifies the destination itself. A host with the signArrival capability gets no distance;
+            // a legacy host still requires the field, so it keeps getting 0. signRoom records the evidence and
+            // confidence stays unset because this arrival has no distance measurement.
+            _arrivalDistance = 0f;
+            _confidence = null;
+            ArrivedBySign = true;
+            State = IndoorArState.Arrived;
+            FallbackStopped?.Invoke();
         }
 
         /// <summary>
@@ -197,7 +312,7 @@ namespace IndoorAr
             }
             if (State != IndoorArState.Localizing || FallbackExpired) return;
             _localizingS += dt;
-            if (_localizingS < LocalizeTimeoutS) return;
+            if (_localizingS < (_retried ? LocalizeTimeoutS : _retryAtS)) return;
             if (_retried)
             {
                 FallbackExpired = true;
@@ -218,14 +333,16 @@ namespace IndoorAr
         /// <param name="cameraInMap">Camera position in the MapSet frame.</param>
         public void ImHere(Vector3 cameraInMap)
         {
-            if (State != IndoorArState.Pinned || Request.LocalizeOnly) return;
+            if (State != IndoorArState.Pinned || Request.LocalizeOnly || Request.position == null || Request.stepFree) return;
             _arrivalDistance = HorizontalDistance(cameraInMap);
             State = IndoorArState.Arrived;
         }
 
         public void ConfirmArrival()
         {
-            if (State == IndoorArState.Arrived)
+            if (State == IndoorArState.Arrived && ArrivedBySign && Request.SupportsSignArrival)
+                Finish(IndoorArContract.ArrivedBySign(Queries, ElapsedMs));
+            else if (State == IndoorArState.Arrived)
                 Finish(IndoorArContract.Arrived(_arrivalDistance, Queries, ElapsedMs, _confidence));
         }
 
@@ -234,6 +351,7 @@ namespace IndoorAr
             if (State != IndoorArState.Done || ResultJson == null || !ResultJson.Contains("\"status\":\"localizationFailed\"")) return;
             ResultJson = null;
             FallbackExpired = false;
+            _signSupersededByPressure = false;
             StartLocalizing();
         }
 
@@ -258,6 +376,7 @@ namespace IndoorAr
             _trackedFloor = 0;
             _localizingS = 0f;
             _retried = false;
+            _retryAtS = LocalizeTimeoutS;
             _noPose = false;
             LocalizeRequested?.Invoke();
         }
@@ -266,7 +385,16 @@ namespace IndoorAr
         {
             ResultJson = IndoorArContract.WithSignRoom(resultJson, SignRoom?.Id);
             State = IndoorArState.Done;
+            StartFloor = 0;
+            StopPressureSampling();
             FallbackStopped?.Invoke();
+        }
+
+        internal void StopPressureSampling()
+        {
+            if (Barometer == null) return;
+            Barometer = null;
+            PressureSamplingStopped?.Invoke();
         }
     }
 }

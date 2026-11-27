@@ -18,6 +18,10 @@ namespace IndoorAr
         bool _innerAuthFailed;
         bool _fallbackStopped;
         float _holdLeft;
+        int _signAttempt;
+        float _signElapsedS;
+        bool _signTimedOut;
+        bool _signTraceClosed;
 
         /// <param name="readsSigns">Room-sign OCR is on. It needs no VPS sign-in, so neither does the session.</param>
         public SignFirstLocalizer(IIndoorArLocalizer inner, IndoorSignCalibration calibration = null,
@@ -42,6 +46,7 @@ namespace IndoorAr
 
         public Transform MapSpace => _inner.MapSpace;
         public string MapCode => _inner.MapCode;
+        public string LastMapHash => _inner.LastMapHash;
         public bool SignsCanPose { get; }
         public bool FallbackAvailable => !_fallbackStopped && !_innerAuthFailed && (_inner is not MultiSetLocalizer multiSet || multiSet.FallbackAvailable);
         public string FallbackStatus => _fallbackStopped ? "unavailable: session stopped fallback"
@@ -74,10 +79,15 @@ namespace IndoorAr
             }
             _open = true;
             _holdLeft = HoldS;
+            _signAttempt++;
+            _signElapsedS = 0f;
+            _signTimedOut = false;
+            _signTraceClosed = false;
         }
 
         public void Reset()
         {
+            CancelSignTrace();
             _open = _innerPosed = _innerWanted = false;
             _fallbackStopped = false;
             FromSigns = false;
@@ -94,14 +104,20 @@ namespace IndoorAr
         public void StopFallback()
         {
             _fallbackStopped = true;
+            CancelSignTrace();
             DropQueuedFallback();
         }
 
         public void Tick(float dt)
         {
-            if (!_open || _holdLeft <= 0f) return;
+            if (!_open) return;
+            _signElapsedS += dt;
+            if (_holdLeft <= 0f) return;
             _holdLeft -= dt;
-            if (_holdLeft <= 0f) AskInner();
+            if (_holdLeft > 0f) return;
+            _signTimedOut = true;
+            LogSign(IndoorArDiagnostics.LocalizationOutcome.Timeout);
+            AskInner();
         }
 
         public IndoorSignPoseStatus ObservePose(IndoorSignObservation observation)
@@ -118,9 +134,21 @@ namespace IndoorAr
             FromSigns = true;
             if (!_open) return pose.Status;
             _open = false;
+            if (!_signTraceClosed)
+                LogSign(_signTimedOut ? IndoorArDiagnostics.LocalizationOutcome.Late : IndoorArDiagnostics.LocalizationOutcome.Ok);
             Localized?.Invoke(null);
             return pose.Status;
         }
+
+        void CancelSignTrace()
+        {
+            if (_open && !_signTimedOut && !_signTraceClosed) LogSign(IndoorArDiagnostics.LocalizationOutcome.Cancelled);
+            _signTraceClosed = true;
+        }
+
+        void LogSign(IndoorArDiagnostics.LocalizationOutcome outcome) =>
+            Debug.Log(IndoorArDiagnostics.LocalizationRequestLine(_signAttempt, IndoorArDiagnostics.LocalizationRequestKind.Sign,
+                (long)(_signElapsedS * 1000f), outcome, null, null, null));
 
         void AskInner()
         {
@@ -149,6 +177,7 @@ namespace IndoorAr
 
         void OnInnerLocalized(float? confidence)
         {
+            CancelSignTrace();
             _innerPosed = true;
             FromSigns = false;
             _open = false;

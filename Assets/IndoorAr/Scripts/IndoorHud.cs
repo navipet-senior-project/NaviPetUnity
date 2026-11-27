@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace IndoorAr
@@ -16,6 +17,7 @@ namespace IndoorAr
         public IndoorHudState State;
         public string Destination;
         public int Floor;
+        public int CurrentFloor;
         public float ArrowYaw;
         public bool ScanTooFast;
         public bool LocalizeOnly;
@@ -24,10 +26,17 @@ namespace IndoorAr
         public string DetailOverride;
         // World position the room label floats over; null hides the label.
         public Vector3? LabelAnchor;
+        public Transform WorldPin;
+        public string PinLabel;
+        public float PinScreenHeight;
         // Outdoor guidance reuses this HUD: no floor, and a distance because the walk is long.
         public bool Outdoor;
         public bool FollowingRoute;
         public bool RouteBlocked;
+        internal Vector3 RouteStart;
+        // The waypoint the arrow aims at (-1 for none) and why the route is blocked.
+        public int RouteWaypointIndex = -1;
+        public IndoorRouteBlockedCause RouteBlockedCause;
         // "stairs" or "elevator": the route on a wrong floor ends there, not at the door.
         public string FloorChange;
         public bool OffRoute;
@@ -76,6 +85,7 @@ namespace IndoorAr
         Sprite _card;
         Sprite _arrowSprite;
         Sprite _scrimSprite;
+        Sprite _pinSprite;
         Font _font;
         Text _title;
         Text _detail;
@@ -84,6 +94,13 @@ namespace IndoorAr
         RectTransform _lookLeft;
         RectTransform _lookRight;
         RectTransform _pinLabel;
+        RectTransform _screenPin;
+        Text _pinText;
+        IndoorHudView _view;
+        IndoorRoutePath _path;
+        bool _pathShown;
+        IndoorPinMode? _pinMode;
+        public Action<string> DiagnosticSink { get; set; }
         public event Action ExitRequested;
         public event Action HereRequested;
         public event Action RetryRequested;
@@ -112,17 +129,38 @@ namespace IndoorAr
             FitSafeArea();
         }
 
-        public void Show(IndoorHudView view)
+        public void Show(IndoorHudView view, IndoorRoutePath path = null)
         {
             if (_root == null) throw new InvalidOperationException("Initialize HUD first");
             FitSafeArea();
-            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
+            var chrome = view.State + "|" + view.Destination + "|" + view.Floor + "|" + view.CurrentFloor + "|" + view.TitleOverride + "|" + view.DetailOverride + "|" + view.LocalizeOnly + "|" + view.Outdoor + "|" + view.RouteBlocked;
             if (_chrome != chrome)
             {
                 Build(view);
                 _chrome = chrome;
             }
+            _view = view;
+            _path = path;
+            _pathShown = _path?.RefreshVisibility(_camera) == true;
             Refresh(view);
+            if (!Application.isPlaying || !view.LabelAnchor.HasValue) PlacePin(view);
+        }
+
+        void OnEnable() => RenderPipelineManager.beginCameraRendering += RefreshForRender;
+
+        void OnDisable() => RenderPipelineManager.beginCameraRendering -= RefreshForRender;
+
+        void RefreshForRender(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera != _camera || _view == null) return;
+            var pathShown = _path?.RefreshVisibility(camera) == true;
+            if (pathShown != _pathShown)
+            {
+                _pathShown = pathShown;
+                Refresh(_view);
+                Canvas.ForceUpdateCanvases();
+            }
+            if (_view.LabelAnchor.HasValue) PlacePin(_view);
         }
 
         // Keeps the room pill, close button and guidance clear of the notch and home indicator.
@@ -138,7 +176,8 @@ namespace IndoorAr
         void Build(IndoorHudView view)
         {
             _title = _detail = null;
-            _arrow = _lookLeft = _lookRight = _pinLabel = null;
+            _arrow = _lookLeft = _lookRight = _pinLabel = _screenPin = null;
+            _pinText = null;
             while (_root.childCount > 0)
             {
                 var child = _root.GetChild(0);
@@ -159,11 +198,27 @@ namespace IndoorAr
             Label(exit, "Exit label", "×", 60, Navy, TextAnchor.MiddleCenter);
             Lift(exit);
             OnTap(exit, () => ExitRequested?.Invoke());
-            Pill("Room pill", view.LocalizeOnly ? "Location check" : RoomLine(view), 34, new Vector2(0f, 1f), new Vector2(40f, -36f), 84f);
-
+            Pill("Room pill", view.LocalizeOnly ? "Location check" : RoomLine(view), 34,
+                new Vector2(0f, 1f), new Vector2(40f, -36f), 84f);
+            if (view.CurrentFloor > 0)
+            {
+                var floor = Pill("Current floor", "You're on Floor " + view.CurrentFloor, 26,
+                    new Vector2(0f, 1f), new Vector2(40f, -130f), 54f);
+                floor.GetComponent<Image>().color = Navy;
+                floor.GetComponentInChildren<Text>().color = White;
+            }
             if (!view.LocalizeOnly)
             {
+                _pinSprite ??= PinSprite();
+                _screenPin = At(Box(_root, view.Outdoor ? "Building pin" : "Docked pin", _pinSprite, White),
+                    Center, Vector2.zero, Vector2.zero);
+                _screenPin.GetComponent<Image>().type = Image.Type.Simple;
+                _screenPin.pivot = new Vector2(.5f, 0f);
                 _pinLabel = Pill("Pin label", view.Destination, 30, Center, Vector2.zero, 64f);
+                _pinText = _pinLabel.GetComponentInChildren<Text>();
+                _pinText.resizeTextForBestFit = true;
+                _pinText.resizeTextMinSize = 16;
+                _pinText.resizeTextMaxSize = 30;
                 _pinLabel.pivot = new Vector2(.5f, 0f);
                 _pinLabel.gameObject.SetActive(false);
             }
@@ -222,7 +277,7 @@ namespace IndoorAr
             return feet < 1000 ? Mathf.RoundToInt((float)feet) + " ft" : (meters / 1609.344).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " mi";
         }
 
-        static string TitleText(IndoorHudView view)
+        string TitleText(IndoorHudView view)
         {
             if (!string.IsNullOrEmpty(view.TitleOverride)) return view.TitleOverride;
             switch (view.State)
@@ -242,10 +297,10 @@ namespace IndoorAr
         }
 
         // The arrow points along the route, so say what to do instead of where the destination is.
-        static string RouteTitle(IndoorHudView view)
+        string RouteTitle(IndoorHudView view)
         {
             if (view.OffRoute) return "You're off the route";
-            if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return "Follow the route";
+            if (GuidanceCue.FacingWaypoint(view.ArrowYaw)) return _pathShown || view.Outdoor ? "Follow the route" : "Follow the arrow";
             float yaw = Mathf.DeltaAngle(0f, view.ArrowYaw);
             if (Mathf.Abs(yaw) > 135f) return "Turn around";
             return yaw > 0f ? "Turn right" : "Turn left";
@@ -284,28 +339,158 @@ namespace IndoorAr
             }
             if (_arrow != null)
             {
+                _arrow.gameObject.SetActive(!_pathShown);
                 _arrow.localEulerAngles = new Vector3(0f, 0f, GuidanceCue.ArrowScreenRotation(view.ArrowYaw));
+            }
+            if (_lookLeft != null)
+            {
                 bool facing = GuidanceCue.FacingWaypoint(view.ArrowYaw);
                 bool right = Mathf.DeltaAngle(0f, view.ArrowYaw) > 0f;
                 _lookLeft.gameObject.SetActive(!facing && !right);
                 _lookRight.gameObject.SetActive(!facing && right);
             }
-            PlacePinLabel(view.LabelAnchor);
         }
 
-        void PlacePinLabel(Vector3? anchor)
+        void PlacePin(IndoorHudView view)
         {
             if (_pinLabel == null) return;
-            var local = Vector2.zero;
-            bool visible = anchor.HasValue && _camera != null;
-            if (visible)
+            var hasAnchor = view.LabelAnchor.HasValue && _camera != null;
+            _pinLabel.gameObject.SetActive(hasAnchor);
+            if (!hasAnchor)
             {
-                var screen = _camera.WorldToScreenPoint(anchor.Value);
-                var uiCamera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
-                visible = screen.z > 0f && RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, uiCamera, out local);
+                _pinMode = null;
+                _screenPin.gameObject.SetActive(false);
+                if (view.WorldPin != null) view.WorldPin.gameObject.SetActive(false);
+                return;
             }
-            _pinLabel.gameObject.SetActive(visible);
-            if (visible) _pinLabel.anchoredPosition = local + new Vector2(0f, 12f);
+
+            var rect = _root.rect;
+            _pinText.text = view.PinLabel ?? view.Destination;
+            var labelHeight = _pinLabel.sizeDelta.y;
+            var labelWidth = Mathf.Min(rect.width, _pinText.preferredWidth + labelHeight * .8f);
+            const float labelGap = 12f;
+            var pinHeight = view.Outdoor ? view.PinScreenHeight * Screen.height / _canvas.scaleFactor : labelHeight;
+            var pinWidth = pinHeight * .72f;
+            var at = rect.center + Vector2.up * 72f;
+            var labelAt = view.Outdoor ? at + Vector2.up * pinHeight : at;
+            var pinAngle = 0f;
+            var showScreenPin = view.Outdoor;
+            if (hasAnchor)
+            {
+                var anchor = view.WorldPin != null ? view.WorldPin.position : view.LabelAnchor.Value;
+                var screen = _camera.WorldToScreenPoint(anchor);
+                var viewport = _camera.pixelRect;
+                var dock = screen.z <= 0f || !viewport.Contains(screen);
+                var clippedDepth = screen.z < _camera.nearClipPlane || screen.z > _camera.farClipPlane;
+                showScreenPin |= dock || clippedDepth;
+                if (!view.Outdoor)
+                {
+                    var mode = dock ? IndoorPinMode.Docked : clippedDepth ? IndoorPinMode.Clipped : IndoorPinMode.World;
+                    if (_pinMode != mode)
+                    {
+                        _pinMode = mode;
+                        var viewClass = screen.z <= 0f ? IndoorPinViewClass.Behind
+                            : dock ? IndoorPinViewClass.OffScreen : IndoorPinViewClass.InView;
+                        DiagnosticSink?.Invoke(IndoorArDiagnostics.PinModeLine(mode, Vector3.Distance(anchor, _camera.transform.position), viewClass));
+                    }
+                }
+                if (view.WorldPin != null)
+                {
+                    view.WorldPin.gameObject.SetActive(!showScreenPin);
+                    var facing = anchor - _camera.transform.position;
+                    facing.y = 0f;
+                    if (!showScreenPin && facing.sqrMagnitude > .0001f)
+                        view.WorldPin.rotation = Quaternion.LookRotation(facing);
+                }
+                var uiCamera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
+                Vector2 ToHud(Vector2 point)
+                {
+                    RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, point, uiCamera, out var local);
+                    return local;
+                }
+
+                at = ToHud(screen);
+                labelAt = view.Outdoor || clippedDepth ? at + Vector2.up * pinHeight
+                    : ToHud(_camera.WorldToScreenPoint(view.LabelAnchor.Value));
+                if (dock)
+                {
+                    var behind = screen.z <= 0f;
+                    if (screen.z == 0f)
+                        screen = _camera.WorldToScreenPoint(anchor + _camera.transform.forward);
+                    else if (screen.z < 0f && !_camera.orthographic)
+                    {
+                        screen.x = 2f * viewport.center.x - screen.x;
+                        screen.y = 2f * viewport.center.y - screen.y;
+                    }
+                    var edge = DockPin(screen, viewport);
+                    var edgeAt = ToHud(edge);
+                    var dockAngle = Vector2.SignedAngle(Vector2.up, ToHud(viewport.center) - edgeAt);
+                    pinAngle = dockAngle;
+                    var insetX = Mathf.Min(rect.width * .5f, Mathf.Max(labelWidth, pinWidth) * .5f + 24f);
+                    var bottom = Mathf.Min(rect.center.y, rect.yMin + 230f);
+                    var top = Mathf.Max(rect.center.y, rect.yMax - 206f - pinHeight - labelHeight - labelGap);
+                    var dockedAt = new Vector2(Mathf.Lerp(rect.xMin + insetX, rect.xMax - insetX, Mathf.InverseLerp(viewport.xMin, viewport.xMax, edge.x)),
+                        Mathf.Lerp(bottom, top, Mathf.InverseLerp(viewport.yMin, viewport.yMax, edge.y)));
+                    var dockedLabel = dockedAt + Vector2.up * pinHeight;
+                    if (behind)
+                    {
+                        at = dockedAt;
+                        labelAt = dockedLabel;
+                    }
+                    else
+                    {
+                        var overshoot = Mathf.Max(Mathf.Abs(screen.x - edge.x) / Mathf.Max(1f, viewport.width),
+                            Mathf.Abs(screen.y - edge.y) / Mathf.Max(1f, viewport.height));
+                        var blend = Mathf.SmoothStep(0f, 1f, overshoot / .12f);
+                        labelAt = Vector2.Lerp(labelAt + (edgeAt - at), dockedLabel, blend);
+                        at = Vector2.Lerp(edgeAt, dockedAt, blend);
+                        // Upright at the edge, turning with the blend, unless that upright body would sit above the screen: then flip it inward.
+                        var uprightCoreVisible = edgeAt.y + .65f * pinHeight <= rect.yMax;
+                        pinAngle = uprightCoreVisible ? dockAngle * blend : dockAngle;
+                        // Keep the visible core a few pixels inside the screen at the handoff; the tip moves by the same few pixels.
+                        var core = at + (Vector2)(Quaternion.Euler(0f, 0f, pinAngle) * Vector3.up) * (.65f * pinHeight);
+                        const float coreMargin = 6f;
+                        at += new Vector2(Mathf.Clamp(core.x, rect.xMin + coreMargin, rect.xMax - coreMargin) - core.x,
+                            Mathf.Clamp(core.y, rect.yMin + coreMargin, rect.yMax - coreMargin) - core.y);
+                    }
+                }
+            }
+
+            labelAt.y += labelGap;
+            var preferredLabel = labelAt;
+            var maxLabelY = Mathf.Max(rect.yMin, rect.yMax - labelHeight);
+            if (labelAt.y > maxLabelY)
+            {
+                var belowPin = Mathf.Clamp(at.y - pinHeight - labelHeight - labelGap, rect.yMin, maxLabelY);
+                var blend = Mathf.SmoothStep(0f, 1f, (labelAt.y - maxLabelY) / (pinHeight + labelHeight));
+                labelAt.y = Mathf.Lerp(maxLabelY, belowPin, blend);
+            }
+            labelAt.y = Mathf.Max(rect.yMin, labelAt.y);
+            labelAt.x = Mathf.Clamp(labelAt.x, rect.xMin + labelWidth * .5f, rect.xMax - labelWidth * .5f);
+            var clippedBody = showScreenPin && (at.x - pinWidth * .5f < rect.xMin || at.x + pinWidth * .5f > rect.xMax);
+            _pinLabel.GetComponent<Image>().color = clippedBody || labelAt != preferredLabel ? Amber : White;
+            _pinLabel.sizeDelta = new Vector2(labelWidth, labelHeight);
+            _pinLabel.anchoredPosition = labelAt;
+            _screenPin.gameObject.SetActive(showScreenPin);
+            _screenPin.sizeDelta = new Vector2(pinWidth, pinHeight);
+            _screenPin.anchoredPosition = at;
+            _screenPin.localEulerAngles = new Vector3(0f, 0f, pinAngle);
+        }
+
+        public static Vector2 DockPin(Vector2 projected, Rect limits)
+        {
+            var direction = projected - limits.center;
+            if (direction.sqrMagnitude < .001f) direction = Vector2.right;
+            var x = direction.x == 0f ? float.PositiveInfinity : limits.width * .5f / Mathf.Abs(direction.x);
+            var y = direction.y == 0f ? float.PositiveInfinity : limits.height * .5f / Mathf.Abs(direction.y);
+            return limits.center + direction * Mathf.Min(x, y);
+        }
+
+        // Smooth map or anchor corrections in world space. Camera motion still changes the projection immediately.
+        public static Vector3 EasePin(Vector3 position, Vector3 fix, ref Vector3 target, ref Vector3 velocity, float dt)
+        {
+            if ((fix - target).sqrMagnitude > .02f * .02f) target = fix;
+            return dt > 0f ? Vector3.SmoothDamp(position, target, ref velocity, .35f, Mathf.Infinity, dt) : position;
         }
 
         RectTransform Pill(string name, string text, int fontSize, Vector2 anchor, Vector2 position, float height)
@@ -415,6 +600,35 @@ namespace IndoorAr
                     texture.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01(radius + .5f - Mathf.Sqrt(dx * dx + dy * dy))));
                 }
             texture.Apply(); return Keep(Sprite.Create(texture, new Rect(0, 0, size, size), Center, 100, 0, SpriteMeshType.FullRect, new Vector4(radius, radius, radius, radius)));
+        }
+
+        Sprite PinSprite()
+        {
+            const int width = 184;
+            const int height = 256;
+            const float radius = .33f;
+            const float center = .65f;
+            const float tip = .02f;
+            var tangentY = center - radius * radius / (center - tip);
+            var tangentX = Mathf.Sqrt(radius * radius - (tangentY - center) * (tangentY - center));
+            var slope = tangentX / (tangentY - tip);
+            var sideNormal = Mathf.Sqrt(1f + slope * slope);
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
+                {
+                    var px = (x + .5f - width * .5f) / height;
+                    var py = (y + .5f) / height;
+                    var fromCenter = new Vector2(px, py - center).magnitude;
+                    var edge = py >= tangentY ? radius - fromCenter
+                        : (slope * (py - tip) - Mathf.Abs(px)) / sideNormal;
+                    var fill = Color.Lerp(Navy, Amber, Mathf.Clamp01((edge - .017f) * height));
+                    fill = Color.Lerp(fill, White, Mathf.Clamp01((.12f - fromCenter) * height));
+                    fill.a = Mathf.Clamp01(edge * height + .5f);
+                    texture.SetPixel(x, y, fill);
+                }
+            texture.Apply();
+            return Keep(Sprite.Create(texture, new Rect(0, 0, width, height), Center));
         }
 
         Sprite ScrimSprite()

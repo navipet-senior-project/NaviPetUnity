@@ -1,4 +1,5 @@
 #import "IndoorArHost.h"
+#include <mach/mach_time.h>
 
 // Declared in the trampoline. A paused controller is an unloaded embedded player.
 extern "C" {
@@ -50,6 +51,12 @@ extern "C" {
 
 const char *IndoorArReadRequest(void) {
     return sRequest.length ? sRequest.UTF8String : NULL;
+}
+
+double IndoorArRequestClock(void) {
+    mach_timebase_info_data_t timebase;
+    if (mach_timebase_info(&timebase) != KERN_SUCCESS || timebase.denom == 0) return -1;
+    return (double)mach_continuous_time() * timebase.numer / timebase.denom / 1e9;
 }
 
 void IndoorArDeliverResult(const char *json) {

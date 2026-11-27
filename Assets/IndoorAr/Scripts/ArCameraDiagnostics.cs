@@ -27,7 +27,9 @@ namespace IndoorAr
 
         public static void Attach()
         {
-            if (!Application.isEditor) new GameObject("AR diagnostics", typeof(ArCameraDiagnostics));
+            if (Application.isEditor) return;
+            ArXrInputProbe.WatchDeviceChanges();
+            new GameObject("AR diagnostics", typeof(ArCameraDiagnostics));
         }
 
         void Awake() => _entry = ++_entries;

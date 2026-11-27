@@ -1,5 +1,7 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
@@ -24,16 +26,21 @@ namespace IndoorAr
         [SerializeField] Camera arCamera;
         // Room-sign OCR while AR localizes. Off keeps the MultiSet-only flow and stops OCR.
         [SerializeField] bool signLocalization = true;
-        // SignFirst names the room from signs and gives heading-free directions from it, poses the map only from a
-        // sign validated on this device, and asks MultiSet only after the sign hold; no sign is validated yet.
-        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.SignFirst;
+        // The shipped scene gets its pose from MultiSet. SignFirst remains available for calibration.
+        [SerializeField] IndoorLocalizationMode localizationMode = IndoorLocalizationMode.MultiSet;
 
         IIndoorArLocalizer _localizer;
         IndoorArSession _session;
         string _requestJson;
         bool _started;
         Transform _pin;
+        Vector3 _pinTarget;
+        Vector3 _pinVelocity;
+        int _pinFloor;
+        Vector3 _pinMapPoint;
+        Vector3 _connectorPosition;
         IndoorHud _hud;
+        IndoorRoutePath _path;
         float _pinnedFor;
         float _failureLeft = -1f;
         bool _failureRelease;
@@ -45,7 +52,9 @@ namespace IndoorAr
         IndoorArState _loggedState;
         bool _stateLogged;
         bool _armingEntry;
+        bool _localizeWhenTracking;
         float _sessionStarted;
+        double _requestObservedAt;
         IndoorArBaseline _baseline;
         string _baselineLog;
         IndoorSignPoseStatus? _signPoseStatus;
@@ -72,12 +81,29 @@ namespace IndoorAr
         bool _floorUnknown;
         int _hereFloor;
         // Supported floors, parsed once per session: routing and both pose gates read them every frame.
-        IndoorWalkGrid _floor1Grid;
-        IndoorWalkGrid _floor2Grid;
-        List<(string Type, Vector3 PositionInMap)> _connectors;
-        // Heading-free directions from the last confirmed room sign, routed once per room.
-        IndoorRoomLandmark _directionsRoom;
-        string _roomDirections;
+        Dictionary<int, IndoorWalkGrid> _grids;
+        (int Floor, float Y)[] _floorHeights;
+        List<(string Id, string Type, Vector3 PositionInMap)> _connectors;
+        // Diagnostics DX2 to DX6: fixed-label lines from counts and enums, never a position.
+        readonly FrozenCameraDetector _frozenCamera = new FrozenCameraDetector();
+        readonly FloorTransitionTracker _floorTransitions = new FloorTransitionTracker();
+        readonly LimitedEpisodeTracker _limited = new LimitedEpisodeTracker();
+        readonly WaypointChurnMeter _churn = new WaypointChurnMeter();
+        readonly RouteBlockTracker _routeBlock = new RouteBlockTracker();
+        ARCameraManager _cameraFrames;
+        int _frameCount;
+        string _limitedReason;
+        Vector3 _lastPinnedMapPosition;
+        Quaternion _lastPinnedMapRotation;
+        bool _pinnedMapSeen;
+
+        /// <summary>Receives each DX line. Unset, the line goes to the console on a device and nowhere in the editor.</summary>
+        public Action<string> DiagnosticSink { get; set; }
+        internal Action StartPressureSampling { get; set; } = IndoorArPressure.Start;
+        internal Action StopPressureSampling { get; set; } = IndoorArPressure.Stop;
+        internal delegate bool PressureRead(out float hpa, out double capturedAtS);
+        internal PressureRead ReadPressure { get; set; } = IndoorArPressure.TryRead;
+        internal Func<double> RequestClock { get; set; } = IndoorArBridge.RequestClock;
 
         public void Configure(MonoBehaviour localizer, GameObject pinPrefab, Camera camera)
         {
@@ -95,12 +121,19 @@ namespace IndoorAr
         {
             _localizer = (IIndoorArLocalizer)localizerBehaviour;
             if (localizerBehaviour is MultiSetLocalizer multiSet)
+            {
                 multiSet.CandidatePoseValidator = IsCandidateMultiSetPoseAllowed;
-            _signCalibration ??= IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text);
+                multiSet.HintProvider = FloorHint;
+            }
             if (localizationMode == IndoorLocalizationMode.SignFirst)
+            {
+                _signCalibration ??= IndoorSignCalibration.Parse(Resources.Load<TextAsset>("IndoorSignCalibration")?.text);
                 _localizer = _signFirst = new SignFirstLocalizer(_localizer, _signCalibration, signLocalization)
                     { CandidatePoseValidator = IsCandidateSignPoseAllowed };
+            }
             ArCameraDiagnostics.Attach();
+            _cameraFrames = arCamera != null ? arCamera.GetComponent<ARCameraManager>() : null;
+            if (_cameraFrames != null) _cameraFrames.frameReceived += OnCameraFrame;
             _mlKitOcr = GetComponent<IndoorRoomOcrDemo>();
             _iosOcr = GetComponent<IndoorRoomMlKitOcr>();
             if (_mlKitOcr != null) _mlKitOcr.Result += OnSignRead;
@@ -108,19 +141,27 @@ namespace IndoorAr
             UpdateSignOcr();
             if (!Application.isEditor)
                 Debug.Log($"[IndoorAr] mode={localizationMode} signLocalization={signLocalization}");
+            var json = IndoorArBridge.ReadRequestJson();
+            var observedAt = RequestClock();
             if (ArSessionLifecycle.StartNeedsLoader(Application.isEditor, ArSessionLifecycle.LoaderActive,
-                IndoorArRouterHold.Holds(IndoorArBridge.ReadRequestJson())))
+                IndoorArRouterHold.Holds(json)))
             {
                 // A scene reloaded after the last exit finds the loader torn down; nothing else would start it.
                 _armingEntry = true;
-                var init = ArSessionLifecycle.InitializeOnEntry();
+                var init = ArSessionLifecycle.InitializeOnEntry(true);
                 while (init.MoveNext()) yield return init.Current;
                 _armingEntry = false;
                 ArSessionLifecycle.RestartArComponents();
+                var latest = IndoorArBridge.ReadRequestJson();
+                if (latest != json)
+                {
+                    json = latest;
+                    observedAt = RequestClock();
+                }
             }
             // A scene reloaded while a restarted loader still runs has a fresh pose driver with the same fault.
             ArSessionLifecycle.DriveCameraFromXrInput();
-            BeginSession(IndoorArBridge.ReadRequestJson());
+            BeginSession(json, observedAt);
             if (_session == null || _session.State == IndoorArState.Done) yield break;
             var started = _session;
             yield return ARSession.CheckAvailability();
@@ -133,12 +174,14 @@ namespace IndoorAr
 
         // A host that only unpauses the player keeps this object. The launch
         // JSON is the new session; the previous door and the delivered flag are not.
-        void BeginSession(string json)
+        void BeginSession(string json, double observedAt)
         {
             var restart = _started;
             _started = true;
             _sessionStarted = Time.realtimeSinceStartup;
+            _requestObservedAt = observedAt;
             _stateLogged = false;
+            EndLimitedEpisode(LimitedEpisodeEnd.SessionReplaced);
             ReleaseSession();
             _requestJson = json;
             _delivered = false;
@@ -149,10 +192,17 @@ namespace IndoorAr
             _slowHoldLeft = 0f;
             _signs = new IndoorSignTracker();
             _signPoseStatus = null;
+            _frozenCamera.Reset();
+            _floorTransitions.Reset();
+            _limited.Reset();
+            _churn.Reset();
+            _routeBlock.Reset();
+            _pinnedMapSeen = false;
             _statusSessionId = System.Guid.NewGuid().ToString("N");
             _statusSeq = 0;
             _statusSent = null;
             _sessionAttempts.Clear();
+            _localizeWhenTracking = false;
             // Localizers outlive a warm launch; nothing they held belongs to this session's AR world.
             _signFirst?.Reset();
             if (restart && localizerBehaviour is MultiSetLocalizer multiSet) multiSet.AbandonPending();
@@ -170,11 +220,13 @@ namespace IndoorAr
                     Deliver(IndoorArContract.Unavailable(0, 0));
                 return;
             }
-            _session = new IndoorArSession(request, _localizer.MapCode, signLocalization);
+            if (!Application.isEditor && ArSessionLifecycle.LoaderActive) ArXrInputProbe.Probe();
+            _session = new IndoorArSession(request, _localizer.MapCode, _signFirst != null && signLocalization);
             if (_session.State == IndoorArState.Done) return; // MAP_MISMATCH, delivered in Update
-            var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid")?.text;
-            _floor1Grid = IndoorWalkGrid.ForFloor(gridJson, 1);
-            _floor2Grid = IndoorWalkGrid.ForFloor(gridJson, 2);
+            _session.PressureSamplingStopped += StopPressureSampling;
+            if (_session.PressureSamplingAllowed) StartPressureSampling();
+            _grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid")?.text);
+            _floorHeights = _grids.Select(entry => (entry.Key, entry.Value.FloorY)).ToArray();
             _walkGrid = int.TryParse(request.floor, out var floor) ? Grid(floor) : null;
             _route = null;
             _routeTried = false;
@@ -183,14 +235,14 @@ namespace IndoorAr
             _routeWrongFloor = false;
             _floorUnknown = false;
             _hereFloor = 0;
-            _directionsRoom = null;
-            _roomDirections = null;
             _baseline = new IndoorArBaseline();
             _baselineLog = null;
             _baseline.NoteSessionOpened(NowMs());
             AttachHud();
             _session.LocalizeRequested += RequestLocalization;
             _session.FallbackStopped += StopMultiSetFallback;
+            if (localizerBehaviour is MultiSetLocalizer candidateLocalizer)
+                candidateLocalizer.CandidateLocalized += OnMultiSetCandidateLocalized;
             _localizer.Authenticated += _session.OnAuthenticated;
             _localizer.AuthFailed += _session.OnAuthFailed;
             _localizer.AttemptStarted += OnAttemptStarted;
@@ -212,29 +264,43 @@ namespace IndoorAr
                 var json = IndoorArBridge.ReadRequestJson();
                 if (json != null && json != _requestJson)
                 {
+                    var observedAt = RequestClock();
                     if (Application.isEditor || !ArSessionLifecycle.ShouldInitialize(ArSessionLifecycle.LoaderActive))
-                        BeginSession(json);
+                        BeginSession(json, observedAt);
                     else
                     {
                         _armingEntry = true;
-                        StartCoroutine(ArmEntry(json));
+                        StartCoroutine(ArmEntry(json, observedAt));
                     }
                 }
             }
             UpdateSignOcr();
             if (_session == null || _delivered) return;
+            if (_session.PressureSamplingAllowed && ReadPressure(out var hpa, out var capturedAtS))
+                _session.OnPressure(hpa, capturedAtS);
             if (BackPressed()) OnHudExit();
             if (_session.State != IndoorArState.Init) NoteArReady();
-            if (_session.State == IndoorArState.Pinned && ARSession.state != ARSessionState.SessionTracking)
+            if (_localizeWhenTracking && _session.State == IndoorArState.Localizing
+                && ARSession.state == ARSessionState.SessionTracking) RequestLocalization();
+            var tracking = ARSession.state == ARSessionState.SessionTracking;
+            var pinnedBeforeLoss = _session.State == IndoorArState.Pinned;
+            if (pinnedBeforeLoss && !tracking)
             {
                 _session.OnTrackingLost();
                 _baseline?.NoteTrackingLost();
                 LogBaseline();
             }
+            NoteLimitedTracking(tracking, pinnedBeforeLoss);
+            NoteFrozenCamera(tracking);
             if (_session.State == IndoorArState.Pinned)
             {
                 _pinnedFor += Time.unscaledDeltaTime;
-                _session.OnTrackedPose(CameraInMap().y, Floor1Y, Floor2Y);
+                var cameraY = CameraInMap().y;
+                _session.OnTrackedPose(cameraY, _floorHeights);
+                NoteFloor(cameraY);
+                _lastPinnedMapPosition = _localizer.MapSpace.position;
+                _lastPinnedMapRotation = _localizer.MapSpace.rotation;
+                _pinnedMapSeen = true;
             }
             else _pinnedFor = 0f;
             _session.Tick(Time.unscaledDeltaTime);
@@ -246,15 +312,14 @@ namespace IndoorAr
                 if (!Application.isEditor)
                     Debug.Log($"[IndoorAr] state={_loggedState} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)} attempts={_session.Queries} multisetFallback={MultiSetFallbackStatus()}");
             }
-            UpdatePin();
             // shortcut: hold the failure card 4s on device so it can be read before the activity closes.
             if ((LiveDoorHud.AuthFailed(_session) || LiveDoorHud.StepFreeUnavailable(_session)) && _failureLeft < 0f)
                 _failureLeft = Application.isEditor ? 0f : 4f;
-            var holdingFailure = LiveDoorHud.LocalizationFailed(_session) || (_failureLeft > 0f && !_failureRelease);
+            var holdingFailure = (LiveDoorHud.LocalizationFailed(_session) && !_failureRelease) || (_failureLeft > 0f && !_failureRelease);
             if (holdingFailure) _failureLeft -= Time.unscaledDeltaTime;
             UpdateHud();
             PostStatus();
-            var keepFailure = LiveDoorHud.LocalizationFailed(_session) || (_failureLeft > 0f && !_failureRelease);
+            var keepFailure = (LiveDoorHud.LocalizationFailed(_session) && !_failureRelease) || (_failureLeft > 0f && !_failureRelease);
             if (_session.State == IndoorArState.Done && !keepFailure) Deliver(_session.ResultJson);
         }
 
@@ -264,6 +329,7 @@ namespace IndoorAr
             hudObject.transform.SetParent(_localizer.MapSpace, false);
             _hud = hudObject.AddComponent<IndoorHud>();
             _hud.Initialize(arCamera);
+            _hud.DiagnosticSink = Diag;
             _hud.ExitRequested += OnHudExit;
             _hud.HereRequested += OnHudHere;
             _hud.DoneRequested += OnHudDone;
@@ -285,6 +351,10 @@ namespace IndoorAr
         void RequestLocalization()
         {
             if (_session.FallbackExpired && _signFirst == null) return;
+            // On device MultiSet never answered a frame sent before ARKit tracked, and that query holds the process lock.
+            // The session timeouts keep running while this waits, so a session that never tracks still fails on schedule.
+            _localizeWhenTracking = ARSession.state != ARSessionState.SessionTracking;
+            if (_localizeWhenTracking) return;
             _baseline?.NoteAttemptStarted(NowMs());
             if (!Application.isEditor)
                 Debug.Log($"[IndoorAr] localization attempt={_session.Queries + 1} elapsedMs={(long)((Time.realtimeSinceStartup - _sessionStarted) * 1000)}");
@@ -305,12 +375,28 @@ namespace IndoorAr
 
         void OnLocalizedObserved(float? confidence)
         {
+            if (localizerBehaviour is not MultiSetLocalizer || (_signFirst != null && _signFirst.FromSigns))
+                LogLocalizationResult(CameraInMap().y, _signFirst != null && _signFirst.FromSigns ? "unavailable" : _localizer.LastMapHash, confidence);
             if (RejectMultiSetFloorConflict(CameraInMap())) return;
             var wasPinned = _session.WasPinned;
+            var wasLocalizing = _session.State == IndoorArState.Localizing;
             _session.OnLocalized(confidence);
+            if (wasPinned && wasLocalizing && _session.State == IndoorArState.Pinned) NoteRepin();
             if (!wasPinned && _session.WasPinned)
                 _baseline?.NotePoseAccepted(NowMs(), _signFirst != null && _signFirst.FromSigns);
             LogBaseline();
+        }
+
+        void OnMultiSetCandidateLocalized(Transform candidate, string mapHash, float? confidence)
+        {
+            if (_session != null && arCamera != null)
+                LogLocalizationResult(candidate.InverseTransformPoint(arCamera.transform.position).y, mapHash, confidence);
+        }
+
+        void LogLocalizationResult(float poseY, string mapHash, float? confidence)
+        {
+            Diag(IndoorArDiagnostics.LocalizationResultLine(mapHash,
+                _session.PoseFloor(poseY, _floorHeights), poseY, _floorHeights, confidence));
         }
 
         // OCR keeps reading while pinned so a confirmed reread can refresh floor evidence and recover sign alignment.
@@ -342,6 +428,12 @@ namespace IndoorAr
                 && match.Landmark.Id == _signs.Confirmed.Id)
             {
                 _session.OnSignConfirmed(_signs.Confirmed);
+                if (_session.State == IndoorArState.Arrived)
+                {
+                    UpdateSignOcr();
+                    UpdateHud();
+                    return;
+                }
                 if (_session.State == IndoorArState.Pinned && RejectMultiSetFloorConflict(CameraInMap()))
                     _session.OnTrackingLost();
                 _session.OnSignInView();
@@ -355,8 +447,13 @@ namespace IndoorAr
             var fromMultiSet = localizationMode == IndoorLocalizationMode.MultiSet
                 || _signFirst != null && !_signFirst.FromSigns;
             if (!fromMultiSet) return false;
-            if (!_session.PoseConflictsWithSign(cameraInMap.y, Floor1Y, Floor2Y)) return false;
-            var poseFloor = _session.PoseFloor(cameraInMap.y, Floor1Y, Floor2Y);
+            if (!_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights)) return false;
+            var poseFloor = _session.PoseFloor(cameraInMap.y, _floorHeights);
+            if (poseFloor > 0 && _session.TrustedStartFloor > 0)
+            {
+                _session.NoteStartFloorConflict();
+                if (!_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights)) return false;
+            }
             var pose = poseFloor == -1 ? "unsupported" : poseFloor == 0 ? "unknown" : poseFloor.ToString();
             Debug.Log($"[IndoorAr] floor conflict sign={(_session.FloorSign == null ? "none" : _session.FloorSign.Floor.ToString())} pose={pose}");
             if (_session.State == IndoorArState.Localizing) _session.OnNotLocalized();
@@ -367,12 +464,21 @@ namespace IndoorAr
         bool IsCandidateSignPoseAllowed(Vector3 cameraInMap)
         {
             if (_session == null || _session.State is not (IndoorArState.Localizing or IndoorArState.Pinned)) return false;
-            return !_session.PoseConflictsWithSign(cameraInMap.y, Floor1Y, Floor2Y);
+            return !_session.PoseConflictsWithSign(cameraInMap.y, _floorHeights);
         }
 
-        IndoorWalkGrid Grid(int floor) => floor == 1 ? _floor1Grid : floor == 2 ? _floor2Grid : null;
-        float Floor1Y => _floor1Grid != null ? _floor1Grid.FloorY : float.NaN;
-        float Floor2Y => _floor2Grid != null ? _floor2Grid.FloorY : float.NaN;
+        MultiSetHint? FloorHint()
+        {
+            if (_session?.Request.RequestSentAtBootS is not double sentAt || !(sentAt <= _requestObservedAt))
+                return null;
+            var now = RequestClock();
+            if (!double.IsFinite(now) || !(now >= _requestObservedAt)) return null;
+            var floor = _session.HintFloor(now - sentAt);
+            var grid = floor > 0 ? Grid(floor) : null;
+            return grid == null ? null : new MultiSetHint(grid.FloorY);
+        }
+
+        IndoorWalkGrid Grid(int floor) => _grids.GetValueOrDefault(floor);
 
         bool IsCandidateMultiSetPoseAllowed(Transform candidateMapSpace)
         {
@@ -425,9 +531,11 @@ namespace IndoorAr
         void PostStatus()
         {
             if (_session == null || _delivered) return;
-            var localized = _session.State is IndoorArState.Pinned or IndoorArState.Arrived;
+            var localized = _session.State == IndoorArState.Pinned
+                || _session.State == IndoorArState.Arrived && !_session.ArrivedBySign;
             var tracking = ARSession.state == ARSessionState.SessionTracking;
-            var fallback = _session.State != IndoorArState.Done && !_session.FallbackExpired && (_signFirst != null
+            var fallback = _session.State is not (IndoorArState.Done or IndoorArState.Arrived) && !_session.FallbackExpired
+                && (_signFirst != null
                 ? _signFirst.FallbackAvailable : localizerBehaviour is MultiSetLocalizer multiSet && multiSet.FallbackAvailable);
             var room = _session.SignRoom;
             var key = $"{_session.State}|{tracking}|{room?.Id}|{localized}|{fallback}";
@@ -448,6 +556,14 @@ namespace IndoorAr
         void OnHudRetry()
         {
             if (_session == null || !LiveDoorHud.LocalizationFailed(_session)) return;
+            if (_session.LaunchedWithFloorEvidence)
+            {
+                // Unity cannot ask for a fresh floor confirmation and the failure card must not read pressure, so the host
+                // gets the localizationFailed result, re-prompts for the floor and relaunches with new evidence.
+                _failureRelease = true;
+                DropQueuedMultiSetFallback();
+                return;
+            }
             _signFirst?.Reset();
             if (localizerBehaviour is MultiSetLocalizer multiSet) multiSet.AbandonPending();
             _session.Retry();
@@ -459,11 +575,22 @@ namespace IndoorAr
             if (_session.State == IndoorArState.Done
                 && !LiveDoorHud.LocalizationFailed(_session)
                 && !LiveDoorHud.AuthFailed(_session)
-                && !LiveDoorHud.StepFreeUnavailable(_session)) return;
-            var route = Route(CameraInMap());
-            var view = LiveDoorHud.Compose(_session, CameraInMap(), CameraForwardInMap(), _pinnedFor, route,
-                _floorChange, _floorUnknown, _routeWrongFloor, Grid(_routeFloor), RoomDirections());
-            if (_pin != null && _pin.gameObject.activeSelf) view.LabelAnchor = PinLabelAnchor(_pin);
+                && !LiveDoorHud.StepFreeUnavailable(_session))
+            {
+                if (_pin != null) _pin.gameObject.SetActive(false);
+                _path?.Hide();
+                return;
+            }
+            var cameraInMap = CameraInMap();
+            var route = Route(cameraInMap);
+            var currentFloor = _session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived
+                ? _session.CurrentFloor(cameraInMap.y, _floorHeights) : 0;
+            var grid = Grid(_routeFloor);
+            var view = LiveDoorHud.Compose(_session, cameraInMap, CameraForwardInMap(), _pinnedFor, route,
+                _floorChange, _floorUnknown, _routeWrongFloor, grid, currentFloor, _frozenCamera.Frozen);
+            NoteRoute(view);
+            UpdatePath(view, route, grid);
+            UpdatePin(view, currentFloor);
             // Names the sign the camera reads now. It is not the camera's position.
             if (view.State == IndoorHudState.Straight && !view.RouteBlocked && !view.FollowingRoute && _session.SignRoom != null
                 && _signs != null && _signs.InView(Time.unscaledTime))
@@ -473,8 +600,7 @@ namespace IndoorAr
             if (view.State == IndoorHudState.Scanning)
             {
                 view.ScanTooFast = SampleScanMotion();
-                // Slow-down wins, except over room directions the user is walking by.
-                if (view.ScanTooFast && (_roomDirections == null || view.DetailOverride != _roomDirections))
+                if (view.ScanTooFast)
                     view.TitleOverride = view.DetailOverride = null;
             }
             else
@@ -487,7 +613,7 @@ namespace IndoorAr
                 _baseline?.NoteArrowShown(NowMs());
                 LogBaseline();
             }
-            _hud.Show(view);
+            _hud.Show(view, _path);
         }
 
         /// <summary>
@@ -511,7 +637,7 @@ namespace IndoorAr
                 _routeWrongFloor = false;
                 return _route = null;
             }
-            var currentFloor = _session.CurrentFloor(cameraInMap.y, Floor1Y, Floor2Y);
+            var currentFloor = _session.CurrentFloor(cameraInMap.y, _floorHeights);
             var wrongFloor = _session.IsWrongFloor(currentFloor);
             if (currentFloor != _routeFloor) _routeTried = false;
             var moved = new Vector2(cameraInMap.x - _routeFrom.x, cameraInMap.z - _routeFrom.z).magnitude;
@@ -531,7 +657,8 @@ namespace IndoorAr
             else
             {
                 var door = _session.Request.position;
-                if (_walkGrid == null || !_walkGrid.TryRoute(cameraInMap, new Vector3(door.x, door.y, door.z), out _route)) _route = null;
+                if (door == null || _walkGrid == null || !_walkGrid.TryRoute(cameraInMap,
+                    new Vector3(door.x, door.y, door.z), out _route)) _route = null;
             }
             _routeFrom = cameraInMap;
             _routeTried = true;
@@ -545,39 +672,43 @@ namespace IndoorAr
             return _route;
         }
 
-        string RoomDirections()
-        {
-            var room = _session.SignRoom;
-            if (room == _directionsRoom) return _roomDirections;
-            _directionsRoom = room;
-            _roomDirections = room == null ? null : LiveDoorHud.RoomDirections(room, _session.Request, Grid(room.Floor),
-                IndoorRoomIdentityMatcher.FloorMarkers(DirectoryJson, room.Floor));
-            // Room and whether a route was found: no position, no text.
-            if (room != null && !Application.isEditor)
-                Debug.Log($"[IndoorAr] room directions room={room.Id} status={(_roomDirections == null ? "none" : "found")}");
-            return _roomDirections;
-        }
-
         string DirectoryJson => _iosOcr != null ? _iosOcr.DirectoryJson : _mlKitOcr != null ? _mlKitOcr.DirectoryJson : null;
 
         /// <summary>Shortest scan-grid route on the user's floor to a directory stairs or elevator marker.</summary>
         void RouteToFloorChange(Vector3 cameraInMap, int here)
         {
             _route = null;
-            if (here is not (1 or 2)) return;
+            var hereGrid = Grid(here);
+            var door = _session.Request.position;
+            if (hereGrid == null || _walkGrid == null || door == null) return;
             if (_hereFloor != here)
             {
                 _hereFloor = here;
-                _connectors = IndoorRoomIdentityMatcher.FloorConnectors(DirectoryJson, here);
+                var destinationFloor = int.Parse(_session.Request.floor);
+                var destination = new Vector3(door.x, door.y, door.z);
+                var directory = DirectoryJson;
+                var landings = IndoorRoomIdentityMatcher.FloorConnectors(directory, destinationFloor);
+                // Elevator markers can sit in blocked cells: stand at the nearest walkable cell and check the exit from there.
+                landings.RemoveAll(landing => !_walkGrid.TryApproach(landing.PositionInMap, out var approach)
+                    || !_walkGrid.TryRoute(approach, destination, out var onward)
+                    || !_walkGrid.TryNextWaypoint(onward, approach, LiveDoorHud.RouteLookAheadM, out _));
+                _connectors = IndoorRoomIdentityMatcher.FloorConnectors(directory, here).FindAll(connector =>
+                {
+                    var stem = connector.Type == "stairs" ? "VECstairsF" : "VECelev";
+                    var prefix = stem + here;
+                    if (connector.Id == null || !connector.Id.StartsWith(prefix, System.StringComparison.Ordinal)
+                        || connector.Id.Length == prefix.Length) return false;
+                    var landingId = stem + destinationFloor + connector.Id.Substring(prefix.Length);
+                    return landings.Exists(landing => landing.Type == connector.Type && landing.Id == landingId);
+                });
             }
-            var hereGrid = Grid(here);
-            if (hereGrid == null) return;
-            foreach (var (type, at) in _connectors)
+            foreach (var (_, type, at) in _connectors)
                 if (hereGrid.TryRoute(cameraInMap, at, out var route)
                     && (_route == null || IndoorWalkGrid.LengthM(route) < IndoorWalkGrid.LengthM(_route)))
                 {
                     _route = route;
                     _floorChange = type;
+                    _connectorPosition = at;
                 }
         }
 
@@ -595,34 +726,123 @@ namespace IndoorAr
             return _slowHoldLeft > 0f;
         }
 
-        void UpdatePin()
+        // The floor path follows the same clear route the arrow would aim along; with none, nothing is drawn.
+        void UpdatePath(IndoorHudView view, Vector3[] route, IndoorWalkGrid grid)
         {
-            // The pin stays behind the arrival card.
-            var pinned = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived) && !_session.Request.LocalizeOnly;
-            if (pinned && _pin == null)
+            if (!view.FollowingRoute || view.RouteBlocked || view.State != IndoorHudState.Straight)
             {
-                var door = _session.Request;
-                _pin = CreatePin(_localizer.MapSpace, out _pinAmberMaterial, out _pinCoreMaterial);
-                _pin.localPosition = new Vector3(door.position.x, door.position.y, door.position.z);
-                _pin.localRotation = Quaternion.Euler(0f, door.headingDeg, 0f);
+                _path?.Hide();
+                return;
             }
-            WatchMapSpace(pinned);
-            if (_pin != null)
+            _path ??= new IndoorRoutePath(_localizer.MapSpace);
+            _path.Place(view.RouteStart, route[view.RouteWaypointIndex], grid);
+        }
+
+        void UpdatePin(IndoorHudView view, int currentFloor)
+        {
+            var request = _session.Request;
+            var door = request.position;
+            var showing = (_session.State == IndoorArState.Pinned || _session.State == IndoorArState.Arrived && !_session.ArrivedBySign)
+                && !request.LocalizeOnly && !request.stepFree && door != null && currentFloor > 0 && _walkGrid != null
+                && !_frozenCamera.Frozen; // a camera that no longer follows the phone would draw the pin in the wrong place
+            var connector = showing && _session.IsWrongFloor(currentFloor);
+            if (connector && view.FloorChange == null) showing = false;
+            WatchMapSpace(showing);
+            if (!showing)
             {
-                _pin.gameObject.SetActive(pinned);
-                if (pinned)
-                {
-                    var direction = _pin.position - arCamera.transform.position;
-                    direction.y = 0f;
-                    if (direction.sqrMagnitude > 0.0001f) _pin.rotation = Quaternion.LookRotation(direction);
-                }
+                if (_pin != null) _pin.gameObject.SetActive(false);
+                return;
             }
+
+            var mapPoint = connector ? _connectorPosition : new Vector3(door.x, door.y, door.z);
+            var at = _localizer.MapSpace.TransformPoint(mapPoint);
+            if (_pin == null || _pinFloor != currentFloor || _pinMapPoint != mapPoint)
+            {
+                _pin ??= CreatePin(null, out _pinAmberMaterial, out _pinCoreMaterial);
+                _pin.position = _pinTarget = at;
+                _pinVelocity = Vector3.zero;
+                _pinFloor = currentFloor;
+                _pinMapPoint = mapPoint;
+            }
+            _pin.position = IndoorHud.EasePin(_pin.position, at, ref _pinTarget, ref _pinVelocity, Time.unscaledDeltaTime);
+            view.WorldPin = _pin;
+            view.LabelAnchor = PinLabelAnchor(_pin);
+            if (connector)
+                view.PinLabel = (view.FloorChange == "stairs" ? "Stairs" : "Elevator") + " · to Floor " + view.Floor
+                    + " · " + IndoorHud.DistanceLabel(view.DistanceM);
+        }
+
+        void Diag(string line)
+        {
+            if (DiagnosticSink != null) DiagnosticSink(line);
+            else if (!Application.isEditor) Debug.Log(line);
+        }
+
+        void OnCameraFrame(ARCameraFrameEventArgs args) => _frameCount++;
+
+        // DX2: the camera transform did not change while frames kept arriving and the session tracked.
+        void NoteFrozenCamera(bool tracking)
+        {
+            if (arCamera == null) return;
+            var pose = arCamera.transform;
+            if (_frozenCamera.Observe(Time.unscaledDeltaTime, pose.position, pose.rotation, _frameCount, tracking))
+                Diag(IndoorArDiagnostics.CameraFrozenLine(_frozenCamera.Frozen, _frozenCamera.StillMs, _frameCount));
+        }
+
+        // DX3: a change of the floor the session reads while pinned, with the eye height bucket and no position.
+        void NoteFloor(float cameraY)
+        {
+            var floor = _session.CurrentFloor(cameraY, _floorHeights);
+            if (_floorTransitions.Observe(floor, out var from))
+                Diag(IndoorArDiagnostics.FloorChangeLine(from, floor, IndoorArDiagnostics.EyeHeightBucket(cameraY, floor, _floorHeights)));
+        }
+
+        // DX4: how long tracking stayed Limited after a pin, and whether the session went back to localizing.
+        void NoteLimitedTracking(bool tracking, bool wasPinned)
+        {
+            var phase = _limited.Observe(tracking, wasPinned, _session.State == IndoorArState.Localizing, Time.realtimeSinceStartup);
+            if (phase == LimitedEpisodePhase.Begin)
+            {
+                _limitedReason = ARSession.notTrackingReason.ToString();
+                Diag(IndoorArDiagnostics.TrackingLimitedBeginLine(_limitedReason));
+            }
+            else if (phase == LimitedEpisodePhase.End)
+                LogLimitedEnd(LimitedEpisodeEnd.TrackingRestored);
+        }
+
+        void LogLimitedEnd(LimitedEpisodeEnd end) =>
+            Diag(IndoorArDiagnostics.TrackingLimitedEndLine(_limited.DurationMs, _limited.Relocalized, _limitedReason, end));
+
+        void EndLimitedEpisode(LimitedEpisodeEnd end)
+        {
+            if (!_limited.Active) return;
+            _limited.End(Time.realtimeSinceStartup);
+            LogLimitedEnd(end);
+            _limited.Reset();
+        }
+
+        // DX5: waypoint index changes per second, and route-blocked transitions with the cause.
+        void NoteRoute(IndoorHudView view)
+        {
+            if (_routeBlock.Observe(view.RouteBlocked, view.RouteBlockedCause))
+                Diag(IndoorArDiagnostics.RouteBlockedLine(view.RouteBlocked, view.RouteBlockedCause));
+            if (_churn.Observe(view.RouteWaypointIndex, Time.unscaledDeltaTime, out var changesPerS))
+                Diag(IndoorArDiagnostics.WaypointChurnLine(changesPerS));
+        }
+
+        // DX6: how far MapSpace moved between the last pinned frame and the pose a re-localization just applied.
+        void NoteRepin()
+        {
+            if (!_pinnedMapSeen) return;
+            var map = _localizer.MapSpace;
+            MapShifted(_lastPinnedMapPosition, _lastPinnedMapRotation, map.position, map.rotation, out var meters, out var degrees);
+            Diag(IndoorArDiagnostics.RepinJumpLine(meters, degrees));
         }
 
         public const float MapShiftMeters = 0.02f;
         public const float MapShiftDegrees = 0.5f;
 
-        /// <summary>The pin is a MapSpace child, so it only moves in the world if MapSpace itself is re-posed.</summary>
+        /// <summary>Thresholds for logging changes to the MapSpace alignment.</summary>
         public static bool MapShifted(Vector3 was, Quaternion wasRotation, Vector3 now, Quaternion nowRotation,
             out float meters, out float degrees)
         {
@@ -689,13 +909,17 @@ namespace IndoorAr
 
         void OnDestroy()
         {
+            EndLimitedEpisode(LimitedEpisodeEnd.Destroyed);
             if (_mlKitOcr != null) _mlKitOcr.Result -= OnSignRead;
             if (_iosOcr != null) _iosOcr.Result -= OnSignRead;
+            if (_cameraFrames != null) _cameraFrames.frameReceived -= OnCameraFrame;
             ReleaseSession();
         }
 
         void ReleaseSession()
         {
+            _session?.StopPressureSampling();
+            if (_session != null) StopMultiSetFallback();
             Unhook();
             if (_hud != null)
             {
@@ -707,6 +931,8 @@ namespace IndoorAr
                 DestroyOwned(_pin.gameObject);
                 _pin = null;
             }
+            _path?.Dispose();
+            _path = null;
             DestroyOwned(_pinAmberMaterial);
             DestroyOwned(_pinCoreMaterial);
             _pinAmberMaterial = null;
@@ -725,9 +951,12 @@ namespace IndoorAr
                 _hud.DoneRequested -= OnHudDone;
                 _hud.RetryRequested -= OnHudRetry;
             }
+            if (localizerBehaviour is MultiSetLocalizer multiSet)
+                multiSet.CandidateLocalized -= OnMultiSetCandidateLocalized;
             if (_session == null || _localizer == null) return;
             _session.LocalizeRequested -= RequestLocalization;
             _session.FallbackStopped -= StopMultiSetFallback;
+            _session.PressureSamplingStopped -= StopPressureSampling;
             _localizer.Authenticated -= _session.OnAuthenticated;
             _localizer.AuthFailed -= _session.OnAuthFailed;
             _localizer.AttemptStarted -= OnAttemptStarted;
@@ -741,22 +970,24 @@ namespace IndoorAr
             else DestroyImmediate(obj);
         }
 
-        IEnumerator ArmEntry(string json)
+        IEnumerator ArmEntry(string json, double observedAt)
         {
-            var init = ArSessionLifecycle.InitializeOnEntry();
+            var init = ArSessionLifecycle.InitializeOnEntry(true);
             while (init.MoveNext()) yield return init.Current;
             _armingEntry = false;
-            BeginSession(json);
+            BeginSession(json, observedAt);
         }
 
         void Deliver(string resultJson)
         {
             if (_delivered) return;
+            EndLimitedEpisode(LimitedEpisodeEnd.SessionEnded);
             _delivered = true;
+            _path?.Hide();
             _requestJson = null;
-            DropQueuedMultiSetFallback();
+            StopMultiSetFallback();
             if (Application.isPlaying) StopAllCoroutines();
-            ArSessionLifecycle.StopSessionsAndTearDown();
+            ArSessionLifecycle.StopSessionsAndTearDown(keepLoader: true);
             IndoorArBridge.Deliver(resultJson);
         }
 
@@ -769,6 +1000,7 @@ namespace IndoorAr
         void StopMultiSetFallback()
         {
             if (_signFirst != null) _signFirst.StopFallback();
+            else if (_localizer is SignFirstLocalizer signFirst) signFirst.StopFallback();
             else DropQueuedMultiSetFallback();
         }
 

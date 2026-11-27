@@ -56,7 +56,7 @@ For outdoor AR the host app must declare `NSLocationWhenInUseUsageDescription` a
 
 ## Indoor localization and routes
 
-The shared runtime contracts live in [Signs first, MultiSet last](../Assets/IndoorAr/OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified) (authentication, request ownership and transform isolation) and [Hallway route](../Assets/IndoorAr/OCR-POC-prerequisites.md#hallway-route) (floor evidence, clearance and strict step-free policy).
+The shared runtime contracts live in [Signs first, MultiSet last](../Assets/IndoorAr/OCR-POC-prerequisites.md#signs-first-multiset-last-signfirst-not-device-verified) (authentication, request ownership and transform isolation), [Hallway route](../Assets/IndoorAr/OCR-POC-prerequisites.md#hallway-route) (clearance and strict step-free policy), and the [floor evidence contract](floor-evidence-contract.md) (consent, pose validation and retry handoff).
 
 ## Host bridge
 
@@ -73,6 +73,8 @@ Before Unity's first scene runs, from the app that embeds `UnityFramework`:
 
 `IndoorArHost.h` is copied into the export at `Libraries/Plugins/iOS/IndoorArHost.h`. Delivering a result clears the request. For a later launch, set the new request and result handler again; if the player was unloaded and left paused, setting both reloads it (see `IndoorArHost.h`). That reload path calls Unity trampoline symbols and is not verified on a device. A missing request makes Unity return `BAD_REQUEST`. A missing handler drops the result. The same error codes as Android apply, including `ARCORE_UNSUPPORTED` when the device reports no AR support.
 
+On iOS, indoor exit disables the AR components but keeps the XR loader for reuse on re-entry. This is intended to avoid the missing XR input device observed after loader reinitialization; the change has not been verified on a device, and the earlier black-camera regression may return. The fallback is to pass `keepLoader: false` on indoor exit. Outdoor exit still tears down the loader; see [outdoor AR](../Assets/OutdoorAr/README.md#hosted-session).
+
 Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives progress while a session runs, on the main queue; it stays set across sessions, and without it status is dropped. On Android the same string goes to the host activity's `postStatus(String)` if it has one; a host without that method is detected once and skipped. Unity posts only when the state, tracking, recognized room, localized flag or fallback availability changes:
 
 ```json
@@ -83,6 +85,16 @@ Optionally, `[IndoorArHost setStatusHandler:^(NSString *json) { ... }]` receives
 ```
 
 `sessionId` is new for each request and `seq` counts up within it. `roomRecognized` and `roomFloor` appear once a room sign is confirmed; that is an identity, not a position. The final result also gains optional `signRoom` with the last confirmed room ID; older hosts can ignore it. `pose` (camera in the MapSet frame, `source` `sign` or `multiset`) appears only when `localized` is true, and is the pose at the moment of that change, not a stream. Do not log status JSON: it can carry the camera pose. The Flutter side does not decode it yet; adding the handler there and `postStatus` to `UnityHostActivity` is a local Flutter follow-up.
+
+## Floor-change pressure
+
+The iOS reader uses the Core Motion altimeter in `IndoorArPressure.mm`. See the [floor evidence contract](floor-evidence-contract.md#what-unity-does) for sampling consent and the host retry handoff.
+
+Proposed `NSMotionUsageDescription` for the host app’s Info.plist
+
+> NaviPet uses Motion & Fitness data to count your steps and, only if you confirm which floor you are starting on, to detect when you change floors indoors using the barometer. Barometer readings stay on your device and are used only during indoor navigation.
+
+Verify `UnityFramework` linking in an iOS export. On a device, verify Motion & Fitness permission behavior and the Core Motion measurement timestamp. The [native timestamp checks](floor-evidence-contract.md#known-limits-and-disclosed-gaps) identify the Android and iOS boundaries beyond EditMode coverage.
 
 ## Not verified here
 

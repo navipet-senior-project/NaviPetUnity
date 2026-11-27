@@ -37,14 +37,19 @@ namespace IndoorAr
 
         public float FloorY => _floor.floorY;
 
-        public static IndoorWalkGrid ForFloor(string json, int floor)
+        public static IndoorWalkGrid ForFloor(string json, int floor) =>
+            LoadFloors(json).GetValueOrDefault(floor);
+
+        public static Dictionary<int, IndoorWalkGrid> LoadFloors(string json)
         {
-            if (string.IsNullOrEmpty(json)) return null;
-            var data = JsonUtility.FromJson<IndoorWalkGridData>(json);
-            if (data?.floors == null) return null;
-            foreach (var f in data.floors)
-                if (f.floor == floor && f.rows != null && f.rows.Length == f.height) return new IndoorWalkGrid(f);
-            return null;
+            var grids = new Dictionary<int, IndoorWalkGrid>();
+            if (!string.IsNullOrEmpty(json) && JsonUtility.FromJson<IndoorWalkGridData>(json)?.floors is { } floors)
+                foreach (var f in floors)
+                    if (f != null && f.floor > 0 && f.cell > 0f && f.width > 0 && f.height > 0
+                        && f.rows != null && f.rows.Length == f.height && Array.TrueForAll(f.rows, row => row?.Length == f.width)
+                        && !float.IsNaN(f.floorY) && !float.IsInfinity(f.floorY))
+                        grids[f.floor] = new IndoorWalkGrid(f);
+            return grids;
         }
 
         public bool IsWalkable(int x, int z) =>
@@ -76,6 +81,65 @@ namespace IndoorAr
                     cz = z0 + dz;
                 }
             return cx >= 0;
+        }
+
+        /// <summary>
+        /// True when the point snaps onto the floor's largest region of walkable cells, joined the way TryRoute
+        /// joins them. A snap onto a smaller island, or no snap, means routes to or from the point cannot work.
+        /// </summary>
+        public bool IsOnMainRegion(Vector3 world)
+        {
+            if (!TrySnap(world, out var cx, out var cz)) return false;
+            if (_region == null) LabelRegions();
+            return _region[cz * _floor.width + cx] == _mainRegion;
+        }
+
+        int[] _region;
+        int _mainRegion;
+
+        void LabelRegions()
+        {
+            var w = _floor.width;
+            _region = new int[w * _floor.height];
+            var sizes = new List<int> { 0 };
+            var pending = new Stack<int>();
+            for (var start = 0; start < _region.Length; start++)
+            {
+                if (_region[start] != 0 || !IsWalkable(start % w, start / w)) continue;
+                var label = sizes.Count;
+                sizes.Add(0);
+                _region[start] = label;
+                pending.Push(start);
+                while (pending.Count > 0)
+                {
+                    var id = pending.Pop();
+                    var x = id % w;
+                    var z = id / w;
+                    sizes[label]++;
+                    for (var dz = -1; dz <= 1; dz++)
+                        for (var dx = -1; dx <= 1; dx++)
+                        {
+                            if (dx == 0 && dz == 0) continue;
+                            var nx = x + dx;
+                            var nz = z + dz;
+                            if (!IsWalkable(nx, nz) || _region[nz * w + nx] != 0) continue;
+                            if (dx != 0 && dz != 0 && (!IsWalkable(x + dx, z) || !IsWalkable(x, z + dz))) continue;
+                            _region[nz * w + nx] = label;
+                            pending.Push(nz * w + nx);
+                        }
+                }
+            }
+            for (var label = 1; label < sizes.Count; label++)
+                if (sizes[label] > sizes[_mainRegion]) _mainRegion = label;
+        }
+
+        /// <summary>The walkable cell centre a marker stands next to, for markers (elevators) that sit in blocked cells.</summary>
+        public bool TryApproach(Vector3 world, out Vector3 approach)
+        {
+            approach = default;
+            if (!TrySnap(world, out var cx, out var cz)) return false;
+            approach = CenterOf(cx, cz);
+            return true;
         }
 
         /// <summary>
@@ -192,6 +256,33 @@ namespace IndoorAr
             return true;
         }
 
+        internal bool IsRibbonClear(Vector3 start, Vector3 end, float width)
+        {
+            var a = new Vector2(start.x, start.z);
+            var b = new Vector2(end.x, end.z);
+            var axis = (b - a).normalized;
+            var side = new Vector2(-axis.y, axis.x);
+            var halfWidth = width * .5f;
+            var reach = new Vector2(Mathf.Abs(side.x), Mathf.Abs(side.y)) * halfWidth;
+            var min = Vector2.Min(a, b) - reach;
+            var max = Vector2.Max(a, b) + reach;
+            var mid = (a + b) * .5f;
+            var halfLength = Vector2.Distance(a, b) * .5f;
+            var cellHalf = _floor.cell * .5f;
+            var alongReach = halfLength + cellHalf * (Mathf.Abs(axis.x) + Mathf.Abs(axis.y));
+            var acrossReach = halfWidth + cellHalf * (Mathf.Abs(side.x) + Mathf.Abs(side.y));
+            for (var z = RowOf(min.y); z <= RowOf(max.y); z++)
+                for (var x = ColumnOf(min.x); x <= ColumnOf(max.x); x++)
+                {
+                    if (IsWalkable(x, z)) continue;
+                    var cell = CenterOf(x, z);
+                    var delta = new Vector2(cell.x, cell.z) - mid;
+                    if (Mathf.Abs(Vector2.Dot(delta, axis)) < alongReach
+                        && Mathf.Abs(Vector2.Dot(delta, side)) < acrossReach) return false;
+                }
+            return true;
+        }
+
         public static float LengthM(Vector3[] route)
         {
             var meters = 0f;
@@ -201,24 +292,57 @@ namespace IndoorAr
         }
 
         /// <summary>
-        /// Advances nearby waypoints only with grid clearance from the actual camera position, then falls back to
-        /// a reachable earlier waypoint. Returns false when no waypoint has a clear segment from the camera.
+        /// Selects a reachable waypoint ahead, advancing nearby waypoints only with grid clearance from the camera.
+        /// A camera in a blocked cell is checked from the nearest
+        /// walkable cell instead. Returns false when no such waypoint has a clear segment.
         /// </summary>
-        public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint)
+        public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint) =>
+            TryNextWaypoint(route, camera, lookAhead, out waypoint, out _);
+
+        /// <summary>The camera's cell is walkable. When it is not, no waypoint has a clear segment from the camera.</summary>
+        public bool IsWalkableAt(Vector3 world) => IsWalkable(ColumnOf(world.x), RowOf(world.z));
+
+        /// <param name="index">Index in route of the waypoint returned, or -1.</param>
+        public bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint, out int index)
+            => TryNextWaypoint(route, camera, lookAhead, out waypoint, out index, out _);
+
+        internal bool TryNextWaypoint(Vector3[] route, Vector3 camera, float lookAhead, out Vector3 waypoint,
+            out int index, out Vector3 origin)
         {
             waypoint = default;
+            index = -1;
+            origin = camera;
             if (route == null || route.Length < 2) return false;
-            var next = 1;
+            if (!IsWalkableAt(camera) && !TryApproach(camera, out origin)) return false;
+            var ahead = FirstAhead(route, camera);
+            var next = ahead;
+            while (next < route.Length && !LineIsClear(origin, route[next])) next++;
+            if (next == route.Length) return false;
             while (next < route.Length - 1
                 && new Vector2(route[next].x - camera.x, route[next].z - camera.z).magnitude <= lookAhead
-                && LineIsClear(camera, route[next + 1])) next++;
-            for (; next >= 0; next--)
-                if (LineIsClear(camera, route[next]))
-                {
-                    waypoint = route[next];
-                    return true;
-                }
-            return false;
+                && LineIsClear(origin, route[next + 1])) next++;
+            waypoint = route[next];
+            index = next;
+            return true;
+        }
+
+        /// <summary>Index of the first waypoint the user has not passed: the far end of the route leg nearest the camera.</summary>
+        static int FirstAhead(Vector3[] route, Vector3 camera)
+        {
+            var p = new Vector2(camera.x, camera.z);
+            var best = float.MaxValue;
+            var leg = 0;
+            for (var i = 0; i < route.Length - 1; i++)
+            {
+                var a = new Vector2(route[i].x, route[i].z);
+                var ab = new Vector2(route[i + 1].x, route[i + 1].z) - a;
+                var t = ab.sqrMagnitude > 0f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+                var d = (a + ab * t - p).sqrMagnitude;
+                if (d > best) continue;
+                best = d;
+                leg = i; // a tie at a shared waypoint means the user stands on it, so the later leg wins
+            }
+            return leg + 1;
         }
     }
 }

@@ -1,6 +1,7 @@
 using IndoorAr;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.XR.ARSubsystems;
 
 namespace OutdoorAr.Tests
 {
@@ -19,6 +20,85 @@ namespace OutdoorAr.Tests
         static IndoorHudView Compose(IndoorArRequest request, OutdoorArState state = OutdoorArState.Ready,
             bool pose = true, bool arrived = false, float readyFor = 5f, double distance = 80, double turn = 30) =>
             OutdoorGuidanceHud.Compose(request, state, pose, arrived, distance, 120, turn, false, readyFor, null);
+
+        [TestCase(" VEC ")]
+        [TestCase("VEC217")]
+        [TestCase("VEC 217")]
+        public void VecPinTargetsBuildingCenterAndKeepsTheRequestName(string name)
+        {
+            var request = Request(name);
+            var target = OutdoorGuidanceHud.PinTarget(request.destination);
+            Assert.AreEqual(33.78282420612733, target.Latitude, 1e-9);
+            Assert.AreEqual(-118.11040173365433, target.Longitude, 1e-9);
+            var view = OutdoorGuidanceHud.Compose(request, OutdoorArState.Ready, true, false, 50, 60, 0,
+                false, 5f, Vector3.forward, pinBuilding: target.Building, pinDistanceM: 10);
+            Assert.AreEqual(name.Trim(), view.Destination);
+            Assert.AreEqual("VEC building center · 33 ft", view.PinLabel);
+            Assert.AreEqual(OutdoorGuidanceHud.PinHeight(10), view.PinScreenHeight);
+            Assert.AreEqual(50, view.DistanceM);
+        }
+
+        [TestCase("VEC - North Entrance")]
+        [TestCase("VEC217 West")]
+        [TestCase("VEC · Room 217")]
+        [TestCase("VEC · Room 217 West")]
+        [TestCase("VEC-WEST")]
+        public void OtherDestinationsKeepTheirSuppliedCoordinates(string name)
+        {
+            var destination = Request(name).destination;
+            var target = OutdoorGuidanceHud.PinTarget(destination);
+            Assert.IsNull(target.Building);
+            Assert.AreEqual(destination.latitude, target.Latitude);
+            Assert.AreEqual(destination.longitude, target.Longitude);
+        }
+
+        [Test]
+        public void PinUsesAtLeastOneFifthOfScreenHeightAndGrowsNearTheBuilding()
+        {
+            Assert.AreEqual(.2f, OutdoorGuidanceHud.PinHeight(200));
+            Assert.AreEqual(.2f, OutdoorGuidanceHud.PinHeight(30));
+            Assert.Greater(OutdoorGuidanceHud.PinHeight(10), .2f);
+        }
+
+        [TestCase(OutdoorArState.Approximate, " · approx. 33 ft")]
+        [TestCase(OutdoorArState.Ready, " · 33 ft")]
+        public void BuildingDistanceUsesThePoseOnceThePinIsAnchored(OutdoorArState state, string suffix)
+        {
+            Vector3? anchor = Vector3.forward;
+            var view = OutdoorGuidanceHud.Compose(Request("VEC", route: true), state, true,
+                false, 80, 120, 30, false, 2f, anchor, pinBuilding: "VEC", pinDistanceM: 10);
+            Assert.AreEqual(IndoorHudState.Straight, view.State);
+            Assert.AreEqual(anchor, view.LabelAnchor);
+            Assert.AreEqual("VEC building center" + suffix, view.PinLabel);
+            Assert.AreEqual(OutdoorGuidanceHud.PinHeight(10), view.PinScreenHeight);
+            Assert.AreEqual(120, view.DistanceM);
+        }
+
+        [TestCase(OutdoorArState.Approximate)]
+        [TestCase(OutdoorArState.Ready)]
+        public void NoPinLabelUntilTheAnchorResolves(OutdoorArState state)
+        {
+            var view = OutdoorGuidanceHud.Compose(Request("VEC", route: true), state, true,
+                false, 80, 120, 30, false, 2f, null, pinBuilding: "VEC", pinDistanceM: 10);
+            Assert.IsNull(view.LabelAnchor);
+            Assert.IsNull(view.PinLabel);
+        }
+
+        [TestCase(OutdoorArState.VpsCheckRequired)]
+        [TestCase(OutdoorArState.VpsCheckFailed)]
+        [TestCase(OutdoorArState.TrackingUncertain)]
+        public void ATrackingPinRemainsVisibleWhileGuidanceIsUnavailable(OutdoorArState state)
+        {
+            var view = OutdoorGuidanceHud.Compose(Request("VEC", route: true), state, false, false, double.NaN,
+                120, 0, false, 0f, Vector3.forward, pinBuilding: "VEC", pinDistanceM: 40);
+            Assert.IsTrue(OutdoorGeospatialGate.CanKeepGuidanceAnchor(state, TrackingState.Tracking));
+            Assert.IsFalse(OutdoorGeospatialGate.CanKeepGuidanceAnchor(state, TrackingState.None));
+            Assert.IsFalse(OutdoorGeospatialGate.CanGuide(state));
+            Assert.IsFalse(OutdoorGeospatialGate.CanPlaceGuidanceAnchor(state));
+            Assert.AreEqual(Vector3.forward, view.LabelAnchor);
+            Assert.AreEqual("VEC building center", view.PinLabel);
+            Assert.IsTrue(double.IsNaN(view.DistanceM));
+        }
 
         [Test]
         public void NoPoseYetIsScanning()

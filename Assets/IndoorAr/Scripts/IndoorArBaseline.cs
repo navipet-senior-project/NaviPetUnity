@@ -5,8 +5,8 @@ namespace IndoorAr
     /// <summary>
     /// Durations and counts for indoor sign and MultiSet localization.
     /// No camera frames, poses, tokens, or user location.
-    /// ArrowShownMs is when the HUD first enters the guide-arrow state, which needs a MultiSet pose or a validated
-    /// sign pose; it is not a rendered-frame or real-world alignment check.
+    /// ArrowShownMs records the first HUD update with route guidance (ribbon or arrow), which needs a MultiSet
+    /// pose or a validated sign pose.
     /// </summary>
     public sealed class IndoorArBaseline
     {

@@ -1,3 +1,4 @@
+using System.Linq;
 using IndoorAr;
 using MultiSet;
 using NUnit.Framework;
@@ -14,10 +15,16 @@ public class MultiSetLocalizerTests
     GameObject _proxy;
     SingleFrameLocalizationManager _manager;
     MultiSetLocalizer _adapter;
+    double _clock;
+    System.Func<double> _originalClock;
+    static readonly System.Reflection.FieldInfo ClockField = typeof(MultiSetLocalizer).GetField("Clock", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
 
     [SetUp]
     public void SetUp()
     {
+        _clock = 0;
+        _originalClock = (System.Func<double>)ClockField.GetValue(null);
+        ClockField.SetValue(null, (System.Func<double>)(() => _clock));
         _sdkHost = new GameObject("SDK");
         _sdkHost.SetActive(false);
         var sdk = _sdkHost.AddComponent<IndoorArSdkManager>();
@@ -26,6 +33,7 @@ public class MultiSetLocalizerTests
         _host = new GameObject("Adapter");
         _host.SetActive(false);
         _adapter = _host.AddComponent<MultiSetLocalizer>();
+        _adapter.TrackingReady = () => true;
         _adapter.Configure(sdk, _manager, _mapHost.transform);
         _proxy = _adapter.SdkMapSpace.gameObject;
         _host.SetActive(true);
@@ -40,6 +48,7 @@ public class MultiSetLocalizerTests
         Object.DestroyImmediate(_mapHost);
         Object.DestroyImmediate(_proxy);
         Object.DestroyImmediate(_sdkHost);
+        ClockField.SetValue(null, _originalClock);
     }
 
     [Test]
@@ -133,7 +142,6 @@ public class MultiSetLocalizerTests
             typeof(MultiSetLocalizer).GetMethod("OnLocalizedWithoutConfidence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         else
         {
-            LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportSuccess();
         }
 
@@ -149,11 +157,14 @@ public class MultiSetLocalizerTests
     {
         var localized = 0;
         _adapter.CandidatePoseValidator = _ => true;
+        string candidateHash = null;
+        _adapter.CandidateLocalized += (_, hash, _) => candidateHash = hash;
         _adapter.Localized += _ => localized++;
         LocalizeWithoutEditorFailure();
         _adapter.SdkMapSpace.position = new Vector3(4f, 5f, 6f);
         typeof(MultiSetLocalizer).GetMethod("OnLocalizedWithoutConfidence", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
         Assert.AreEqual(1, localized);
+        Assert.AreEqual("unavailable", candidateHash);
         Assert.AreEqual(new Vector3(4f, 5f, 6f), _mapHost.transform.position);
         Assert.IsFalse(_adapter.HasLiveRequest);
     }
@@ -167,7 +178,6 @@ public class MultiSetLocalizerTests
         _adapter.NotLocalized += _ => rejected++;
         LocalizeWithoutEditorFailure();
         _adapter.SdkMapSpace.position = new Vector3(4f, 5f, 6f);
-        LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
         ReportSuccess();
         Assert.AreEqual(0, localized);
         Assert.AreEqual(1, rejected);
@@ -275,6 +285,7 @@ public class MultiSetLocalizerTests
             otherHost = new GameObject("Next Adapter");
             otherHost.SetActive(false);
             other = otherHost.AddComponent<MultiSetLocalizer>();
+            other.TrackingReady = () => true;
             other.Configure(otherSdk, otherManager, otherMap.transform);
             otherProxy = other.SdkMapSpace.gameObject;
             otherHost.SetActive(true);
@@ -320,7 +331,6 @@ public class MultiSetLocalizerTests
             TickWithoutEditorFailure(other, otherManager, 0f);
             Assert.AreEqual(1, attempts, "only genuine SDK completion lets the deferred request start");
             other.SdkMapSpace.SetPositionAndRotation(new Vector3(4f, 5f, 6f), Quaternion.Euler(0f, 30f, 0f));
-            LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("\\[IndoorAr\\] localization mapCodes=.*"));
             ReportSuccess(otherManager);
             Assert.AreEqual(1, localized);
             Assert.AreEqual(new Vector3(4f, 5f, 6f), other.MapSpace.position);
@@ -618,6 +628,7 @@ public class MultiSetLocalizerTests
         var otherHost = new GameObject("Other Adapter");
         otherHost.SetActive(false);
         var other = otherHost.AddComponent<MultiSetLocalizer>();
+        other.TrackingReady = () => true;
         other.Configure(otherSdk, otherManager, otherMap.transform);
         var otherProxy = other.SdkMapSpace.gameObject;
         otherHost.SetActive(true);
@@ -659,6 +670,7 @@ public class MultiSetLocalizerTests
         var otherHost = new GameObject("Queued Adapter");
         otherHost.SetActive(false);
         var other = otherHost.AddComponent<MultiSetLocalizer>();
+        other.TrackingReady = () => true;
         other.Configure(otherSdk, otherManager, otherMap.transform);
         var otherProxy = other.SdkMapSpace.gameObject;
         otherHost.SetActive(true);
@@ -765,6 +777,322 @@ public class MultiSetLocalizerTests
         Assert.IsFalse(_adapter.HasLiveRequest);
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void QueuedAndDelayedRequestsWaitForTracking(bool delayedAuth)
+    {
+        var tracking = true;
+        _adapter.TrackingReady = () => tracking;
+        var attempts = 0;
+        _adapter.AttemptStarted += _ => attempts++;
+        LocalizeWithoutEditorFailure();
+        _adapter.AbandonPending();
+        var first = new SignFirstLocalizer(_adapter);
+        first.Localize();
+        var authenticated = (System.Action)typeof(MultiSetLocalizer).GetField("Authenticated", System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic).GetValue(_adapter);
+        if (!delayedAuth) authenticated();
+        tracking = false;
+        first.Tick(SignFirstLocalizer.HoldS);
+        if (delayedAuth) authenticated();
+        ReportFailureAndStartDeferredRequest();
+        _adapter.Tick(MultiSetLocalizer.RequestTimeoutS + 1f);
+        Assert.AreEqual(1, attempts);
+        Assert.IsFalse(_adapter.HasLiveRequest);
+        Assert.IsTrue(_adapter.FallbackAvailable);
+        tracking = true;
+        LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
+        TickWithoutEditorFailure(0f);
+        Assert.AreEqual(2, attempts);
+        ReportSuccess();
+    }
+
+    [Test]
+    public void AcceptedRequestLogsItsOutcomeAndTiming()
+    {
+        _adapter.CandidatePoseValidator = _ => true;
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(2.5f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2500 outcome=Ok lockBusy=false lockWaitMs=0 sdkMs=2500");
+        ReportSuccess();
+    }
+
+    static string ManagerHint(SingleFrameLocalizationManager manager, string field)
+    {
+        var info = typeof(SingleFrameLocalizationManager).GetField(field,
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (info == null) Assert.Ignore("SDK has no " + field);
+        var value = info.GetValue(manager);
+        return value is System.Collections.IEnumerable list && value is not string ? string.Join(",", list.Cast<object>()) : (string)value;
+    }
+
+    [Test]
+    public void FloorHintBecomesAYBandForThatRequestOnlyAndIsClearedNextTime()
+    {
+        MultiSetHint? hint = new MultiSetHint(-2f);
+        _adapter.HintProvider = () => hint;
+        LocalizeWithoutEditorFailure();
+        Assert.AreEqual("[-2.3, 1.3]", ManagerHint(_manager, "hintFloorHeight"));
+        Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"), "no map codes are configured");
+        TickWithoutEditorFailure(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=2000 hint=Height");
+        _manager.LocalizationFailure.Invoke();
+
+        hint = null; // the retry
+        LocalizeWithoutEditorFailure();
+        Assert.AreEqual("", ManagerHint(_manager, "hintFloorHeight"), "SDK fields persist, so the retry must clear them");
+        Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"));
+        TickWithoutEditorFailure(1f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=1000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=1000");
+        _manager.LocalizationFailure.Invoke();
+    }
+
+    [Test]
+    public void TakingOwnershipClearsInspectorMapCodes()
+    {
+        var field = typeof(SingleFrameLocalizationManager).GetField("hintMapCodes",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        if (field == null || field.FieldType != typeof(System.Collections.Generic.List<string>)) Assert.Ignore("SDK has no hintMapCodes list");
+        field.SetValue(_manager, new System.Collections.Generic.List<string> { "TEST_CODE" });
+        typeof(MultiSetLocalizer).GetMethod("Awake", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"));
+    }
+
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 0, false, false, 1)]
+    [TestCase(1, 42, "true", ",\"deltaHpa\":-0.47", 0, false, false, 2)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 15, false, false, 0)]
+    [TestCase(1, 42, "true", ",\"deltaHpa\":-0.47", 15, false, false, 0)]
+    [TestCase(1, 1199, "false", ",\"deltaHpa\":0.05", 2, false, false, 0)]
+    [TestCase(1, 1199, "true", ",\"deltaHpa\":-0.47", 2, false, false, 0)]
+    [TestCase(1, 42, "true", ",\"deltaHpa\":-1.15", 0, false, false, 0)]
+    [TestCase(4, 42, "true", ",\"deltaHpa\":1.15", 0, false, false, 0)]
+    [TestCase(3, 42, "true", ",\"deltaHpa\":1.15", 0, false, false, 0)]
+    [TestCase(3, 42, "true", ",\"deltaHpa\":-0.47", 0, false, false, 0)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":-0.47", 0, false, false, 0)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 0, true, false, 0)]
+    [TestCase(1, 42, "true", ",\"deltaHpa\":-0.47", 0, true, false, 0)]
+    [TestCase(0, 42, "false", ",\"deltaHpa\":0.05", 0, false, true, 0)]
+    [TestCase(1, 42, "false", ",\"deltaHpa\":0.05", 0, false, true, 0)]
+    public void RunnerDispatchUsesOnlyFreshUnambiguousHostEvidence(int startFloor, int startAge, string moved,
+        string deltaField, int dispatchDelay, bool spendRetry, bool confirmSign, int expectedFloor) =>
+        AssertRunnerHint(startFloor, startAge, moved, deltaField, dispatchDelay, spendRetry, confirmSign, expectedFloor);
+
+    [TestCase(100, 0.2, false, 1)]
+    [TestCase(100, 1, false, 0)]
+    [TestCase(100, 1, true, 0)]
+    [TestCase(99.4, 0, false, 0)]
+    [TestCase(100.1, 0.2, false, 0)]
+    [TestCase(-1, 0, false, 0)]
+    public void TransportAndEntryWaitCountAgainstEvidenceAge(double sentAt, double initDelay, bool moved, int expectedFloor)
+    {
+        AssertRunnerHint(1, 42, moved ? "true" : "false", moved ? ",\"deltaHpa\":-0.47" : ",\"deltaHpa\":0.05",
+            0, false, false, expectedFloor, 9.5, sentAt < 0 ? null : sentAt, initDelay);
+    }
+
+    [TestCase("")]
+    [TestCase(",\"deltaHpa\":null")]
+    [TestCase(",\"deltaHpa\":NaN")]
+    [TestCase(",\"deltaHpa\":Infinity")]
+    [TestCase(",\"deltaHpa\":3.01")]
+    [TestCase(",\"deltaHpa\":-0.47")]
+    public void UnusableDeltaLeavesTheFirstRequestUnhintedAndRejectsTheWrongFloor(string deltaField)
+    {
+        AssertRunnerHint(1, 42, "false", deltaField, 0, false, false, 0, afterFirst: session =>
+        {
+            Assert.IsTrue(session.PressureSamplingAllowed);
+            var grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid").text);
+            _adapter.SdkMapSpace.position = Vector3.down * (grids[2].FloorY + 1.5f);
+            ReportSuccess();
+            Assert.AreEqual(1, session.TrustedStartFloor);
+            Assert.AreEqual(IndoorArState.Localizing, session.State);
+        });
+    }
+
+    // The SDK reports a dropped connection and a server no-pose as the same failure, so a failed hinted request
+    // never releases the start-floor veto: a retry pose on another floor stays rejected.
+    [TestCase(true, true, false, false, 2, IndoorArState.Localizing)]
+    [TestCase(true, true, true, false, 2, IndoorArState.Localizing)]
+    [TestCase(true, false, false, false, 2, IndoorArState.Localizing)]
+    [TestCase(false, true, false, false, 2, IndoorArState.Localizing)]
+    [TestCase(true, true, false, true, 2, IndoorArState.Localizing)]
+    [TestCase(true, true, false, false, 0, IndoorArState.Localizing)]
+    [TestCase(true, true, false, false, 1, IndoorArState.Pinned)]
+    public void FailedFirstRequestKeepsTheStartFloorVeto(bool hasDelta, bool hasStamp, bool noPoseResponse, bool confirmSign,
+        int retryFloor, IndoorArState expected)
+    {
+        AssertRunnerHint(1, 42, "false", hasDelta ? ",\"deltaHpa\":0.05" : "", 0, false, false,
+            hasDelta && hasStamp ? 1 : 0, sentAt: hasStamp ? 100 : null,
+            afterFirst: session =>
+            {
+                Assert.IsTrue(session.LaunchedWithFloorEvidence);
+                if (noPoseResponse) ReportSuccess(poseFound: false);
+                else _manager.LocalizationFailure.Invoke();
+                Assert.AreEqual(1, session.TrustedStartFloor);
+                if (confirmSign) session.OnSignConfirmed(new IndoorRoomLandmark("VEC120", "VEC", "floor_1"));
+
+                LocalizeWithoutEditorFailure(() => session.Tick(IndoorArSession.NoPoseRetryS));
+                Assert.AreEqual(2, session.Queries);
+                Assert.AreEqual("", ManagerHint(_manager, "hintFloorHeight"));
+                var grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid").text);
+                var cameraY = retryFloor > 0 ? grids[retryFloor].FloorY + 1.5f : 1000f;
+                _adapter.SdkMapSpace.position = Vector3.down * cameraY;
+                ReportSuccess();
+                Assert.AreEqual(expected, session.State);
+            });
+    }
+
+    void AssertRunnerHint(int startFloor, int startAge, string moved, string deltaField, int dispatchDelay,
+        bool spendRetry, bool confirmSign, int expectedFloor, double sampleAge = 1, double? sentAt = 100,
+        double initDelay = 0, System.Action<IndoorArSession> afterFirst = null)
+    {
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var arState = UnityEngine.XR.ARFoundation.ARSession.state;
+        var setArState = typeof(UnityEngine.XR.ARFoundation.ARSession).GetProperty("state").GetSetMethod(true);
+        var previousRequest = IndoorArBridge.EditorRequestJson;
+        var runner = _host.AddComponent<IndoorArRunner>();
+        var requestClock = 100.0;
+        runner.RequestClock = () => requestClock;
+        runner.Configure(_adapter, null, _host.AddComponent<Camera>());
+        var sendTime = sentAt.HasValue ? System.FormattableString.Invariant($",\"requestSentAtBootS\":{sentAt.Value}") : "";
+        IndoorArBridge.EditorRequestJson = System.FormattableString.Invariant($"{{\"schemaVersion\":2,\"mode\":\"localize\",\"mapCode\":\"{_adapter.MapCode}\",") +
+            $"\"frame\":\"multiset-mapset\",\"floorEvidenceVersion\":1,\"startFloor\":\"{startFloor}\",\"startFloorAgeS\":{startAge}," +
+            System.FormattableString.Invariant($"\"pressureSinceStart\":{{\"settled\":true,\"moved\":{moved},\"sampleAgeS\":{sampleAge}{deltaField}}}{sendTime}}}");
+        try
+        {
+            setArState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.None });
+            var startup = (System.Collections.IEnumerator)typeof(IndoorArRunner).GetMethod("Start", flags).Invoke(runner, null);
+            startup.MoveNext();
+            if (initDelay > 0)
+            {
+                var armEntry = (System.Collections.IEnumerator)typeof(IndoorArRunner).GetMethod("ArmEntry", flags)
+                    .Invoke(runner, new object[] { IndoorArBridge.EditorRequestJson, requestClock });
+                requestClock += initDelay;
+                armEntry.MoveNext();
+            }
+            var session = (IndoorArSession)typeof(IndoorArRunner).GetField("_session", flags).GetValue(runner);
+            session.OnArSupport(true);
+            session.OnAuthenticated();
+            if (confirmSign)
+                session.OnSignConfirmed(new IndoorRoomLandmark("VEC215", "VEC", "floor_2"));
+            if (spendRetry) session.Tick(IndoorArSession.LocalizeTimeoutS);
+            Assert.AreEqual(0, session.Queries);
+            requestClock += dispatchDelay;
+            setArState.Invoke(null, new object[] { UnityEngine.XR.ARFoundation.ARSessionState.SessionTracking });
+
+            LocalizeWithoutEditorFailure(() => typeof(IndoorArRunner).GetMethod("RequestLocalization", flags).Invoke(runner, null));
+
+            Assert.AreEqual(1, session.Queries);
+            var expectedBand = "";
+            if (expectedFloor > 0)
+            {
+                var grids = IndoorWalkGrid.LoadFloors(Resources.Load<TextAsset>("IndoorWalkGrid").text);
+                var band = new MultiSetHint(grids[expectedFloor].FloorY);
+                expectedBand = System.FormattableString.Invariant($"[{band.MinY:0.##}, {band.MaxY:0.##}]");
+            }
+            Assert.AreEqual(expectedBand, ManagerHint(_manager, "hintFloorHeight"));
+            Assert.AreEqual("", ManagerHint(_manager, "hintMapCodes"));
+            afterFirst?.Invoke(session);
+        }
+        finally
+        {
+            if (_adapter.HasLiveRequest) _manager.LocalizationFailure.Invoke();
+            Object.DestroyImmediate(runner);
+            IndoorArBridge.EditorRequestJson = previousRequest;
+            setArState.Invoke(null, new object[] { arState });
+        }
+    }
+
+    [Test]
+    public void FailedSdkRequestLogsGenericFailure()
+    {
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(2f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=2000 outcome=GenericFailure lockBusy=false lockWaitMs=0 sdkMs=2000");
+        _manager.LocalizationFailure.Invoke();
+    }
+
+    [Test]
+    public void DestroyedRequestMeasuresUntilItsLateCallback()
+    {
+        LocalizeWithoutEditorFailure();
+        _clock = 5;
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=5000 outcome=Cancelled lockBusy=false lockWaitMs=0 sdkMs=5000");
+        typeof(MultiSetLocalizer).GetMethod("OnDestroy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(_adapter, null);
+        _clock = 20;
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=20000 outcome=Late lockBusy=false lockWaitMs=0 sdkMs=20000");
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
+    public void QueuedPredecessorCountsAsLockWaitWithoutTicks()
+    {
+        _adapter.TrackingReady = () => false;
+        _adapter.Localize();
+        var sdkHost = new GameObject("Other SDK");
+        sdkHost.SetActive(false);
+        var sdk = sdkHost.AddComponent<IndoorArSdkManager>();
+        var manager = sdkHost.AddComponent<SingleFrameLocalizationManager>();
+        var map = new GameObject("Other map");
+        var host = new GameObject("Other adapter");
+        host.SetActive(false);
+        var other = host.AddComponent<MultiSetLocalizer>();
+        other.TrackingReady = () => true;
+        other.Configure(sdk, manager, map.transform);
+        var proxy = other.SdkMapSpace.gameObject;
+        try
+        {
+            other.Localize();
+            _clock = 8;
+            LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=8000 outcome=Cancelled lockBusy=true lockWaitMs=8000 sdkMs=0");
+            other.DropQueuedFallback();
+        }
+        finally
+        {
+            Object.DestroyImmediate(host);
+            Object.DestroyImmediate(map);
+            Object.DestroyImmediate(proxy);
+            Object.DestroyImmediate(sdkHost);
+            _adapter.DropQueuedFallback();
+        }
+    }
+
+    [Test]
+    public void ActiveTimeoutCancelsYoungerQueuedAttempt()
+    {
+        LocalizeWithoutEditorFailure();
+        TickWithoutEditorFailure(29f);
+        _adapter.Localize();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=false lockWaitMs=0 sdkMs=30000");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=1000 outcome=Cancelled lockBusy=true lockWaitMs=1000 sdkMs=0");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(1f);
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
+    public void QueuedAttemptReportsItsOwnTimeout()
+    {
+        LocalizeWithoutEditorFailure();
+        _adapter.AbandonPending();
+        _adapter.Localize();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=2 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=true lockWaitMs=30000 sdkMs=0");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(30f);
+        ReportFailureAndStartDeferredRequest();
+    }
+
+    [Test]
+    public void UnansweredRequestLogsTimeoutThenLateWhileTheLockStaysHeld()
+    {
+        LocalizeWithoutEditorFailure();
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=30000 outcome=Timeout lockBusy=false lockWaitMs=0 sdkMs=30000");
+        LogAssert.Expect(LogType.Log, "[IndoorAr] multiset fallback unavailable: prior request unresolved");
+        TickWithoutEditorFailure(MultiSetLocalizer.RequestTimeoutS);
+        TickWithoutEditorFailure(15f);
+        LogAssert.Expect(LogType.Log, "[IndoorAr] localization request attempt=1 kind=MultiSet elapsedMs=45000 outcome=Late lockBusy=false lockWaitMs=0 sdkMs=45000");
+        ReportFailureAndStartDeferredRequest();
+    }
+
     void ReportSuccess(bool poseFound = true)
     {
         ReportSuccess(_manager, poseFound);
@@ -777,13 +1105,14 @@ public class MultiSetLocalizerTests
             : new object[] { new LocalizationSuccessResponse { poseFound = poseFound, confidence = 0.73f } });
     }
 
-    void LocalizeWithoutEditorFailure()
+    void LocalizeWithoutEditorFailure(System.Action dispatch = null)
     {
         var callback = FailureCallback(_adapter);
         _manager.LocalizationFailure.RemoveListener(callback);
         if (!_adapter.HasLiveRequest)
             LogAssert.Expect(LogType.Error, "SimulationDataManager not found in scene!");
-        _adapter.Localize();
+        if (dispatch == null) _adapter.Localize();
+        else dispatch();
         _manager.LocalizationFailure.AddListener(callback);
     }
 
@@ -806,6 +1135,7 @@ public class MultiSetLocalizerTests
     {
         var callback = FailureCallback(localizer);
         manager.LocalizationFailure.RemoveListener(callback);
+        _clock += deltaTime;
         localizer.Tick(deltaTime);
         manager.LocalizationFailure.AddListener(callback);
     }
