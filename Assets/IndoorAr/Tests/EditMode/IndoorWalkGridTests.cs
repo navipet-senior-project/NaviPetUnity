@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using IndoorAr;
 using IndoorAr.Editor;
 using NUnit.Framework;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -11,6 +13,79 @@ public class IndoorWalkGridTests
     static readonly string Directory = File.ReadAllText(
         Path.Combine(Application.dataPath, "IndoorNavigation/Data/vec_floors12345.json"));
     static readonly string Scan = Resources.Load<TextAsset>("IndoorWalkGrid").text;
+
+    [Test]
+    public void RegeneratedGridRejectsUnsavedSampleSceneChanges()
+    {
+        var scene = EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity", OpenSceneMode.Additive);
+        try
+        {
+            var building = scene.GetRootGameObjects().Single(root => root.name == "VEC_Building").transform;
+            building.Find("floor 2 + 5 (1)").position += Vector3.right;
+            Assert.IsTrue(EditorSceneManager.MarkSceneDirty(scene));
+
+            LogAssert.Expect(LogType.Error, "[WalkGrid] Save SampleScene before rebuilding the walk grid.");
+            Assert.IsNull(IndoorWalkGridExport.Build());
+            Assert.IsTrue(scene.isDirty);
+        }
+        finally
+        {
+            EditorSceneManager.CloseScene(scene, true);
+        }
+    }
+
+    [Test]
+    public void RegeneratedGridMatchesBakedGrid()
+    {
+        var expected = JsonUtility.FromJson<IndoorWalkGridData>(Scan).floors;
+        var regenerated = IndoorWalkGridExport.Build();
+        Assert.IsNotNull(regenerated);
+        Assert.AreEqual(expected.Length, regenerated.floors.Length);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var floor = expected[i];
+            var actual = regenerated.floors[i];
+            Assert.AreEqual((floor.floor, floor.cell, floor.originX, floor.originZ, floor.width, floor.height),
+                (actual.floor, actual.cell, actual.originX, actual.originZ, actual.width, actual.height));
+            Assert.AreEqual(floor.floorY, actual.floorY, .001f, $"Floor {floor.floor} surface height");
+            CollectionAssert.AreEqual(floor.rows, actual.rows, $"Floor {floor.floor} walkable cells");
+        }
+    }
+
+    [TestCase(1f, 0f)]
+    [TestCase(0f, -.25f)]
+    [TestCase(0f, .25f)]
+    public void RegeneratedGridFollowsBothUpperSceneScans(float shiftX, float shiftY)
+    {
+        var scene = EditorSceneManager.OpenPreviewScene("Assets/Scenes/SampleScene.unity");
+        try
+        {
+            var building = scene.GetRootGameObjects().Single(root => root.name == "VEC_Building").transform;
+            var horizontalShift = Quaternion.Euler(0f, -IndoorMapFrame.YawDeg, 0f) * (Vector3.right * shiftX);
+            var verticalShift = Vector3.up * shiftY;
+            building.Find("floor 3 + 4 (1)").position += horizontalShift + verticalShift;
+            building.Find("floor 2 + 5 (1)").position += -horizontalShift + verticalShift;
+
+            var regenerated = IndoorWalkGridExport.Build(scene);
+            Assert.IsNotNull(regenerated);
+            var expected = JsonUtility.FromJson<IndoorWalkGridData>(Scan).floors;
+            Assert.AreEqual(expected.Length, regenerated.floors.Length);
+            foreach (var floor in regenerated.floors)
+            {
+                var before = expected.Single(entry => entry.floor == floor.floor);
+                var offsetX = floor.floor == 5 ? -shiftX : floor.floor >= 3 ? shiftX : 0f;
+                var offsetY = floor.floor >= 3 ? shiftY : 0f;
+                Assert.AreEqual(before.originX + offsetX, floor.originX, $"Floor {floor.floor} origin X");
+                Assert.AreEqual(before.originZ, floor.originZ, $"Floor {floor.floor} origin Z");
+                Assert.AreEqual(before.floorY + offsetY, floor.floorY, .001f, $"Floor {floor.floor} surface height");
+                CollectionAssert.AreEqual(before.rows, floor.rows, $"Floor {floor.floor} walkable cells");
+            }
+        }
+        finally
+        {
+            EditorSceneManager.ClosePreviewScene(scene);
+        }
+    }
 
     // 1 m cells, north is the last row. An L-shaped hallway with a wall between its two ends.
     static IndoorWalkGrid Corner(params string[] rows) => IndoorWalkGrid.ForFloor(JsonUtility.ToJson(new IndoorWalkGridData
@@ -337,6 +412,8 @@ public class IndoorWalkGridTests
     // Every mapped door on a floor reaches stairs or an elevator on the scan, so a wrong-floor user gets a route.
     [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
     [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
+    [TestCase(4, new[] { "VEC402", "VEC417", "VEC418", "VEC419", "VEC420", "VEC424", "VEC425" })]
+    [TestCase(5, new[] { "VEC501", "VEC514", "VEC515", "VEC516", "VEC518", "VEC519", "VEC523" })]
     public void ScannedHallwayReachesAFloorChangeFromEveryDoor(int floor, string[] rooms)
     {
         var grid = IndoorWalkGrid.ForFloor(Scan, floor);
@@ -357,6 +434,8 @@ public class IndoorWalkGridTests
     // What the scan covers today. A door that stops connecting means the scan or the MapSet alignment changed.
     [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
     [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
+    [TestCase(4, new[] { "VEC402", "VEC417", "VEC418", "VEC419", "VEC420", "VEC424", "VEC425" })]
+    [TestCase(5, new[] { "VEC501", "VEC514", "VEC515", "VEC516", "VEC518", "VEC519", "VEC523" })]
     public void ScannedHallwayConnectsEveryMappedDoorOnAFloor(int floor, string[] rooms)
     {
         var grid = IndoorWalkGrid.ForFloor(Scan, floor);

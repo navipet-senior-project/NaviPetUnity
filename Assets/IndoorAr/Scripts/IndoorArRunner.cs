@@ -474,7 +474,7 @@ namespace IndoorAr
             var now = RequestClock();
             if (!double.IsFinite(now) || !(now >= _requestObservedAt)) return null;
             var floor = _session.HintFloor(now - sentAt);
-            var grid = floor > 0 ? Grid(floor) : null;
+            var grid = floor is >= 1 and <= 3 ? Grid(floor) : null;
             return grid == null ? null : new MultiSetHint(grid.FloorY);
         }
 

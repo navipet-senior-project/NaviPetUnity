@@ -1193,8 +1193,8 @@ public class IndoorArRunnerTests
         cameraObject.transform.SetParent(_host.transform, false);
         var gridJson = Resources.Load<TextAsset>("IndoorWalkGrid").text;
         var floor1 = IndoorWalkGrid.ForFloor(gridJson, 1);
-        var floor3 = IndoorWalkGrid.ForFloor(gridJson, 3);
-        cameraObject.transform.localPosition = Vector3.up * (belowFloorOne ? floor1.FloorY - 3f : floor3.FloorY + 4f);
+        var floor5 = IndoorWalkGrid.ForFloor(gridJson, 5);
+        cameraObject.transform.localPosition = Vector3.up * (belowFloorOne ? floor1.FloorY - 3f : floor5.FloorY + 4f);
         var runner = _host.AddComponent<IndoorArRunner>();
         runner.Configure(localizer, _pinPrefab, cameraObject.GetComponent<Camera>());
         runner.SetLocalizationMode(IndoorLocalizationMode.MultiSet);
@@ -1324,7 +1324,7 @@ public class IndoorArRunnerTests
             var beforeHudRotation = hud.rotation;
             var rejectedPoseY = candidateKind == "signConflict" ? floor1Y + 1.5f
                 : candidateKind == "below" ? floor1Y - 3f
-                : candidateKind == "above" ? IndoorWalkGrid.ForFloor(gridJson, 3).FloorY + 3f
+                : candidateKind == "above" ? IndoorWalkGrid.ForFloor(gridJson, 5).FloorY + 3f
                 : floor1Y + IndoorArSession.MaxEyeHeightM + .05f;
             LogAssert.Expect(LogType.Log, new Regex("\\[IndoorAr\\] localization request attempt=\\d+ kind=Sign .*outcome=Timeout"));
             LogAssert.Expect(LogType.Log, "Localization not supported in Unity Editor. Using simulation data to test localization.");

@@ -1,7 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace IndoorAr.Editor
 {
@@ -14,15 +17,18 @@ namespace IndoorAr.Editor
     {
         public const string ScanPath = "Assets/building scans/floor 1 + 2.glb";
         public const string GridPath = "Assets/IndoorAr/Resources/IndoorWalkGrid.json";
+        const string SampleScenePath = "Assets/Scenes/SampleScene.unity";
         const string UpperScanPath = "Assets/building scans/floor 3 + 4.glb";
+        const string TopScanPath = "Assets/building scans/floor 2 + 5.glb";
         const string DirectoryPath = "Assets/IndoorNavigation/Data/vec_floors12345.json";
         const float Cell = .25f;
         const float FloorToleranceM = .35f;
         const float BodyLowM = .4f;
         const float BodyHighM = 1.4f;
-        // shortcut: floor heights read off the door rows (vec_destination_points), re-check if a floor is added.
-        static readonly (int floor, float y)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
-        static readonly (int floor, float y)[] UpperFloors = { (3, 6f) };
+        // shortcut: calibrated offsets keep the bands tied to scan elevation, re-check if scan geometry changes.
+        static readonly (int floor, float offsetY)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
+        static readonly (int floor, float offsetY)[] UpperFloors = { (3, 2.5916f), (4, 6.6916f) };
+        static readonly (int floor, float offsetY)[] TopFloors = { (5, 2.9716f) };
 
         /// <summary>
         /// A reviewed doorway the body-band raycast blocks: cells whose centre is inside the rectangle (MapSet metres)
@@ -61,18 +67,59 @@ namespace IndoorAr.Editor
 
         public static IndoorWalkGridData Build()
         {
+            var loaded = SceneManager.GetSceneByPath(SampleScenePath);
+            if (loaded.IsValid() && loaded.isLoaded && loaded.isDirty)
+            {
+                Debug.LogError("[WalkGrid] Save SampleScene before rebuilding the walk grid.");
+                return null;
+            }
+
+            var scene = EditorSceneManager.OpenPreviewScene(SampleScenePath);
+            try
+            {
+                return Build(scene);
+            }
+            finally
+            {
+                EditorSceneManager.ClosePreviewScene(scene);
+            }
+        }
+
+        public static IndoorWalkGridData Build(Scene scene)
+        {
+            var roots = scene.GetRootGameObjects();
+            var origin = roots.SingleOrDefault(root => root.name == "BuildingOrigin")?.transform;
+            var building = roots.SingleOrDefault(root => root.name == "VEC_Building")?.transform;
+            if (origin == null || building == null)
+            {
+                Debug.LogError($"[WalkGrid] Missing BuildingOrigin or VEC_Building in {scene.path}.");
+                return null;
+            }
+
             var floors = new List<IndoorWalkFloor>();
-            // SampleScene places this scan relative to BuildingOrigin, in the same frame as the catalog.
-            // Composing the floor 1 + 2 instance's scene pose with IndoorMapFrame gives identity.
-            var upperPosition = IndoorMapFrame.ToMapSet(new Vector3(23.693075f, 5.62f, 21.074951f));
-            var upperRotation = Quaternion.Euler(0f, IndoorMapFrame.HeadingToMapSet(2.671f), 0f);
             if (!AddFloors(floors, ScanPath, Vector3.zero, Quaternion.identity, LowerFloors)
-                || !AddFloors(floors, UpperScanPath, upperPosition, upperRotation, UpperFloors)) return null;
+                || !AddSceneFloors(floors, UpperScanPath, building.Find("floor 3 + 4 (1)"), origin, UpperFloors)
+                || !AddSceneFloors(floors, TopScanPath, building.Find("floor 2 + 5 (1)"), origin, TopFloors)) return null;
             return new IndoorWalkGridData { floors = floors.ToArray() };
         }
 
+        static bool AddSceneFloors(List<IndoorWalkFloor> output, string path, Transform scan, Transform origin,
+            (int floor, float offsetY)[] floors)
+        {
+            if (scan == null || PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(scan.gameObject) != path)
+            {
+                Debug.LogError($"[WalkGrid] Missing the scene instance of {path}.");
+                return false;
+            }
+            var position = IndoorMapFrame.ToMapSet(origin.InverseTransformPoint(scan.position));
+            var angles = (Quaternion.Inverse(origin.rotation) * scan.rotation).eulerAngles;
+            var yaw = Mathf.Round(Mathf.DeltaAngle(0f, angles.y) * 1000f) / 1000f;
+            angles.y = IndoorMapFrame.HeadingToMapSet(yaw);
+            return AddFloors(output, path, position, Quaternion.Euler(angles), floors);
+        }
+
         static bool AddFloors(List<IndoorWalkFloor> output, string path, Vector3 position, Quaternion rotation,
-            (int floor, float y)[] floors)
+            (int floor, float offsetY)[] floors)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (prefab == null)
@@ -94,9 +141,9 @@ namespace IndoorAr.Editor
                     any = true;
                 }
                 Physics.SyncTransforms();
-                foreach (var (floor, y) in floors)
+                foreach (var (floor, offsetY) in floors)
                 {
-                    var grid = Rasterize(floor, y, bounds);
+                    var grid = Rasterize(floor, position.y + offsetY, bounds);
                     if (grid == null)
                     {
                         Debug.LogError($"[WalkGrid] No walkable cells on floor {floor} of {path}.");
