@@ -15,6 +15,7 @@ namespace IndoorAr.Editor
         public const string ScanPath = "Assets/building scans/floor 1 + 2.glb";
         public const string GridPath = "Assets/IndoorAr/Resources/IndoorWalkGrid.json";
         const string UpperScanPath = "Assets/building scans/floor 3 + 4.glb";
+        const string TopScanPath = "Assets/building scans/floor 2 + 5.glb";
         const string DirectoryPath = "Assets/IndoorNavigation/Data/vec_floors12345.json";
         const float Cell = .25f;
         const float FloorToleranceM = .35f;
@@ -22,7 +23,8 @@ namespace IndoorAr.Editor
         const float BodyHighM = 1.4f;
         // shortcut: floor heights read off the door rows (vec_destination_points), re-check if a floor is added.
         static readonly (int floor, float y)[] LowerFloors = { (1, -1.9f), (2, 2.3f) };
-        static readonly (int floor, float y)[] UpperFloors = { (3, 6f) };
+        static readonly (int floor, float y)[] UpperFloors = { (3, 6f), (4, 10.1f) };
+        static readonly (int floor, float y)[] TopFloors = { (5, 14.5f) };
 
         /// <summary>
         /// A reviewed doorway the body-band raycast blocks: cells whose centre is inside the rectangle (MapSet metres)
@@ -66,8 +68,11 @@ namespace IndoorAr.Editor
             // Composing the floor 1 + 2 instance's scene pose with IndoorMapFrame gives identity.
             var upperPosition = IndoorMapFrame.ToMapSet(new Vector3(23.693075f, 5.62f, 21.074951f));
             var upperRotation = Quaternion.Euler(0f, IndoorMapFrame.HeadingToMapSet(2.671f), 0f);
+            var topPosition = IndoorMapFrame.ToMapSet(new Vector3(24.884573f, 13.74f, 21.59459f));
+            var topRotation = Quaternion.Euler(0f, IndoorMapFrame.HeadingToMapSet(-2.593f), 0f);
             if (!AddFloors(floors, ScanPath, Vector3.zero, Quaternion.identity, LowerFloors)
-                || !AddFloors(floors, UpperScanPath, upperPosition, upperRotation, UpperFloors)) return null;
+                || !AddFloors(floors, UpperScanPath, upperPosition, upperRotation, UpperFloors)
+                || !AddFloors(floors, TopScanPath, topPosition, topRotation, TopFloors)) return null;
             return new IndoorWalkGridData { floors = floors.ToArray() };
         }
 

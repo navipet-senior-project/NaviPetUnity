@@ -337,6 +337,8 @@ public class IndoorWalkGridTests
     // Every mapped door on a floor reaches stairs or an elevator on the scan, so a wrong-floor user gets a route.
     [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
     [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
+    [TestCase(4, new[] { "VEC402", "VEC417", "VEC418", "VEC419", "VEC420", "VEC424", "VEC425" })]
+    [TestCase(5, new[] { "VEC501", "VEC514", "VEC515", "VEC516", "VEC518", "VEC519", "VEC523" })]
     public void ScannedHallwayReachesAFloorChangeFromEveryDoor(int floor, string[] rooms)
     {
         var grid = IndoorWalkGrid.ForFloor(Scan, floor);
@@ -357,6 +359,8 @@ public class IndoorWalkGridTests
     // What the scan covers today. A door that stops connecting means the scan or the MapSet alignment changed.
     [TestCase(1, new[] { "VEC119", "VEC120", "VEC121", "VEC124", "VEC127", "VEC128", "VEC132", "VEC134", "VEC136" })]
     [TestCase(2, new[] { "VEC201", "VEC202", "VEC215", "VEC217", "VEC218", "VEC220", "VEC224", "VEC227" })]
+    [TestCase(4, new[] { "VEC402", "VEC417", "VEC418", "VEC419", "VEC420", "VEC424", "VEC425" })]
+    [TestCase(5, new[] { "VEC501", "VEC514", "VEC515", "VEC516", "VEC518", "VEC519", "VEC523" })]
     public void ScannedHallwayConnectsEveryMappedDoorOnAFloor(int floor, string[] rooms)
     {
         var grid = IndoorWalkGrid.ForFloor(Scan, floor);
