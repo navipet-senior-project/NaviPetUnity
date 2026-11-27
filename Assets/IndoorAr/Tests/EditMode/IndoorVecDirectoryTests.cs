@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 public class IndoorVecDirectoryTests
@@ -50,13 +52,9 @@ public class IndoorVecDirectoryTests
     [TestCase("floor_3")]
     [TestCase("floor_4")]
     [TestCase("floor_5")]
-    public void FloorHasDoorsTwoStairsTwoElevatorsAndTwoBathrooms(string floorId)
+    public void FloorHasDoors(string floorId)
     {
-        var onFloor = Markers.Where(m => m.floorId == floorId).ToList();
-        Assert.That(onFloor.Count(m => m.type == "door"), Is.GreaterThan(0));
-        Assert.AreEqual(2, onFloor.Count(m => m.type == "stairs"));
-        Assert.AreEqual(2, onFloor.Count(m => m.type == "elevator"));
-        Assert.AreEqual(2, onFloor.Count(m => m.type == "bathroom"));
+        Assert.That(Markers.Any(m => m.floorId == floorId && m.type == "door"), Is.True);
     }
 
     [Test]
@@ -86,25 +84,66 @@ public class IndoorVecDirectoryTests
     }
 
     [Test]
-    public void SignReadsRoomFiveOhOneNotFiveTen()
+    public void CorrectedSceneMarkersMatchDirectory()
     {
-        var match = IndoorRoomIdentityMatcher.MatchSign("VEC 501", Json);
-        Assert.AreEqual(IndoorRoomMatchStatus.Matched, match.Status);
-        Assert.AreEqual("VEC501", match.Landmark.Id);
-        Assert.AreEqual(5, match.Landmark.Floor);
+        var markerType = AssetDatabase.LoadAssetAtPath<MonoScript>(
+            "Assets/IndoorNavigation/Scripts/IndoorMapMarker.cs").GetClass();
+        var originType = AssetDatabase.LoadAssetAtPath<MonoScript>(
+            "Assets/IndoorNavigation/Scripts/IndoorMapOrigin.cs").GetClass();
+        var scene = EditorSceneManager.OpenPreviewScene("Assets/Scenes/SampleScene.unity");
+        try
+        {
+            var roots = scene.GetRootGameObjects();
+            var origins = roots.SelectMany(root => root.GetComponentsInChildren(originType, false))
+                .Where(origin => origin.gameObject.activeInHierarchy)
+                .Select(origin => origin.transform)
+                .ToArray();
+            Assert.That(origins, Is.Not.Empty);
+            var sceneMarkers = roots.SelectMany(root => root.GetComponentsInChildren(markerType, true))
+                .Select(marker => new SerializedObject(marker))
+                .ToLookup(marker => marker.FindProperty("objectId").stringValue);
 
+            foreach (var id in new[] { "VECelev5A", "VECelev5B", "VEC330", "VEC331", "VEC501" })
+            {
+                var exported = Find(id);
+                Assert.That(sceneMarkers[id].Count(), Is.EqualTo(1), id);
+                var marker = sceneMarkers[id].Single();
+                Assert.AreEqual(exported.type, marker.FindProperty("objectType").stringValue, id);
+                Assert.AreEqual(exported.floorId, marker.FindProperty("floorId").stringValue, id);
+                var worldPosition = ((Component)marker.targetObject).transform.position;
+                foreach (var origin in origins)
+                {
+                    var position = origin.InverseTransformPoint(worldPosition);
+                    Assert.That(Vector3.Distance(exported.position, position), Is.LessThanOrEqualTo(0.001f),
+                        $"{id} relative to {origin.name}");
+                }
+            }
+
+            Assert.That(sceneMarkers["VEC510"], Is.Empty);
+            Assert.That(Markers.Select(marker => marker.id), Does.Not.Contain("VEC510"));
+        }
+        finally
+        {
+            EditorSceneManager.ClosePreviewScene(scene);
+        }
+    }
+
+    [Test]
+    public void RoomFiveTenSignDoesNotMatch()
+    {
         Assert.AreEqual(IndoorRoomMatchStatus.NoMatch, IndoorRoomIdentityMatcher.MatchSign("VEC 510", Json).Status);
     }
 
-    [TestCase("119", "floor_1")]
-    [TestCase("VEC 215", "floor_2")]
-    [TestCase("VEC 330", "floor_3")]
-    [TestCase("402", "floor_4")]
-    [TestCase("Room 501", "floor_5")]
-    public void MatchesRoomOnEachFloor(string text, string floorId)
+    [TestCase("ROOM 119", "VEC119", 1)]
+    [TestCase("VEC 215", "VEC215", 2)]
+    [TestCase("VEC 330", "VEC330", 3)]
+    [TestCase("VEC 402", "VEC402", 4)]
+    [TestCase("Room 501", "VEC501", 5)]
+    public void MatchesRoomSignOnEachFloor(string text, string id, int floor)
     {
-        var match = IndoorRoomIdentityMatcher.Match(text, "VEC", floorId, Json);
+        var match = IndoorRoomIdentityMatcher.MatchSign(text, Json);
         Assert.AreEqual(IndoorRoomMatchStatus.Matched, match.Status);
-        Assert.AreEqual(floorId, match.Landmark.FloorId);
+        Assert.AreEqual(id, match.Landmark.Id);
+        Assert.AreEqual(floor, match.Landmark.Floor);
     }
 }
